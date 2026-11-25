@@ -103,6 +103,57 @@ func (c *spreadContext) slopeDistanceRef(i, pass, from, reach int) int {
 	return lowest
 }
 
+func TestFluidSlopeTerminalMissAcrossDirections(t *testing.T) {
+	const north, east, west = 0, 1, 3
+	for _, tc := range []struct {
+		name      string
+		reader    fluidSpreadTestReader
+		warmNorth bool
+	}{
+		{
+			name: "unchecked neighbor over a hole",
+			reader: fluidSpreadTestReader{
+				surface:   map[[2]int32]uint16{{1, 0}: stoneState, {0, 1}: stoneState, {-1, 0}: stoneState},
+				floorHole: &[2]int32{0, -1},
+			},
+		},
+		{
+			name:      "solid neighbors with a hole two steps away",
+			reader:    fluidSpreadTestReader{floorHole: &[2]int32{2, 0}},
+			warmNorth: true,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := newSpreadContext(&tc.reader, 0, 64, 0, fluidWater)
+			ref := newSpreadContext(&tc.reader, 0, 64, 0, fluidWater)
+			ctx.state(0, 0)
+			ref.state(0, 0)
+			i, _ := ctx.index(0, 0)
+			check := func(from, reach, want int) {
+				t.Helper()
+				if got := ref.slopeDistanceRef(i, 1, from, reach); got != want {
+					t.Fatalf("oracle from=%d reach=%d: got %d, want %d", from, reach, got, want)
+				}
+				if got := ctx.slopeDistance(i, 1, from, reach); got != want {
+					t.Fatalf("slope from=%d reach=%d: got %d, want %d", from, reach, got, want)
+				}
+			}
+			if !tc.warmNorth {
+				check(north, 1, 1000)
+				check(east, 1, 1)
+				return
+			}
+			ctx.isHole(0, -1)
+			check(north, 1, 1000)
+			check(west, 1, 1000)
+			if ctx.failedDepth[i][west] != 0 {
+				t.Error("the second entry scanned a cell already proven to have no adjacent hole")
+			}
+			check(west, 2, 2)
+		})
+	}
+}
+
 func TestFluidSlopeTagReload(t *testing.T) {
 	t.Cleanup(func() { registry.ApplyPackTags(nil) })
 
@@ -167,6 +218,7 @@ func TestFluidSlopeTagReload(t *testing.T) {
 
 type fluidSpreadTestReader struct {
 	surface    map[[2]int32]uint16
+	floorHole  *[2]int32
 	floorReads int
 }
 
@@ -174,6 +226,9 @@ func (r *fluidSpreadTestReader) BlockAt(x, y, z int32) uint16 {
 	switch y {
 	case 63:
 		r.floorReads++
+		if r.floorHole != nil && *r.floorHole == [2]int32{x, z} {
+			return airState
+		}
 		return stoneState
 	case 64:
 		if state, ok := r.surface[[2]int32{x, z}]; ok {
