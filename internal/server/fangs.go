@@ -1,6 +1,7 @@
 package server
 
 import (
+	"cmp"
 	"math"
 	"slices"
 	"sync"
@@ -174,22 +175,60 @@ func (s *Server) fangsBite(it fangsEffect) {
 	minX, minY, minZ, maxX, maxY, maxZ := body.BiteBox()
 
 	s.mobsMu.Lock()
-	var owner *entity.Mob
-	var victims []*entity.Mob
-	herd := s.herdOf(w).herd
-	for _, m := range herd {
-		if m.ID == it.owner && !m.Dead {
-			owner = m
+	h := s.herdOf(w)
+	// An ID reserved for a dragon part maps to its parent, which is not that ID's mob.
+	live := func(id int32) *entity.Mob {
+		if ent := h.byID[id]; ent != nil && ent.mob.ID == id {
+			return ent.mob
 		}
+		return nil
 	}
-	for _, m := range herd {
-		if m.Dead || m == owner || entity.FangsAllied(owner, m, herd) {
-			continue
+	owner := live(it.owner)
+	if owner != nil && owner.Dead {
+		owner = nil
+	}
+	var victims []*entity.Mob
+	consider := func(m *entity.Mob) {
+		if m.Dead || m == owner {
+			return
 		}
 		mMinX, mMinY, mMinZ, mMaxX, mMaxY, mMaxZ := m.BlastBox()
-		if boxHits(minX, minY, minZ, maxX, maxY, maxZ, mMinX, mMinY, mMinZ, mMaxX, mMaxY, mMaxZ) {
-			victims = append(victims, m)
+		if !boxHits(minX, minY, minZ, maxX, maxY, maxZ, mMinX, mMinY, mMinZ, mMaxX, mMaxY, mMaxZ) {
+			return
 		}
+		if owner != nil && entity.FangsAllied(owner, m, live(m.VexOwnerID())) {
+			return
+		}
+		victims = append(victims, m)
+	}
+	if len(h.book) != 0 {
+		bounds := [6]float64{minX - entity.PiercingMobPadding, 0, minZ - entity.PiercingMobPadding,
+			maxX + entity.PiercingMobPadding, 0, maxZ + entity.PiercingMobPadding}
+		area, indexed := smallChunkArea(&bounds)
+		h.mobsInArea(area, indexed, func(m *entity.Mob) bool {
+			if !indexed || len(h.widePiercingBodies) == 0 || !m.MayExceedPiercingPadding() {
+				consider(m)
+			}
+			return true
+		})
+		if indexed {
+			for _, m := range h.widePiercingBodies {
+				consider(m)
+			}
+		}
+	}
+	if len(victims) > 1 {
+		// The index visits by chunk; damage goes in herd order.
+		rank := make(map[*entity.Mob]int, len(victims))
+		for _, m := range victims {
+			rank[m] = -1
+		}
+		for i, m := range h.herd {
+			if _, ok := rank[m]; ok {
+				rank[m] = i
+			}
+		}
+		slices.SortFunc(victims, func(a, b *entity.Mob) int { return cmp.Compare(rank[a], rank[b]) })
 	}
 	s.mobsMu.Unlock()
 

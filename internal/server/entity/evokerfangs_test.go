@@ -22,7 +22,7 @@ func TestFangsAlliedSparesIllagersAndOwnVexes(t *testing.T) {
 		{theirs, true},
 		{NewMob(TypeZombie, 5, 0, 64, 0, 5), false},
 	} {
-		if got := FangsAllied(evoker, tc.victim, herd); got != tc.want {
+		if got := FangsAllied(evoker, tc.victim, mobByID(herd, tc.victim.VexOwnerID())); got != tc.want {
 			t.Errorf("FangsAllied(evoker, %s) = %v, want %v", tc.victim.Type, got, tc.want)
 		}
 	}

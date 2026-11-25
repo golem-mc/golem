@@ -79,9 +79,9 @@ func (f *EvokerFangs) BiteBox() (minX, minY, minZ, maxX, maxY, maxZ float64) {
 
 // FangsAllied is EvokerFangs.dealDamageTo's isAlliedTo(owner, victim): the
 // illagers spare each other and an evoker spares the vexes whose summoner is
-// itself or an illager. others is the herd the vex's summoner is looked up in.
+// itself or an illager. summoner is the victim vex's summoner, nil when gone.
 // vanilla: AbstractIllager.considersEntityAsAlly, Evoker.considersEntityAsAlly
-func FangsAllied(owner, victim *Mob, others []*Mob) bool {
+func FangsAllied(owner, victim, summoner *Mob) bool {
 	if owner == nil || victim == nil {
 		return false
 	}
@@ -91,6 +91,5 @@ func FangsAllied(owner, victim *Mob, others []*Mob) bool {
 	if victim.Type != TypeVex {
 		return false
 	}
-	root := mobByID(others, victim.vex.ownerID)
-	return root != nil && (root == owner || IsIllagerType(root.Type))
+	return summoner != nil && (summoner == owner || IsIllagerType(summoner.Type))
 }
