@@ -85,3 +85,27 @@ func TestADeadPlayersChunksAreDroppedAndComeBackOnRespawn(t *testing.T) {
 		return ingots(t, srv, x, y, z) >= 2
 	})
 }
+
+// TestRespawnedPlayerDeathTimeIsZero: the respawn builds a new player, so the
+// corpse ticks counted while dead do not carry into its saved DeathTime.
+// vanilla: PlayerList.respawn
+func TestRespawnedPlayerDeathTimeIsZero(t *testing.T) {
+	t.Parallel()
+	srv, c, _ := servertest.JoinAs(t, servertest.SurvivalTestConfig(), "Victim", servertest.OpsListing(t, "Victim"))
+	servertest.HoldTicks(t, srv)
+	c.ChatCommand("kill")
+	c.Settle()
+	servertest.RunTicks(t, srv, 15)
+	c.PerformRespawn()
+	c.Settle()
+	servertest.RunTicks(t, srv, 5)
+	got := ""
+	for _, text := range srv.RunLine("data get entity Victim DeathTime") {
+		if text.Translate == "commands.data.entity.query" && len(text.With) == 2 {
+			got = text.With[1].Plain()
+		}
+	}
+	if got != "0s" {
+		t.Errorf("DeathTime after respawn = %q, want 0s", got)
+	}
+}

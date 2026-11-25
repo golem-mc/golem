@@ -1439,6 +1439,7 @@ func (c *client) resetRespawnBody(pos player.Position, respawn respawnKind) bool
 	c.resetDig()
 	// vanilla: ServerGamePacketListenerImpl.restartClientLoadTimerAfterRespawn
 	c.awaitingRespawn.Store(false)
+	c.deathTicks.Store(0)
 	c.scoreResample.Store(true)
 	c.loadTicks.Store(clientLoadTicks)
 	c.player.SetPosition(pos)
