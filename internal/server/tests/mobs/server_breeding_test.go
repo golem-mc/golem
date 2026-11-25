@@ -5,6 +5,7 @@ import (
 	"github.com/golem-mc/golem/nbt"
 	"github.com/google/uuid"
 
+	"fmt"
 	"math"
 	"testing"
 
@@ -291,6 +292,30 @@ func TestABabyFollowsTheAdultOfItsKind(t *testing.T) {
 	}
 	if !b.Baby {
 		t.Error("the calf grew up on its walk, want the baby it still is")
+	}
+}
+
+// TestABabyFollowsADyingAdult: the class query FollowParentGoal runs includes
+// an adult killed this tick, so a calf walks toward the corpse instead of the
+// living adult behind it.
+func TestABabyFollowsADyingAdult(t *testing.T) {
+	t.Parallel()
+	srv, c := servertest.BreedingPlayer(t, "survival", "Watcher", "", 0, servertest.OpsListing(t, "Watcher"))
+	srv.StopTick()
+	c.ChatCommand(`summon minecraft:cow 8.5 64 3.5 {Age:-24000}`)
+	calf := c.ExpectMobSpawn(protocol.EntityTypeCow)
+	// Let the calf land: a walk request waits for the ground.
+	srv.TickMobs(20)
+	before, _ := mobWithID(srv, calf.EntityID)
+	c.ChatCommand(fmt.Sprintf(`summon minecraft:cow %v 64 %v`, before.X-8.5, before.Z))
+	c.ExpectMobSpawn(protocol.EntityTypeCow)
+	c.ChatCommand(fmt.Sprintf(`summon minecraft:cow %v 64 %v {Tags:["doomed"]}`, before.X+6.5, before.Z))
+	c.ExpectMobSpawn(protocol.EntityTypeCow)
+	srv.RunLine("kill @e[tag=doomed]")
+	srv.TickMobs(6)
+	after, _ := mobWithID(srv, calf.EntityID)
+	if after.X <= before.X+0.05 {
+		t.Fatalf("the calf moved from X=%v to X=%v after the adult died, want it walking toward the corpse at X=%v", before.X, after.X, before.X+6.5)
 	}
 }
 

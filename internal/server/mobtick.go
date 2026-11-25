@@ -853,7 +853,7 @@ func (t *mobDimTick) advance(fx *mobEffects, in *mobTickInputs) (events []entity
 	if s.targetListened() {
 		prevTargets = h.targetsOf()
 	}
-	events = h.herd.TickInto(h.events, ew, in.players[w], in.holders[w], crowd, in.stands[w], &h.paths)
+	events = h.herd.TickInto(h.events, ew, in.players[w], in.holders[w], crowd, in.stands[w], corpseMobs(h.dying), &h.paths)
 	if prevTargets != nil {
 		s.askTargetChanges(h, prevTargets)
 	}
@@ -1112,6 +1112,15 @@ func (s *Server) teamCollisionRules() map[string]entity.CollisionRule {
 	out := make(map[string]entity.CollisionRule, len(rules))
 	for name, r := range rules {
 		out[name] = entity.CollisionRule(r)
+	}
+	return out
+}
+
+// corpseMobs is the bodies of the dimension's dying mobs.
+func corpseMobs(dying []dyingMob) []*entity.Mob {
+	var out []*entity.Mob
+	for _, d := range dying {
+		out = append(out, d.ent.mob)
 	}
 	return out
 }

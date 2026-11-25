@@ -26,6 +26,6 @@ func BenchmarkMobsTickShulkers(b *testing.B) {
 				m.shulker.teleport = true
 			}
 		}
-		events = mobs.TickInto(events, w, nil, nil, nil, nil, &paths)
+		events = mobs.TickInto(events, w, nil, nil, nil, nil, nil, &paths)
 	}
 }

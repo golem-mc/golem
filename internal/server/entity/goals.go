@@ -66,6 +66,9 @@ type tickView struct {
 	// stands is the world's visible armor stands, a goat ram's targets.
 	stands []StandTarget
 	events []MobEvent
+	// corpses are the dimension's dying bodies, still in the world until
+	// their removal.
+	corpses []*Mob
 	// shulkerView is the collision view Mob.shulkerWorld reuses.
 	shulkerView shulkerWorld
 }
@@ -1357,8 +1360,13 @@ func (g *followParentGoal) CanStart(t *tickView) bool {
 	if g.sensedParent == nil {
 		cands = g.m.herdNear(t, max(scan, followScanRise))
 	}
+	if g.sensedParent == nil && g.ranged == nil {
+		// vanilla: FollowParentGoal.canUse finds dying adults through the
+		// class query; the brain sensors filter for living entities.
+		cands = append(cands[:len(cands):len(cands)], t.corpses...)
+	}
 	for _, o := range cands {
-		if o == g.m || o.Type != g.m.Type || o.gone || o.IsBaby() {
+		if o == g.m || o.Type != g.m.Type || o.gone || o.IsBaby() || (g.ranged != nil && !o.Alive()) {
 			continue
 		}
 		if !boxesOverlap(
