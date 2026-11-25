@@ -196,7 +196,7 @@ func fallsAfterReload(t *testing.T, waterlogged bool) int {
 
 // TestTiedTicksKeepBookingOrderAcrossReload books two visits with the same
 // due and priority around heap reorderings and checks the file lists them in
-// booking order.
+// booking order (the order vanilla packs them in).
 func TestTiedTicksKeepBookingOrderAcrossReload(t *testing.T) {
 	w, p, dir := newSavedWorld(t)
 	waterSource := fluidType(fluidWater)<<1 | 1
@@ -213,7 +213,7 @@ func TestTiedTicksKeepBookingOrderAcrossReload(t *testing.T) {
 	for _, st := range w.ticksOfChunk(ChunkPos{}).fluid {
 		got = append(got, st.x)
 	}
-	want := []int32{4, 2, 1, 3}
+	want := []int32{1, 2, 3, 4}
 	if len(got) != len(want) {
 		t.Fatalf("reloaded fluid ticks x = %v, want %v", got, want)
 	}
@@ -221,5 +221,36 @@ func TestTiedTicksKeepBookingOrderAcrossReload(t *testing.T) {
 		if got[i] != want[i] {
 			t.Fatalf("reloaded fluid ticks x = %v, want %v", got, want)
 		}
+	}
+}
+
+// TestTiedTicksDispatchInBookingOrderAfterReload books two sand falls due the
+// same tick, with shorter fluid visits between them, and checks that after a
+// save and reload the first-booked sand is the first to fall.
+func TestTiedTicksDispatchInBookingOrderAfterReload(t *testing.T) {
+	w, p, dir := newSavedWorld(t)
+	sand, _ := registry.FindState("minecraft:sand", nil)
+	waterSource := fluidType(fluidWater)<<1 | 1
+	y := int32(GroundLevel + 4)
+	// Booked second-to-first by x so a position sort cannot pass.
+	setBlock(t, w, p, 9, y, 1, sand)
+	p.mu.Lock()
+	p.insertTick(blockKey{2, GroundLevel, 1}, waterSource, p.now+1, 0)
+	p.mu.Unlock()
+	setBlock(t, w, p, 3, y, 1, sand)
+	p.mu.Lock()
+	p.insertTick(blockKey{4, GroundLevel, 1}, waterSource, p.now+1, 0)
+	p.mu.Unlock()
+
+	_, p = reopenWorld(t, w, dir)
+	var got []int32
+	for clock := int64(1); clock <= 10 && len(got) < 2; clock++ {
+		_, falls, _, _ := p.Tick(clock)
+		for _, f := range falls {
+			got = append(got, f.X)
+		}
+	}
+	if len(got) != 2 || got[0] != 9 || got[1] != 3 {
+		t.Fatalf("sand fell in x order %v, want [9 3]", got)
 	}
 }

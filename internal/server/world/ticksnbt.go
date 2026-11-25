@@ -171,12 +171,11 @@ func (p *Physics) chunkTicks(pos ChunkPos) chunkTicks {
 	for _, t := range p.parked[pos] {
 		add(t)
 	}
-	// The heap's slice order is not booking order; the file lists each kind
-	// by (due, priority, booking), which a reload restores.
-	// vanilla: LevelChunkTicks.save
-	slices.SortFunc(bySeq, func(a, b scheduledTick) int {
-		return cmp.Or(cmp.Compare(a.due, b.due), cmp.Compare(a.priority, b.priority), cmp.Compare(a.seq, b.seq))
-	})
+	// The heap's backing slice is in heap order, not booking order; the
+	// reload hands out sub-tick order from the saved list, and due and
+	// priority are restored from each entry.
+	// vanilla: LevelChunkTicks.pack
+	slices.SortFunc(bySeq, func(a, b scheduledTick) int { return cmp.Compare(a.seq, b.seq) })
 	for _, t := range bySeq {
 		st := savedTick{
 			x: t.pos.x, y: t.pos.y, z: t.pos.z,
