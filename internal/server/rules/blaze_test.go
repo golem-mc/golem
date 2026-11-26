@@ -21,7 +21,7 @@ func TestABlazeDropsRodsOnlyForAPlayerAndGrowsWithLooting(t *testing.T) {
 	}
 	looted := countsOf(rollMany(t, "minecraft:entities/blaze", LootContext{KilledByPlayer: true,
 		Attacker: LootEntity{Type: "minecraft:player",
-			Mainhand: toolWith("minecraft:iron_sword", map[string]int32{"minecraft:looting": 3})}}, 400, 703), "minecraft:blaze_rod")
+			Gear: &LootGear{Mainhand: toolWith("minecraft:iron_sword", map[string]int32{"minecraft:looting": 3})}}}, 400, 703), "minecraft:blaze_rod")
 	most = 0
 	for _, c := range looted {
 		most = max(most, int(c))

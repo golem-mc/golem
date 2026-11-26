@@ -1,6 +1,8 @@
 package entity
 
 import (
+	"slices"
+
 	"math"
 	"strings"
 
@@ -94,9 +96,13 @@ func (m *Mob) LootEntity() rules.LootEntity {
 	if m.Type == TypeChicken {
 		e.ChickenVariant = m.Variant
 	}
-	e.Mainhand, e.Offhand = rules.ToolOf(m.MainHand), rules.ToolOf(m.OffHand)
-	e.Feet, e.Legs, e.Chest, e.Head = rules.ToolOf(m.Worn[0]), rules.ToolOf(m.Worn[1]), rules.ToolOf(m.Worn[2]), rules.ToolOf(m.Worn[3])
-	e.Body = rules.ToolOf(m.Body)
+	if worn := [...]protocol.ItemStack{m.MainHand, m.OffHand, m.Worn[0], m.Worn[1], m.Worn[2], m.Worn[3], m.Body}; slices.ContainsFunc(worn[:], func(s protocol.ItemStack) bool { return !s.Empty() }) {
+		e.Gear = &rules.LootGear{
+			Mainhand: rules.ToolOf(m.MainHand), Offhand: rules.ToolOf(m.OffHand),
+			Feet: rules.ToolOf(m.Worn[0]), Legs: rules.ToolOf(m.Worn[1]), Chest: rules.ToolOf(m.Worn[2]), Head: rules.ToolOf(m.Worn[3]),
+			Body: rules.ToolOf(m.Body),
+		}
+	}
 	e.Facts = func() rules.LootFacts {
 		return rules.LootFacts{
 			Flags: rules.LootEntityFlags{
@@ -162,7 +168,10 @@ func (m *Mob) RollDrops(killer rules.LootKiller, level rules.LootLevel) []protoc
 	switch {
 	case player:
 		attackerID = int32(registry.EntityTypePlayer)
-		attacker = rules.LootEntity{Type: "minecraft:player", Mainhand: killer.Weapon, Profile: killer.Profile, NBT: killer.PlayerNBT}
+		attacker = rules.LootEntity{Type: "minecraft:player", Profile: killer.Profile, NBT: killer.PlayerNBT}
+		if killer.Weapon.Item != "" {
+			attacker.Equip().Mainhand = killer.Weapon
+		}
 		if killer.AttackerFill != nil {
 			killer.AttackerFill(&attacker)
 		}

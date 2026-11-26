@@ -67,6 +67,27 @@ func ToolOf(stack protocol.ItemStack) LootTool {
 	return tool
 }
 
+// LootGear is the equipment stacks of a LootEntity.
+type LootGear struct {
+	Mainhand, Head, Chest, Legs, Feet, Body, Offhand LootTool
+}
+
+// Equip returns the entity's gear for writing, allocating it on first use.
+func (e *LootEntity) Equip() *LootGear {
+	if e.Gear == nil {
+		e.Gear = new(LootGear)
+	}
+	return e.Gear
+}
+
+// Held returns the main-hand tool, the zero tool for an empty hand.
+func (e *LootEntity) Held() LootTool {
+	if e.Gear == nil {
+		return LootTool{}
+	}
+	return e.Gear.Mainhand
+}
+
 // LootEntity is a body as a table's entity conditions read it: the one
 // dying, the attacker, the thing the blow rode. The zero value is nobody, as
 // for an explosion's "this" or an old-age death's attacker.
@@ -83,7 +104,6 @@ type LootEntity struct {
 	HasRaid        bool   // the raider belongs to or stands near an active raid
 	Mooshroom      string // the mooshroom's variant, empty for none
 	ChickenVariant string // the chicken's variant, empty for none
-	Mainhand       LootTool
 	FrogVariant    string
 	CubeSize       int            // a slime's or magma cube's size, zero for any other body
 	Name           *protocol.Text // the custom name, nil for none; copy_name reads it
@@ -102,9 +122,9 @@ type LootEntity struct {
 	// Facts reads the live flags, effects and age; nil for none. It is called
 	// only when a predicate asks for one of them.
 	Facts func() LootFacts
-	// Head, Chest, Legs, Feet, Body and Offhand are the equipment stacks
-	// besides Mainhand.
-	Head, Chest, Legs, Feet, Body, Offhand LootTool
+	// Gear is the equipment, nil when the body holds nothing: a LootTool is
+	// large, so empty slots must not cost their size in every context.
+	Gear *LootGear
 	// Tags are the scoreboard tags; Team the team's name, empty for none.
 	Tags []string
 	Team string
@@ -1257,7 +1277,7 @@ func entityPredicate(p registry.LootEntityPredicate, e LootEntity, ctx *LootCont
 	if p.ChickenVariant != "" && e.ChickenVariant != p.ChickenVariant {
 		return false
 	}
-	if p.Mainhand != nil && !itemPredicate(*p.Mainhand, e.Mainhand) {
+	if p.Mainhand != nil && !itemPredicate(*p.Mainhand, e.Held()) {
 		return false
 	}
 	if !entityTypeSpecificMatch(p, e, ctx) || !entityComponentsMatch(p, e) {
@@ -1293,10 +1313,14 @@ func entityFlagsMatch(p registry.LootEntityPredicate, f LootEntityFlags) bool {
 // entityEquipmentMatch tests the equipment stacks besides the main hand.
 // vanilla: EntityEquipmentPredicate.matches
 func entityEquipmentMatch(p registry.LootEntityPredicate, e LootEntity) bool {
+	var g LootGear
+	if e.Gear != nil {
+		g = *e.Gear
+	}
 	for _, c := range [...]struct {
 		want *registry.LootItemPredicate
 		got  LootTool
-	}{{p.Head, e.Head}, {p.Chest, e.Chest}, {p.Legs, e.Legs}, {p.Feet, e.Feet}, {p.Body, e.Body}, {p.Offhand, e.Offhand}} {
+	}{{p.Head, g.Head}, {p.Chest, g.Chest}, {p.Legs, g.Legs}, {p.Feet, g.Feet}, {p.Body, g.Body}, {p.Offhand, g.Offhand}} {
 		if c.want != nil && !itemPredicate(*c.want, c.got) {
 			return false
 		}
@@ -1383,7 +1407,7 @@ func (r *lootRoller) entityLevel(e LootEntity, enchantment string) int32 {
 	if e.Type == "" {
 		return 0
 	}
-	return e.Mainhand.Enchantments[enchantment]
+	return e.Held().Enchantments[enchantment]
 }
 
 // roundInt rounds half up.

@@ -481,8 +481,10 @@ func (t *mobDimTick) died(fx *mobEffects, in *mobTickInputs, ev entity.MobEvent)
 	if ev.Mob.PlayerKillCredit() {
 		if k, ok := in.clientByEntityID[ev.Mob.PlayerCreditID()]; ok {
 			killer.CreditedPlayer = rules.LootEntity{Type: "minecraft:player",
-				Mainhand: rules.ToolOf(k.heldItem(protocol.HandMain)), ScoreHolder: k.Name(),
-				Profile: k.lootProfile()}
+				ScoreHolder: k.Name(), Profile: k.lootProfile()}
+			if held := k.heldItem(protocol.HandMain); !held.Empty() {
+				killer.CreditedPlayer.Equip().Mainhand = rules.ToolOf(held)
+			}
 			roll.credited = k
 			k.playerLootFill(&killer.CreditedPlayer)
 			killer.Luck = float32(k.luckAttribute())
