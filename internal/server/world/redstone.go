@@ -446,7 +446,7 @@ func (p *Physics) redstoneNeighborChanged(x, y, z int32, state uint16, changes *
 			}
 		}
 	case reactTNT:
-		if p.hasNeighborSignal(x, y, z) && p.w.TNTExplodes() {
+		if p.hasNeighborSignal(x, y, z) && p.w.TNTExplodes() && !p.tntPrimeVetoed(x, y, z) {
 			// A flags-3 removal: p.set is the neighbour update, and the shape
 			// update is what a wire or door resting on the block reacts to.
 			// vanilla: TntBlock.neighborChanged
@@ -899,7 +899,18 @@ func (p *Physics) redstoneTick(x, y, z int32, state uint16, changes *[]BlockChan
 // is the caller's and the fuse the server's.
 // vanilla: TntBlock.explode
 func (p *Physics) primeTNT(x, y, z int32) {
-	p.wakePrimes = append(p.wakePrimes, TNTPrime{X: x, Y: y, Z: z})
+	p.wakePrimes = append(p.wakePrimes, TNTPrime{X: x, Y: y, Z: z, Asked: p.listens(HookTNTPrime)})
+}
+
+// tntPrimeVetoed asks the TNTPrimeEvent listeners before the TNT block at
+// x, y, z is removed; a veto leaves it standing, so nothing re-triggers it.
+// vanilla: TntBlock.neighborChanged
+func (p *Physics) tntPrimeVetoed(x, y, z int32) bool {
+	if !p.listens(HookTNTPrime) {
+		return false
+	}
+	d := HookDecision{Kind: HookTNTPrime, X: x, Y: y, Z: z, Old: p.w.BlockAt(x, y, z)}
+	return p.ask(&d)
 }
 
 func boolStr(b bool) string {

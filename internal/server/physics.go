@@ -89,13 +89,35 @@ func (s *Server) finishBlockWake(w *world.World, x, y, z int32, oldState uint16,
 	for _, e := range effects {
 		s.tellEffect(w, e)
 	}
-	for _, t := range primes {
-		s.primeTNT(w, t)
-	}
+	s.runWakePrimes(w, primes)
 	s.tellBlockChanges(w, changes)
 	if shapes {
 		s.updatePortalNear(w, x, y, z)
 	}
+}
+
+// runWakePrimes primes a wake's TNT. A prime that writes a block starts a
+// wake of its own; its primes are queued and run from this loop, so a chain
+// of any length uses constant stack.
+func (s *Server) runWakePrimes(w *world.World, primes []world.TNTPrime) {
+	for _, t := range primes {
+		s.pendingPrimes = append(s.pendingPrimes, pendingPrime{w, t})
+	}
+	if s.drainingPrimes {
+		return
+	}
+	s.drainingPrimes = true
+	defer func() { s.drainingPrimes = false }()
+	for len(s.pendingPrimes) > 0 {
+		p := s.pendingPrimes[0]
+		s.pendingPrimes = s.pendingPrimes[1:]
+		s.primeTNT(p.w, p.t)
+	}
+}
+
+type pendingPrime struct {
+	w *world.World
+	t world.TNTPrime
 }
 
 // physicsShapePass runs the engine's shape pass around (x, y, z) and tells the
@@ -283,7 +305,7 @@ func (s *Server) primeTNTFrom(w *world.World, t world.TNTPrime, ownerID int32, o
 	if !w.TNTExplodes() {
 		return false
 	}
-	if s.plugins != nil && s.plugins.Has(pluginruntime.TNTPrime) {
+	if !t.Asked && s.plugins != nil && s.plugins.Has(pluginruntime.TNTPrime) {
 		if cancelled := s.pluginTNTPrime(w, t, ownerUUID); cancelled {
 			return false
 		}

@@ -959,6 +959,12 @@ func (s *Server) entityPortalArrival(who command.Entity, kind rules.PortalKind, 
 		return to, spot, axis, true
 	case rules.PortalEnd:
 		to, spot = s.endPortalDestination(from)
+		if from.w.DimensionTypeName() != world.EndType {
+			// A non-player stands on END_SPAWN_POINT (y=50); only a player's
+			// arrival is lowered a block (see EndArrival).
+			// vanilla: EndPortalBlock.getPortalDestination
+			spot.Y++
+		}
 		return to, spot, [2]int32{}, true
 	}
 	return nil, world.SpawnPos{}, [2]int32{}, false
