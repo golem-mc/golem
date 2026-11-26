@@ -7,6 +7,7 @@ import (
 	"github.com/golem-mc/golem/internal/server/rules"
 	"github.com/golem-mc/golem/internal/server/world"
 	"github.com/golem-mc/golem/registry"
+	"github.com/google/uuid"
 )
 
 // elderCurse is an elder guardian's curse come due: its place and whether
@@ -68,8 +69,10 @@ func (s *Server) hurtMobByThen(w *world.World, m, source *entity.Mob, amount flo
 
 // directBody is the entity that carried a blow struck through another's cause.
 type directBody struct {
-	id   int32
-	x, z float64
+	id       int32
+	identity uuid.UUID
+	x, z     float64
+	removed  *removedBody // handle for listeners when the body is already gone
 }
 
 // hurtMobVia is hurtMobByThen with direct, the body that carried the blow
@@ -83,7 +86,9 @@ func (s *Server) hurtMobVia(w *world.World, m, source *entity.Mob, direct *direc
 	}
 	var landed bool
 	if direct != nil {
-		landed = m.HurtByMobVia(amount, damageType, source, direct.x, direct.z)
+		s.pendingExploder = direct.removed
+		landed = m.HurtByMobVia(amount, damageType, source, direct.identity, direct.x, direct.z)
+		s.pendingExploder = nil // under mobsMu, which guards it
 	} else {
 		landed = m.HurtByMobAs(amount, damageType, source)
 	}

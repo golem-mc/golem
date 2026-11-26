@@ -177,7 +177,9 @@ func (s *Server) hurtMobTyped(w *world.World, m *entity.Mob, amount float64, dam
 	if cause != nil {
 		src = *cause
 	}
+	s.pendingExploder = src.exploder
 	landed, softened := m.HurtByCommand(amount, damageType, src.entityID, src.directUUID, src.player, src.creative, src.x, src.z, hs)
+	s.pendingExploder = nil // under mobsMu, which guards it
 	var health []byte
 	var sends []mobSend
 	if landed {

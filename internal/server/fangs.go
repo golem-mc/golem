@@ -10,6 +10,7 @@ import (
 	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/internal/server/entity"
 	"github.com/golem-mc/golem/internal/server/player"
+	"github.com/golem-mc/golem/internal/server/pluginruntime"
 	"github.com/golem-mc/golem/internal/server/rules"
 	"github.com/golem-mc/golem/internal/server/world"
 	"github.com/golem-mc/golem/nbt"
@@ -184,6 +185,12 @@ func (s *Server) fangsBite(it fangsBiteEffect) {
 	w := it.w
 	body := entity.EvokerFangs{X: it.x, Y: it.y, Z: it.z}
 	minX, minY, minZ, maxX, maxY, maxZ := body.BiteBox()
+	// The fang may be discarded before the damage lands, so a listener's
+	// event carries its identity; no handle is built when nobody listens.
+	var fang *removedBody
+	if r := s.plugins; r != nil && (r.Has(pluginruntime.EntityDamage) || r.Has(pluginruntime.PlayerDeath)) {
+		fang = &removedBody{id: it.identity, typ: registry.EntityTypeEvokerFangs}
+	}
 
 	s.mobsMu.Lock()
 	dim := s.dimensionOfWorld(w)
@@ -295,7 +302,7 @@ func (s *Server) fangsBite(it fangsBiteEffect) {
 		} else {
 			killer = s.entityKiller(ownerW, ownerID)
 		}
-		cause := &damageCause{entityID: ownerID, directID: it.id + 1, directType: "minecraft:evoker_fangs", directUUID: it.identity, x: it.x, y: it.y, z: it.z, killer: killer}
+		cause := &damageCause{entityID: ownerID, directID: it.id + 1, directType: "minecraft:evoker_fangs", directUUID: it.identity, x: it.x, y: it.y, z: it.z, killer: killer, exploder: fang}
 		if landed, softened := c.hurt(damage, rules.DamageTypeIndirectMagic, cause); landed {
 			if !softened {
 				c.knockbackFromPoint(w, it.x, it.y, it.z, syncVelocityAfterTravel)
@@ -311,9 +318,9 @@ func (s *Server) fangsBite(it fangsBiteEffect) {
 	for _, m := range victims {
 		switch {
 		case ownerClient != nil:
-			s.hurtMobByPlayerFangs(w, m, it.fangsEffect, ownerClient)
+			s.hurtMobByPlayerFangs(w, m, it.fangsEffect, ownerClient, fang)
 		case owner.Mob != nil:
-			s.hurtMobVia(w, m, owner.Mob, &directBody{id: it.id, x: it.x, z: it.z}, entity.FangsDamage, rules.DamageTypeIndirectMagic, nil)
+			s.hurtMobVia(w, m, owner.Mob, &directBody{id: it.id, identity: it.identity, x: it.x, z: it.z, removed: fang}, entity.FangsDamage, rules.DamageTypeIndirectMagic, nil)
 		default:
 			s.hurtMobPlain(w, m, entity.FangsDamage, rules.DamageTypeMagic)
 		}
@@ -333,8 +340,8 @@ func (s *Server) fangsThorns(w *world.World, victim *client, owner *entity.Mob, 
 // effects of m's equipment and the owner's weapon. An invulnerable mob is
 // spared even by a creative owner.
 // vanilla: EvokerFangs.dealDamageTo, EnchantmentHelper.doPostAttackEffects
-func (s *Server) hurtMobByPlayerFangs(w *world.World, m *entity.Mob, it fangsEffect, owner *client) {
-	cause := &damageCause{entityID: it.owner, directUUID: it.identity, player: true,
+func (s *Server) hurtMobByPlayerFangs(w *world.World, m *entity.Mob, it fangsEffect, owner *client, fang *removedBody) {
+	cause := &damageCause{entityID: it.owner, directUUID: it.identity, exploder: fang, player: true,
 		creative: owner.player.GameMode() == protocol.GameModeCreative, x: it.x, z: it.z}
 	if !s.hurtMobTyped(w, m, entity.FangsDamage, rules.DamageTypeIndirectMagic, cause, it.id+1, "minecraft:evoker_fangs", true, nil) {
 		return
