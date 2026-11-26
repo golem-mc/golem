@@ -1,7 +1,6 @@
 package world
 
 import (
-	"errors"
 	"fmt"
 	"maps"
 	"math/bits"
@@ -319,11 +318,12 @@ func biomeID(name string) int32 {
 	return id
 }
 
-// chunkDataVersionFloor is the oldest chunk DataVersion read: 1.18.2, the first
-// after the structure and biome fixes this server does not carry. The fixes
-// after it are fixLegacyPalette and fixOldBlockEntity.
-// vanilla: DataFixers.addFixers (v2970 StructuresBecomeConfiguredFix)
-const chunkDataVersionFloor = 2975
+// chunkDataVersionFloor is the oldest chunk DataVersion read: the first after
+// the Level unwrapping and the height, biome and tick list fixes this server
+// does not carry (1.18 is 2860). The fixes after it are fixOldChunkRoot,
+// fixLegacyPalette and fixOldBlockEntity.
+// vanilla: DataFixers.addFixers (v2842 ChunkRenamesFix, v2843 OverreachingTickFix)
+const chunkDataVersionFloor = 2843
 
 // entityDataVersionFloor is the oldest DataVersion of a stored entity read:
 // older ones hold item stacks this server does not componentize.
@@ -393,19 +393,18 @@ var legacyPaletteFixes = map[string]func(entry, props nbt.Compound, nameKey stri
 }
 
 // checkChunkFormat rejects a record older than decodeChunkNBT reads: a Level
-// wrapper, a Status without namespace, or a DataVersion below
-// chunkDataVersionFloor.
+// wrapper or a DataVersion below chunkDataVersionFloor, or a Status without
+// namespace from a version that wrote one.
 func checkChunkFormat(root nbt.Compound) error {
-	if _, ok := root["Level"]; ok {
-		return errors.New("chunk is in the pre-1.18 Level format")
-	}
-	if status, ok := nbt.Get[nbt.String](root, "Status"); ok && !strings.Contains(string(status), ":") {
-		return fmt.Errorf("chunk status %q has no namespace", status)
-	}
-	if version, ok := nbt.Get[nbt.Int](root, "DataVersion"); ok && version != 0 && version < chunkDataVersionFloor {
+	version, _ := nbt.Get[nbt.Int](root, "DataVersion")
+	if _, ok := root["Level"]; ok || version != 0 && version < chunkDataVersionFloor {
+		// A Level wrapper with no DataVersion is from before 1.9.
 		return &unsupportedVersionError{version: int32(version)}
 	}
-	if version, _ := nbt.Get[nbt.Int](root, "DataVersion"); version != 0 && version < storedItemVersion {
+	if status, ok := nbt.Get[nbt.String](root, "Status"); ok && !strings.Contains(string(status), ":") && (version == 0 || version >= chunkStatusVersion) {
+		return fmt.Errorf("chunk status %q has no namespace", status)
+	}
+	if version != 0 && version < storedItemVersion {
 		if be, ok := nbt.Get[nbt.List](root, "block_entities"); ok && holdsUnfixableItem(be) {
 			return &unsupportedVersionError{version: int32(version)}
 		}
@@ -427,6 +426,7 @@ func chunkIsFull(root nbt.Compound) (bool, error) {
 	if err := checkChunkFormat(root); err != nil {
 		return false, err
 	}
+	fixOldChunkRoot(root)
 	status, _ := nbt.Get[nbt.String](root, "Status")
 	return string(status) == "minecraft:full", nil
 }
@@ -555,6 +555,9 @@ func decodeChunkNBT(root nbt.Compound) (*Chunk, error) {
 	}
 
 	c.carriedRoot = carryChunkRoot(root)
+	if c.dataVersion != 0 && c.dataVersion < oldChunkFixedVersion {
+		c.dataVersion = oldChunkFixedVersion
+	}
 
 	return c, nil
 }
