@@ -18,6 +18,8 @@ type pluginCommandRegistry struct {
 	mu     sync.Mutex
 	roots  []ownedCommand
 	active atomic.Bool
+	// bare caches the tree per level while no plugin is loaded, read without mu.
+	bare [command.PermLevelOwners + 1]atomic.Pointer[command.Node]
 	// epoch changes with roots; trees and perms are valid for it.
 	epoch      uint64
 	permsEpoch uint64 // epoch+1 that perms was computed for; 0 means never
@@ -210,6 +212,12 @@ func (p pluginCommands) All() []plugin.CommandInfo {
 func (s *Server) pluginCommandTree(src command.Source, level int) *command.Node {
 	r := &s.pluginCommands
 	key := treeKey{level: level, plugins: s.plugins.Any()}
+	bare := !key.plugins && !r.active.Load() && level >= 0 && level < len(r.bare)
+	if bare {
+		if t := r.bare[level].Load(); t != nil {
+			return t
+		}
+	}
 	r.mu.Lock()
 	epoch := r.epoch
 	if r.permsEpoch != epoch+1 {
@@ -221,7 +229,6 @@ func (s *Server) pluginCommandTree(src command.Source, level int) *command.Node 
 	}
 	perms := r.perms
 	if len(perms) == 0 {
-		// Common case: one lock round trip, no sender.
 		if t := r.trees[key]; t != nil {
 			r.mu.Unlock()
 			return t
@@ -265,6 +272,9 @@ func (s *Server) pluginCommandTree(src command.Source, level int) *command.Node 
 		sender = s.pluginCommandSender(src)
 	}
 	tree := command.Extend(base, roots, func(n *command.Node) bool { return n.Permission == "" || s.plugins.HasPermission(sender, n.Permission) })
+	if bare && !hasCommands {
+		r.bare[level].Store(tree)
+	}
 	r.mu.Lock()
 	if r.epoch == epoch {
 		if r.trees == nil {
