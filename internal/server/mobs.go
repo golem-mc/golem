@@ -2786,6 +2786,12 @@ func (s *Server) turnTeleportMob(ent *mobEntity, move command.Move, by string) {
 	if move.LookAt == nil {
 		yaw, pitch = turn.Apply(ent.mob.Yaw, ent.mob.Pitch)
 	}
+	// vanilla: Entity.teleportSameDimension stops the riding
+	var severed []seatNews
+	if veh := ent.mob.Vehicle; veh != nil {
+		entity.Dismount(veh, ent.mob)
+		severed = append(severed, mobSeatNews(ent, veh, rules.GameEventEntityDismount))
+	}
 	s.placeMob(ent, to, yaw, pitch)
 	// Under the same lock, so no tick tells the teleport without the flag.
 	// vanilla: LivingEntity.isFallFlying
@@ -2793,6 +2799,7 @@ func (s *Server) turnTeleportMob(ent *mobEntity, move command.Move, by string) {
 		ent.mob.OnGround = true
 	}
 	s.mobsMu.Unlock()
+	s.sendSeatNews(severed)
 	logTeleported("mob", to, by, "kind", ent.mob.Type)
 }
 
