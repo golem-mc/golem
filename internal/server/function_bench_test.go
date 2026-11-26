@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/golem-mc/golem/plugin"
 )
 
 // BenchmarkFunctionLines runs a function of 1000 identical lines, which a
@@ -165,5 +167,44 @@ func BenchmarkEntityQueryLines(b *testing.B) {
 				b.ReportMetric(float64(time.Since(start).Nanoseconds())/float64(b.N)/1000, "ns/line")
 			})
 		}
+	}
+}
+
+// BenchmarkFunctionLinesWithPlugin is BenchmarkFunctionLines/score with a
+// plugin command registered.
+func BenchmarkFunctionLinesWithPlugin(b *testing.B) {
+	s, _ := newTrackerBenchServer(b)
+	s.mu.Lock()
+	clear(s.clients)
+	s.mu.Unlock()
+	logger := slog.Default()
+	slog.SetDefault(slog.New(slog.DiscardHandler))
+	b.Cleanup(func() { slog.SetDefault(logger) })
+	dir := filepath.Join(s.levelDir, "datapacks", "p")
+	fnDir := filepath.Join(dir, "data", "zz", "function")
+	if err := os.MkdirAll(fnDir, 0o755); err != nil {
+		b.Fatal(err)
+	}
+	meta := `{"pack":{"pack_format":101,"description":"bench"}}`
+	if err := os.WriteFile(filepath.Join(dir, "pack.mcmeta"), []byte(meta), 0o644); err != nil {
+		b.Fatal(err)
+	}
+	body := strings.Repeat("scoreboard players add #c x 1\n", 1000)
+	if err := os.WriteFile(filepath.Join(fnDir, "t.mcfunction"), []byte(body), 0o644); err != nil {
+		b.Fatal(err)
+	}
+	for _, c := range []string{"scoreboard objectives add x dummy", "scoreboard players set #c x 1", "reload"} {
+		s.RunRconLine(c)
+	}
+	fixture := &registeredCommandBenchPlugin{}
+	s.loadPlugins([]plugin.Registration{{Name: "bench", Plugin: fixture}})
+	s.enablePlugins()
+	if !fixture.registered {
+		b.Fatal("benchmark command was not registered")
+	}
+	b.ReportAllocs()
+	b.ResetTimer()
+	for range b.N {
+		s.runLine(s.consoleSource(), "function zz:t")
 	}
 }

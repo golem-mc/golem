@@ -49,9 +49,10 @@ func TestPluginCommandRegistration(t *testing.T) {
 		if result, err := h.Dispatch(sender, "hello"); result != 7 || err != nil {
 			t.Errorf("custom dispatch=%d, %v", result, err)
 		}
-		// The root and its namespaced alias are filtered once for this invocation.
-		if permissionCalls != 2 {
-			t.Errorf("permission calls=%d, want 2", permissionCalls)
+		// The tree is cached per permission set, so the root and its
+		// namespaced alias cost one lookup of their shared node.
+		if permissionCalls != 1 {
+			t.Errorf("permission calls=%d, want 1", permissionCalls)
 		}
 		sender.messages = nil
 		result, err := h.Dispatch(sender, "execute positioned 1 2 3 run hello")

@@ -804,10 +804,7 @@ type Server struct {
 	pluginItemsOnce sync.Once
 	pluginItemsVal  *pluginItems
 	pluginCommands  pluginCommandRegistry
-	// bareTrees caches pluginCommandTree per permission level while no plugin
-	// has a command.
-	bareTrees  [command.PermLevelOwners + 1]atomic.Pointer[command.Node]
-	pluginHelp pluginHelp
+	pluginHelp      pluginHelp
 }
 
 // sleepCounts is vanilla's SleepStatus: a dimension's players and how many
