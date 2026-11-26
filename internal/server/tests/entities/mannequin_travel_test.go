@@ -245,3 +245,44 @@ func TestAMannequinSpawnsWithItsCurrentMotionForALateWatcher(t *testing.T) {
 		})
 	}
 }
+
+// A /tp with a relative Y also drops the fall (the relative horizontal axes
+// keep their drift): the watcher is told zero vertical motion and the destination sync carries the command's ground flag.
+func TestARelativeCommandTeleportResetsAFallingMannequinMotionForItsWatcher(t *testing.T) {
+	t.Parallel()
+	srv, c := joinMannequinOp(t, "Relative")
+	c.ChatCommand("summon mannequin 3.5 90 3.5 {Motion:[0.4d,0.0d,0.4d]}")
+	id := awaitMannequin(t, c, srv).id
+	if !c.ReadTicks(srv, 30, func(packet int32, data []byte) bool {
+		v, ok := mannequinMotionPacket(data, id)
+		return packet == protocol.IDPlaySetEntityMotion && ok && v[0] > 0 && v[1] < 0 && v[2] > 0
+	}) {
+		t.Fatal("no drifting downward Set Entity Motion while the mannequin fell")
+	}
+	c.ReadTicks(srv, 1, func(int32, []byte) bool { return false })
+	// Relative to the executing player, far above the mannequin's fall.
+	c.ChatCommand("tp @e[type=mannequin,limit=1] ~ ~50 ~")
+	c.Settle()
+	var stopped, synced, ground bool
+	c.ReadTicks(srv, 1, func(packet int32, data []byte) bool {
+		switch packet {
+		case protocol.IDPlaySetEntityMotion:
+			if v, ok := mannequinMotionPacket(data, id); ok {
+				if v[1] == 0 {
+					stopped = true
+				}
+			}
+		case protocol.IDPlayTeleportEntity:
+			if sync := servertest.ParseEntityPositionSync(data); sync.ID == id {
+				synced, ground = true, sync.OnGround
+			}
+		}
+		return false
+	})
+	if !stopped {
+		t.Error("no zero-Y Set Entity Motion on the relative teleport's gate")
+	}
+	if !synced || !ground {
+		t.Errorf("position sync seen = %v with onGround = %v, want both true", synced, ground)
+	}
+}
