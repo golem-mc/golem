@@ -34,13 +34,17 @@ func UpgradeWorld(root string, opts UpgradeOptions) error {
 	}
 	slog.Info("Starting upgrade", "dimensions", len(dims))
 	for _, dim := range dims {
+		dimension := filepath.Base(filepath.Dir(dim)) + ":" + filepath.Base(dim)
 		for _, kind := range []struct {
 			folder string
 			fix    func(nbt.Compound, bool) error
 		}{
 			{"entities", upgradeEntityRecord},
 			{"poi", func(r nbt.Compound, _ bool) error { return stampVersion(r) }},
-			{"region", upgradeChunkRecord},
+			{"region", func(r nbt.Compound, erase bool) error {
+				dropOldBlendingData(r, dimension)
+				return upgradeChunkRecord(r, erase)
+			}},
 		} {
 			if err := upgradeFolder(filepath.Join(dim, kind.folder), opts, kind.fix); err != nil {
 				return err
@@ -163,6 +167,7 @@ func upgradeChunkRecord(root nbt.Compound, erase bool) error {
 	if err := checkChunkFormat(root); err != nil {
 		return err
 	}
+	fixOldChunkRoot(root)
 	version, _ := nbt.Get[nbt.Int](root, "DataVersion")
 	sections, _ := nbt.Get[nbt.List](root, "sections")
 	for _, item := range sections.Items {

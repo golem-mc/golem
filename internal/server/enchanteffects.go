@@ -364,7 +364,7 @@ func (s *Server) writeEnchantBlock(w *world.World, x, y, z int32, state uint16, 
 var replaceProviders sync.Map // *registry.EnchReplace -> world.StateProviderPicker
 
 // replaceState is the state a replace effect writes at a cell.
-func (s *Server) replaceState(r *registry.EnchReplace, x, y, z int32) uint16 {
+func (s *Server) replaceState(w *world.World, r *registry.EnchReplace, x, y, z int32) uint16 {
 	if r.Provider == nil {
 		return r.State
 	}
@@ -377,7 +377,7 @@ func (s *Server) replaceState(r *registry.EnchReplace, x, y, z int32) uint16 {
 		}
 		pick, _ = replaceProviders.LoadOrStore(r, compiled)
 	}
-	return pick.(world.StateProviderPicker)(x, y, z)
+	return pick.(world.StateProviderPicker)(w, x, y, z)
 }
 
 // replaceBlocks runs replace_block, or replace_disk when it has a radius.
@@ -386,12 +386,12 @@ func (s *Server) replaceBlocks(w *world.World, r *registry.EnchReplace, level in
 	cx, cy, cz := rules.BlockOf(t.x)+r.Offset[0], rules.BlockOf(t.y)+r.Offset[1], rules.BlockOf(t.z)+r.Offset[2]
 	if r.Radius == nil {
 		if s.blockPredicateTest(r.Predicate, w, cx, cy, cz) {
-			s.writeEnchantBlock(w, cx, cy, cz, s.replaceState(r, cx, cy, cz), r.GameEvent, t)
+			s.writeEnchantBlock(w, cx, cy, cz, s.replaceState(w, r, cx, cy, cz), r.GameEvent, t)
 		}
 		return
 	}
 	for _, c := range s.diskCells(w, r, level, t, s.fullBlockObstructed(w)) {
-		s.writeEnchantBlock(w, c[0], c[1], c[2], s.replaceState(r, c[0], c[1], c[2]), r.GameEvent, t)
+		s.writeEnchantBlock(w, c[0], c[1], c[2], s.replaceState(w, r, c[0], c[1], c[2]), r.GameEvent, t)
 	}
 }
 

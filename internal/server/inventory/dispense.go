@@ -99,7 +99,7 @@ func DispenseBehaviourOf(stack protocol.ItemStack) DispenseBehaviour {
 	if registry.Item(stack.ItemID).InTag(registry.ItemTagIDBoats) {
 		return DispenseBoat
 	}
-	if registry.Item(stack.ItemID).InTag(registry.ItemTagIDShulkerBoxes) {
+	if registry.Item(stack.ItemID).IsShulkerBox() {
 		return DispenseShulkerBox
 	}
 	if _, worn := registry.StackEquippable(stack); worn {

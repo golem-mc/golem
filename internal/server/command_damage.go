@@ -161,12 +161,20 @@ func (e *entitySnapshot) Damage(amount float32, damageType registry.DamageType, 
 // vanilla: LivingEntity.hurtServer, broadcastDamageEvent
 func (s *Server) hurtMobTyped(w *world.World, m *entity.Mob, amount float64, damageType registry.DamageType, cause *damageCause,
 	direct int32, directType string, spareInvulnerable bool, hitFrom func() *entity.HitSource) bool {
+	landed, _ := s.hurtMobTypedTaken(w, m, amount, damageType, cause, direct, directType, spareInvulnerable, hitFrom)
+	return landed
+}
+
+// hurtMobTypedTaken is hurtMobTyped that also returns the health the blow took.
+func (s *Server) hurtMobTypedTaken(w *world.World, m *entity.Mob, amount float64, damageType registry.DamageType, cause *damageCause,
+	direct int32, directType string, spareInvulnerable bool, hitFrom func() *entity.HitSource) (bool, float64) {
 	s.mobsMu.Lock()
 	ent := s.herdOf(w).book[m]
 	if ent == nil || m.Dead || spareInvulnerable && m.Invulnerable {
 		s.mobsMu.Unlock()
-		return false
+		return false, 0
 	}
+	healthBefore := m.Health
 	var hs *entity.HitSource
 	if hitFrom != nil {
 		hs = hitFrom()
@@ -191,11 +199,12 @@ func (s *Server) hurtMobTyped(w *world.World, m *entity.Mob, amount float64, dam
 			sends = mobHurtToldBy(w, m, damageType, causeEntityID(cause), direct, damageEventPos(cause))
 		}
 	}
+	taken := healthBefore - m.Health
 	s.mobsMu.Unlock()
 	if !landed {
-		return false
+		return false, 0
 	}
 	s.broadcastWorld(w, protocol.IDPlayEntityMetadata, health)
 	s.sendMobSends(sends)
-	return true
+	return true, taken
 }

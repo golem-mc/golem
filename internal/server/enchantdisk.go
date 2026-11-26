@@ -71,7 +71,7 @@ func (s *Server) applyDisks(disks []mobDisk) {
 			}
 		}
 		for _, c := range s.diskCells(w, d.r, d.level, d.t, obstructed) {
-			s.writeEnchantBlock(w, c[0], c[1], c[2], s.replaceState(d.r, c[0], c[1], c[2]), d.r.GameEvent, d.t)
+			s.writeEnchantBlock(w, c[0], c[1], c[2], s.replaceState(w, d.r, c[0], c[1], c[2]), d.r.GameEvent, d.t)
 		}
 	}
 	if grid != nil {

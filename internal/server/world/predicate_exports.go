@@ -21,12 +21,12 @@ func PlacementSurvives(w BlockReader, state uint16, x, y, z int32) bool {
 	return placementSurvives(w, state, x, y, z)
 }
 
-// StateProviderPicker picks a state for a cell. It is safe for concurrent use.
-type StateProviderPicker func(x, y, z int32) uint16
+// StateProviderPicker picks a state for a cell, reading w's live blocks for
+// the providers that look at the world. It is safe for concurrent use.
+type StateProviderPicker func(w *World, x, y, z int32) uint16
 
-// NewStateProviderPicker compiles a BlockStateProvider that reads no world: a
-// simple, rotated, weighted, noise, noise_threshold, dual_noise or
-// randomized_int provider. The draws come from a stream seeded by seed.
+// NewStateProviderPicker compiles a BlockStateProvider. The draws come from a
+// stream seeded by seed.
 // vanilla: BlockStateProvider.getState
 func NewStateProviderPicker(raw any, seed int64) (pick StateProviderPicker, err error) {
 	defer func() {
@@ -41,9 +41,10 @@ func NewStateProviderPicker(raw any, seed int64) (pick StateProviderPicker, err 
 	provider := compileState(raw)
 	region := &decorRegion{rng: levelgen.NewWorldgenRandom(seed)}
 	var mu sync.Mutex
-	return func(x, y, z int32) uint16 {
+	return func(w *World, x, y, z int32) uint16 {
 		mu.Lock()
 		defer mu.Unlock()
+		region.live, region.minY, region.height = w, w.MinY(), w.Height()
 		return provider(region, [3]int32{x, y, z})
 	}, nil
 }
