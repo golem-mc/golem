@@ -174,6 +174,13 @@ type WorldOptions struct {
 	// Dimension is the dimension type (minecraft:overworld,
 	// minecraft:the_nether, minecraft:the_end, or one a data pack adds).
 	Dimension Key
+	// Folder opens an existing world folder (a level.dat with region folders,
+	// in the layout of 26.1 and later or before it, which is upgraded in
+	// place) instead of the one under the server's: the dimension type's
+	// dimension is read from it, with the folder's seed and spawn when it
+	// has a level.dat, and saves write back into it. Seed is ignored then.
+	// Bukkit: WorldCreator.createWorld on a copied folder
+	Folder string
 	// Seed is the world seed; 0 takes the overworld's.
 	Seed int64
 	// Generator generates the world's chunks; nil uses vanilla's generator
