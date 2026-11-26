@@ -8,6 +8,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/golem-mc/golem/internal/protocol"
+	"github.com/golem-mc/golem/internal/server/advancement"
 	"github.com/golem-mc/golem/internal/server/entity"
 	"github.com/golem-mc/golem/internal/server/player"
 	"github.com/golem-mc/golem/internal/server/pluginruntime"
@@ -344,9 +345,14 @@ func (s *Server) fangsThorns(w *world.World, victim *client, owner *entity.Mob, 
 func (s *Server) hurtMobByPlayerFangs(w *world.World, m *entity.Mob, it fangsEffect, owner *client, fang *removedBody) {
 	cause := &damageCause{entityID: it.owner, directUUID: it.identity, exploder: fang, player: true,
 		creative: owner.player.GameMode() == protocol.GameModeCreative, x: it.x, z: it.z}
-	if !s.hurtMobTyped(w, m, entity.FangsDamage, rules.DamageTypeIndirectMagic, cause, it.id+1, "minecraft:evoker_fangs", true, nil) {
+	landed, taken := s.hurtMobTypedTaken(w, m, entity.FangsDamage, rules.DamageTypeIndirectMagic, cause, it.id+1, "minecraft:evoker_fangs", true, nil)
+	if !landed {
 		return
 	}
+	self := owner.LootEntity
+	owner.hurtEntityAdvancements(advancement.Entity{Type: m.Type.Name(), Loot: s.mobLootOf(w, m), Blow: &advancement.Blow{
+		Dealt: entity.FangsDamage, Taken: taken, Type: rules.DamageTypeIndirectMagic, Attacker: self, Indirect: true,
+		Direct: func() rules.LootEntity { return rules.LootEntity{Type: "minecraft:evoker_fangs"} }}})
 	// Only enchantments can act, so an unenchanted weapon and mob skip the sky
 	// and block lookups and the loot binding.
 	weapon := owner.heldItem(protocol.HandMain)
