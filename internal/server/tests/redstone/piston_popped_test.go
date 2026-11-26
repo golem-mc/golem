@@ -66,3 +66,26 @@ func TestPistonsPopLeavesBudsAndShulkerBoxes(t *testing.T) {
 		t.Errorf("%d shulker boxes dropped, want one", boxes)
 	}
 }
+
+// TestPistonLandedFrostedIceMelts pushes age-3 frosted ice under open sky: the
+// landing runs the block's placement hook, which books the melt tick.
+// vanilla: PistonMovingBlockEntity.tick, FrostedIceBlock.onPlace
+func TestPistonLandedFrostedIceMelts(t *testing.T) {
+	t.Parallel()
+	srv, actor := servertest.Join(t, servertest.BlockTestConfig(), "Actor", servertest.OpsListing(t, "Actor"))
+	servertest.HoldTicks(t, srv)
+
+	servertest.Setblock(t, actor, 2, 64, 0, "piston[facing=east]")
+	servertest.Setblock(t, actor, 3, 64, 0, "frosted_ice[age=3]")
+	servertest.Setblock(t, actor, 1, 64, 0, "redstone_block")
+	servertest.AwaitTicks(t, srv, 4)
+	actor.Settle()
+	if name, _ := servertest.StateProps(srv.BlockAt(4, 64, 0)); name != "minecraft:frosted_ice" && name != "minecraft:water" {
+		t.Fatalf("destination holds %s, want the landed frosted ice", name)
+	}
+	servertest.AwaitTicks(t, srv, 180)
+	actor.Settle()
+	if name, _ := servertest.StateProps(srv.BlockAt(4, 64, 0)); name != "minecraft:water" {
+		t.Errorf("destination holds %s after 180 ticks, want water", name)
+	}
+}
