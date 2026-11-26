@@ -14,6 +14,7 @@ import (
 	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/internal/server/player"
 	"github.com/golem-mc/golem/internal/server/world"
+	"github.com/golem-mc/golem/plugin"
 	"github.com/golem-mc/golem/registry"
 	"github.com/google/uuid"
 )
@@ -61,12 +62,12 @@ func (c *playerTrackingBenchConn) SetWriteDeadline(time.Time) error { return nil
 // trackerBenchWatchers players standing thirty-odd blocks around the middle:
 // in every kind's tracking range, out of an orb's follow. The players have
 // no connection, so what the tick sends is built and dropped.
-func newTrackerBenchServer(b testing.TB) (*Server, *world.World) {
+func newTrackerBenchServer(b testing.TB, plugins ...plugin.Registration) (*Server, *world.World) {
 	cfg := config.Default()
 	cfg.OnlineMode = false
 	cfg.LevelName = b.TempDir()
 	cfg.LevelType = TestFlatLevelType
-	s, err := newServer(cfg, 1)
+	s, err := newServerWith(cfg, 1, nil, plugins...)
 	if err != nil {
 		b.Fatal(err)
 	}
@@ -104,6 +105,7 @@ func newTrackerBenchServer(b testing.TB) (*Server, *world.World) {
 		p.SetPosition(player.Position{X: x, Y: float64(world.GroundLevel), Z: z})
 		c := &client{srv: s, player: p}
 		c.dim.Store(dim)
+		c.worldScope = worldScope{srv: s, in: c.dimension, by: c.Profile}
 		s.assignPlayerSlot(c)
 		s.clients[p.UUID] = c
 	}

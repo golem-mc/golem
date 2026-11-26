@@ -20,21 +20,28 @@ func BenchmarkArrowPlayerOutcome(b *testing.B) {
 	victim.player.Inventory(func(inv *player.Inventory) {
 		inv.Slots[player.ArmorSlot+1] = protocol.ItemStack{ItemID: int32(registry.ItemDiamondChestplate), Count: 1, Unbreakable: true}
 	})
-	arrow := newArrowEntity(s, s.world, 0.5, 65, 0.5, 1, 0, 0, 0, 0,
-		false, entity.ArrowBaseDamage, entity.PickupDisallowed, shooter.player.EntityID,
-		shooter.player.UUID, protocol.ItemStack{}, 0)
-	hit := arrowPlayerHit{arrow: arrow, w: s.world, victim: victim, damage: 1, vx: 1}
-	b.ReportAllocs()
-	b.ResetTimer()
-	for range b.N {
-		victim.player.UpdateVitals(func(v *player.Vitals) {
-			v.Health = 20
-			v.InvulnerableTicks = 0
+	for _, tc := range []struct {
+		name    string
+		shooter int32
+	}{{"owned", shooter.player.EntityID}, {"ownerless", 0}} {
+		b.Run(tc.name, func(b *testing.B) {
+			arrow := newArrowEntity(s, s.world, 0.5, 65, 0.5, 1, 0, 0, 0, 0,
+				false, entity.ArrowBaseDamage, entity.PickupDisallowed, tc.shooter,
+				shooter.player.UUID, protocol.ItemStack{}, 0)
+			hit := arrowPlayerHit{arrow: arrow, w: s.world, victim: victim, damage: 1, vx: 1}
+			b.ReportAllocs()
+			b.ResetTimer()
+			for range b.N {
+				victim.player.UpdateVitals(func(v *player.Vitals) {
+					v.Health = 20
+					v.InvulnerableTicks = 0
+				})
+				s.arrowPlayerOutcome(hit)
+			}
+			b.StopTimer()
+			if health := victim.player.Vitals().Health; health >= 20 {
+				b.Fatalf("the arrow never hurt the victim: health %v", health)
+			}
 		})
-		s.arrowPlayerOutcome(hit)
-	}
-	b.StopTimer()
-	if health := victim.player.Vitals().Health; health >= 20 {
-		b.Fatalf("the arrow never hurt the victim: health %v", health)
 	}
 }

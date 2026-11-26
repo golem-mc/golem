@@ -253,13 +253,21 @@ func syncEquipmentModifiers(a *player.Attributes, slots [7]equipmentSlot, previo
 		if !changed[i] {
 			continue
 		}
-		applyEquipment(a, sl.stack, sl.name)
+		applyEquipment(a, sl.stack, sl.name, nil)
 		previous[i] = sl.stack
 	}
 }
 
-func applyEquipment(a *player.Attributes, stack protocol.ItemStack, slot string) {
+// applyEquipment adds the stack's slot modifiers for attributes the map has;
+// when fresh is non-nil it collects the IDs this call instantiated.
+func applyEquipment(a *player.Attributes, stack protocol.ItemStack, slot string, fresh *[]registry.AttributeID) {
 	for _, mod := range rules.EquipmentModifiers(stack, slot) {
+		if !a.Has(mod.Attribute) {
+			continue // vanilla: AttributeMap.getInstance is null
+		}
+		if fresh != nil && !a.Instantiated(mod.Attribute) {
+			*fresh = append(*fresh, mod.Attribute)
+		}
 		a.AddModifier(mod.Attribute, player.Modifier{ID: mod.ID, Amount: mod.Amount, Operation: mod.Operation})
 	}
 }
@@ -293,17 +301,17 @@ func (m *Mob) attrPaced() bool { return m.family() != TypeGhast }
 // stays pending: a load lets the next tick announce it.
 func (m *Mob) BuildAttributes(saved nbt.List) *player.Attributes {
 	a := player.NewAttributes(m.AttributeSupplier())
-	a.Instance(registry.AttributeMovementSpeed)
-	// Vanilla instantiates movement_speed and the equipment's attributes in
-	// the first tick, not with the map.
-	synthetic := []registry.AttributeID{registry.AttributeMovementSpeed}
+	if m.is(TypeZombie) {
+		// vanilla: Zombie.setBaby
+		a.Instance(registry.AttributeMovementSpeed)
+	}
 	if m.Size > 0 {
 		a.Instance(registry.AttributeMaxHealth)
 		if m.Type == TypeMagmaCube {
 			a.Instance(registry.AttributeArmor)
 		}
 	}
-	if m.NativeAttributeInstances() {
+	if m.Type == TypeRabbit {
 		a.Instance(registry.AttributeAttackDamage)
 	}
 	if m.KillerBunny() {
@@ -329,14 +337,14 @@ func (m *Mob) BuildAttributes(saved nbt.List) *player.Attributes {
 	}
 	m.syncFollowSpawnBonus(a)
 	m.syncZombieTraits(a)
+	synthetic := make([]registry.AttributeID, 0, registry.NumAttributes)
 	for _, sl := range m.equipmentSlots() {
-		for _, mod := range rules.EquipmentModifiers(sl.stack, sl.name) {
-			if !a.Instantiated(mod.Attribute) {
-				synthetic = append(synthetic, mod.Attribute)
-				a.Instance(mod.Attribute)
-			}
-		}
-		applyEquipment(a, sl.stack, sl.name)
+		applyEquipment(a, sl.stack, sl.name, &synthetic)
+	}
+	// vanilla: LivingEntity.detectEquipmentUpdates precedes removeFrost.
+	if !a.Instantiated(registry.AttributeMovementSpeed) {
+		a.Instance(registry.AttributeMovementSpeed)
+		synthetic = append(synthetic, registry.AttributeMovementSpeed)
 	}
 	// The mark must follow every Instance above; Load and the sync below
 	// instantiate for real and clear it.
@@ -348,14 +356,30 @@ func (m *Mob) BuildAttributes(saved nbt.List) *player.Attributes {
 	if m.IsShulker() {
 		m.syncShulkerArmor(a)
 	}
+	m.syncPiglinBabySpeed(a)
 	m.SyncSpeedModifiers(a)
 	return a
 }
 
+// syncPiglinBabySpeed replaces the piglin's transient baby modifier, so a
+// command's edit lasts until the next baby-state write or load.
+// vanilla: Piglin.setBaby, Piglin.SPEED_MODIFIER_BABY
+func (m *Mob) syncPiglinBabySpeed(a *player.Attributes) {
+	if m.Type != TypePiglin || a == nil {
+		return
+	}
+	a.RemoveModifier(registry.AttributeMovementSpeed, modBaby)
+	if m.IsBaby() {
+		a.AddModifier(registry.AttributeMovementSpeed, player.Modifier{ID: modBaby, Amount: float64(float32(0.2)),
+			Operation: registry.AttributeAddMultipliedBase})
+	}
+}
+
 // NativeAttributeInstances reports whether the kind instantiates attributes
 // itself before any command touches the map.
-// vanilla: Rabbit.setVariant gets attack_damage on load and spawn
-func (m *Mob) NativeAttributeInstances() bool { return m.Type == TypeRabbit }
+// vanilla: Rabbit.setVariant gets attack_damage on load and spawn,
+// Zombie.setBaby gets movement_speed
+func (m *Mob) NativeAttributeInstances() bool { return m.Type == TypeRabbit || m.is(TypeZombie) }
 
 // Ticked reports whether the body has run a tick.
 func (m *Mob) Ticked() bool { return m.ticked }
@@ -393,10 +417,10 @@ const (
 	modSuffocating = "minecraft:suffocating"
 )
 
-// SyncSpeedModifiers updates the body's movement modifiers and Jump Boost's
-// safe fall distance so the simulation and attribute packets agree.
+// SyncSpeedModifiers updates the body's own movement modifiers so the
+// simulation and attribute packets agree.
 // vanilla: LivingEntity.tryAddFrost, Witch.aiStep, Zombie.tick,
-// EnderMan.setTarget, Strider.setSuffocating, MobEffects.SPEED, SLOWNESS, JUMP_BOOST
+// EnderMan.setTarget, Strider.setSuffocating
 func (m *Mob) SyncSpeedModifiers(a *player.Attributes) {
 	if m.Type == TypeSulfurCube {
 		m.syncSulfurModifiers(a)
@@ -407,8 +431,6 @@ func (m *Mob) SyncSpeedModifiers(a *player.Attributes) {
 	} else {
 		a.RemoveModifier(registry.AttributeMovementSpeed, modFrost)
 	}
-	rules.UpdateEffectAttributesOf(a, m.effects.All(), registry.AttributeMovementSpeed)
-	rules.UpdateEffectAttributesOf(a, m.effects.All(), registry.AttributeSafeFallDistance)
 	switch {
 	case m.IsStrider():
 		if m.StriderCold() {
@@ -489,15 +511,26 @@ func (m *Mob) attrScale() float64 {
 	return s
 }
 
-// OnAttributeUpdated applies an attribute change's limits to the body:
-// health above the new maximum trims down to it. Callers hold the mob lock.
-// A scale change reaches the box at its next read, deliberately without
-// vanilla's fudgePositionAfterSizeChange.
+// EditAttributes applies an edit under the mob lock and reports a scale change.
 // vanilla: LivingEntity.onAttributeUpdated
-func (m *Mob) OnAttributeUpdated() {
-	if m.Health > m.healthCap() {
-		m.SetMetadataHealth(m.healthCap())
+func (m *Mob) EditAttributes(w World, edit func(*player.Attributes)) bool {
+	oldScale := m.attrScale()
+	oldWidth, oldHeight := m.width(), m.height()
+	edit(m.attrs)
+	if cap := m.healthCap(); m.Health > cap {
+		m.SetMetadataHealth(cap)
 	}
+	if m.attrScale() == oldScale {
+		return false
+	}
+	// vanilla: Vex.tick holds noPhysics through the dimension refresh.
+	if m.Type != TypeVex {
+		m.refreshDimensions(w, oldWidth, oldHeight)
+		if m.IsShulker() && !m.RidesVehicle {
+			m.snapShulker()
+		}
+	}
+	return true
 }
 
 // savedAttrEdits reports whether the saved attributes list holds an

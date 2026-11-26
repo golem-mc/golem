@@ -26,10 +26,12 @@ type mannequinEntity struct {
 	w         *world.World
 	uuid      uuid.UUID
 	bodyTrack[struct{}]
-	tags     nbt.StringSet
-	custom   customName
-	look     entityLook
-	metadata map[uint8]uint64
+	tags   nbt.StringSet
+	custom customName
+	look   entityLook
+	// sync is the state of each mannequinFields entry, by position.
+	sync  []mannequinSynched
+	shown mannequinShown
 }
 
 // mannequinTracker tracks mannequin travel and commanded teleports.
@@ -51,16 +53,36 @@ var mannequinTracker = trackedKind[*mannequinEntity, struct{}]{
 		m := ent.mannequin
 		return bodyPose{x: m.X, y: m.Y, z: m.Z, yaw: m.Yaw, pitch: m.Pitch, onGround: m.OnGround}
 	},
-	pairing: mannequinPairing,
+	pairing:         mannequinPairing,
+	delta:           mannequinDelta,
+	dirtyAttributes: mannequinDirtyAttributes,
 	motion: func(ent *mannequinEntity) (float64, float64, float64) {
 		return ent.mannequin.VX, ent.mannequin.VY, ent.mannequin.VZ
 	},
 }
 
+// mannequinDelta collects the changed ticking fields, and asks for a movement
+// tick off the period when one changed.
+// vanilla: ServerEntity.sendChanges
+func mannequinDelta(ent *mannequinEntity) []byte {
+	metadata := mannequinTickMetadata(ent)
+	if metadata != nil {
+		ent.needsSync = true
+	}
+	return metadata
+}
+
+func mannequinDirtyAttributes(ent *mannequinEntity) []byte {
+	if attrs := ent.mannequin.Attributes.TakeDirty(); len(attrs) > 0 {
+		return attributesPayload(ent.mannequin.ID, attrs)
+	}
+	return nil
+}
+
 // mannequinPairing introduces a mannequin with its metadata and equipment.
 func mannequinPairing(ent *mannequinEntity) []outbound {
-	mannequinTickMetadata(ent)
 	m := ent.mannequin
+	refreshMannequinSynched(ent)
 	spawn := spawnEntityPayload(spawnEntity{
 		id: m.ID, uuid: ent.uuid, typ: protocol.EntityTypeMannequin,
 		x: m.X, y: m.Y, z: m.Z, vx: ent.sentVX, vy: ent.sentVY, vz: ent.sentVZ,
@@ -92,6 +114,7 @@ func (s *Server) registerMannequin(ent *mannequinEntity) {
 	// The tracker's baseline starts at the spawn velocity, so a later stop is a change.
 	// vanilla: ServerEntity.<init>
 	ent.sentVX, ent.sentVY, ent.sentVZ = ent.mannequin.VX, ent.mannequin.VY, ent.mannequin.VZ
+	mannequinTickMetadata(ent) // seeds the baseline the tracking pass compares against
 	mannequinTracker.register(s, ent)
 }
 
@@ -119,14 +142,8 @@ func (s *Server) tickMannequins() {
 				hurts = append(hurts, fx)
 			}
 		})
-		metadata := mannequinTickMetadata(ent)
-		attrs := ent.mannequin.Attributes.TakeDirty()
-		var attributes []byte
-		if len(attrs) > 0 {
-			attributes = attributesPayload(ent.mannequin.ID, attrs)
-		}
-		if len(hurts) > 0 || metadata != nil || drowned || extinguished || attributes != nil {
-			effects = append(effects, mannequinTickEffect{ent: ent, hurts: hurts, metadata: metadata, drowned: drowned, extinguished: extinguished, attributes: attributes, watchers: trackedWatchers(ent.tracked), pos: player.Position{X: ent.mannequin.X, Y: ent.mannequin.Y, Z: ent.mannequin.Z}})
+		if len(hurts) > 0 || drowned || extinguished {
+			effects = append(effects, mannequinTickEffect{ent: ent, hurts: hurts, drowned: drowned, extinguished: extinguished, pos: player.Position{X: ent.mannequin.X, Y: ent.mannequin.Y, Z: ent.mannequin.Z}})
 		}
 		pushes.worlds[ent.w].push(ent, teams)
 		if step.Remove || step.Damage > 0 {
@@ -136,9 +153,6 @@ func (s *Server) tickMannequins() {
 	s.unlockTick(&s.mannequinsMu)
 	s.applyMannequinPushes(pushes)
 	for _, fx := range effects {
-		if fx.attributes != nil {
-			s.tellWatchers(fx.ent.w, fx.watchers, []outbound{{id: protocol.IDPlayUpdateAttributes, data: fx.attributes}})
-		}
 		if fx.drowned {
 			s.broadcastWorld(fx.ent.w, protocol.IDPlayEntityEvent, entityEventPayload(fx.ent.mannequin.ID, protocol.EntityEventDrown))
 		}
@@ -148,10 +162,6 @@ func (s *Server) tickMannequins() {
 		}
 		for _, hurt := range fx.hurts {
 			s.tellMannequinHurt(hurt)
-		}
-		// Hurt snapshots precede healing and other final changes in this tick.
-		if fx.metadata != nil {
-			s.sendEntityMetadata(fx.ent.w, fx.watchers, fx.metadata)
 		}
 		if fx.step.Remove {
 			s.broadcastWorld(fx.ent.w, protocol.IDPlayEntityEvent,
@@ -171,11 +181,8 @@ func (s *Server) tickMannequins() {
 }
 
 type mannequinTickEffect struct {
-	watchers              []uuid.UUID
 	drowned, extinguished bool
-	attributes            []byte
 	hurts                 []mannequinHurt
-	metadata              []byte
 	ent                   *mannequinEntity
 	step                  entity.MannequinStep
 	pos                   player.Position
@@ -221,8 +228,6 @@ func (s *Server) mannequinVictim(ent *mannequinEntity, fx mannequinHurt, attacke
 
 type mannequinHurt struct {
 	w                 *world.World
-	watchers          []uuid.UUID
-	metadata          []byte
 	id, cause, direct int32
 	typ               registry.DamageType
 	at                *[3]float64
@@ -247,15 +252,12 @@ func (s *Server) hurtMannequinLocked(ent *mannequinEntity, amount float64, damag
 		m.KnockbackFrom(shove.x, shove.z, 0.4)
 		m.KnockbackAlong(shove.yaw, shove.extra)
 	}
-	metadata := mannequinHealthPayload(ent)
-	if died {
-		metadata = dyingMetadataPayload(m.ID)
-	}
-	return mannequinHurt{w: ent.w, watchers: trackedWatchers(ent.tracked), metadata: metadata, id: m.ID, cause: causeID, direct: directID, typ: damageType, at: at, x: m.X, y: m.Y, z: m.Z, softened: softened, died: died, dealt: amount, taken: before - m.Health}, true
+	// The tracking pass sends the health and a dying pose after the damage
+	// and death events.
+	return mannequinHurt{w: ent.w, id: m.ID, cause: causeID, direct: directID, typ: damageType, at: at, x: m.X, y: m.Y, z: m.Z, softened: softened, died: died, dealt: amount, taken: before - m.Health}, true
 }
 
 func (s *Server) tellMannequinHurt(fx mannequinHurt) {
-	s.sendEntityMetadata(fx.w, fx.watchers, fx.metadata)
 	if !fx.softened {
 		s.broadcastWorld(fx.w, protocol.IDPlayDamageEvent, damageEventPayloadAt(fx.id, fx.typ, fx.cause, fx.direct, fx.at))
 		sound := registry.SoundEntityGenericHurt
@@ -484,7 +486,7 @@ func (c *client) nameMannequin(target int32, held protocol.ItemStack) bool {
 	visible := ent.custom.visible
 	ent.custom = customNameOfStack(held)
 	ent.custom.visible = visible
-	payload := mannequinFieldsPayload(ent, func(f mannequinField) bool {
+	payload := mannequinFieldsPayload(ent, true, func(_ int, f mannequinField) bool {
 		return f.index == protocol.MetadataIndexCustomName
 	})
 	s.mannequinsMu.Unlock()

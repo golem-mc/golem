@@ -52,6 +52,9 @@ func (b *BlockEntity) CampfireTick(lit bool) (results []protocol.ItemStack, chan
 // slot to be asked again next tick. cook may release the entity's lock, so a
 // slot that changed meanwhile is left alone.
 func (b *BlockEntity) CampfireTickWith(lit bool, cook func(slot int, source, result protocol.ItemStack) (protocol.ItemStack, bool)) (results []protocol.ItemStack, changed bool) {
+	if b.cookReset.Load() && b.cookReset.Swap(false) {
+		b.CookCheck = ""
+	}
 	for slot := range b.Slots {
 		if !lit {
 			if b.CampfireProgress[slot] > 0 {
@@ -72,7 +75,7 @@ func (b *BlockEntity) CampfireTickWith(lit bool, cook func(slot int, source, res
 		}
 		// A slot whose item no recipe takes any more is dropped as it is.
 		result := b.Slots[slot]
-		if recipe := registry.CookingMatch(KindCampfire.Name(), result); recipe != nil {
+		if recipe := registry.CookingMatchCached(KindCampfire.Name(), result, &b.CookCheck); recipe != nil {
 			result = registry.CookingResult(recipe)
 		}
 		if cook != nil {

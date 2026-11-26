@@ -12,6 +12,7 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
+import net.minecraft.client.KeyMapping;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Hud;
 import net.minecraft.client.gui.components.ChatComponent;
@@ -47,6 +48,7 @@ import net.minecraft.world.entity.player.Inventory;
 import net.minecraft.world.inventory.AbstractContainerMenu;
 import net.minecraft.world.inventory.ContainerInput;
 import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.component.ChargedProjectiles;
 import net.minecraft.world.item.component.SwingAnimation;
 import net.minecraft.world.item.enchantment.Enchantment;
 import net.minecraft.world.item.enchantment.ItemEnchantments;
@@ -204,7 +206,14 @@ final class ClientCtl {
                 levels.put(enchantmentName(entry.getKey()), entry.getIntValue());
             }
             components.put("enchantments", levels);
-        }        Component customName = stack.get(DataComponents.CUSTOM_NAME);
+        }
+        ChargedProjectiles charged = stack.get(DataComponents.CHARGED_PROJECTILES);
+        if (charged != null && !charged.isEmpty()) {
+            components.put("charged_projectiles", charged.itemCopies()
+                    .map(projectile -> BuiltInRegistries.ITEM.getKey(projectile.getItem()).toString())
+                    .toList());
+        }
+        Component customName = stack.get(DataComponents.CUSTOM_NAME);
         if (customName != null) {
             components.put("custom_name", customName.getString());
         }
@@ -445,6 +454,44 @@ final class ClientCtl {
             p.input = held;
         }
         return Map.of("ok", true);
+    }
+
+    /**
+     * Presses the use or attack key as a held key and queues one click, so the
+     * game's own handleKeybinds starts the use and keeps the item in use while
+     * the key stays down. Returns the player's tick count to count the hold from.
+     */
+    static int pressKey(Minecraft mc, boolean attack) {
+        LocalPlayer p = requirePlayer(mc);
+        KeyMapping key = attack ? mc.options.keyAttack : mc.options.keyUse;
+        key.setDown(true);
+        KeyMapping.click(key.getDefaultKey());
+        return p.tickCount;
+    }
+
+    /** The player's client tick count, which rises once per client tick. */
+    static int tickCount(Minecraft mc) {
+        return requirePlayer(mc).tickCount;
+    }
+
+    /**
+     * Lets go of the use or attack key, so handleKeybinds runs releaseUsingItem
+     * on the next tick. Answers whether an item was in use and which is held.
+     */
+    static Map<String, Object> releaseKey(Minecraft mc, boolean attack) {
+        LocalPlayer p = requirePlayer(mc);
+        boolean using = p.isUsingItem();
+        (attack ? mc.options.keyAttack : mc.options.keyUse).setDown(false);
+        if (using && !attack) {
+            // handleKeybinds does not always see the key up before the next press, so the
+            // item stays in use; releasing here is what the key-up would do.
+            mc.gameMode.releaseUsingItem(p);
+        }
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("ok", true);
+        out.put("using", using);
+        out.put("item", BuiltInRegistries.ITEM.getKey(p.getMainHandItem().getItem()).toString());
+        return out;
     }
 
     /** The crosshair's use: right-click on what it points at, or use the held item. */

@@ -91,10 +91,13 @@ const (
 )
 
 // noteAllay gives an allay a diamond, plays a note block and moves the player away.
-func noteAllay(t *testing.T) (*server.Server, *servertest.Client) {
+func noteAllay(t *testing.T, cover registry.Block) (*server.Server, *servertest.Client) {
 	t.Helper()
 	srv, c := allayWorld(t, "minecraft:diamond", 1)
 	srv.SetBlock(allayNoteX, 64, allayNoteZ, registry.BlockStates["minecraft:note_block"])
+	if cover != registry.BlockAir {
+		srv.SetBlockAndTell(allayNoteX, 65, allayNoteZ, cover.DefaultState())
+	}
 	id := srv.SpawnMob(allay, 2.5, 65, 0.5)
 	c.ExpectMobSpawn(allayType())
 	c.UseOn(id)
@@ -124,8 +127,18 @@ func diamondLandsNear(t *testing.T, srv *server.Server, x, z float64) {
 
 func TestAnAllayDeliversToAPlayedNoteBlock(t *testing.T) {
 	t.Parallel()
-	srv, _ := noteAllay(t)
-	diamondLandsNear(t, srv, allayNoteX+0.5, allayNoteZ+0.5)
+	for _, tc := range []struct {
+		name  string
+		cover registry.Block
+	}{
+		{"sounding", registry.BlockAir},
+		{"silent_head", registry.BlockPlayerHead},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			srv, _ := noteAllay(t, tc.cover)
+			diamondLandsNear(t, srv, allayNoteX+0.5, allayNoteZ+0.5)
+		})
+	}
 }
 
 func TestASavedAllayStillDeliversToItsPlayer(t *testing.T) {

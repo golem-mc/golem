@@ -7,7 +7,9 @@ import (
 	"github.com/golem-mc/golem/internal/server/entity"
 	"github.com/golem-mc/golem/internal/server/player"
 	"github.com/golem-mc/golem/internal/server/rules"
+	"github.com/golem-mc/golem/internal/server/world"
 	"github.com/golem-mc/golem/registry"
+	"github.com/google/uuid"
 )
 
 // The crossbow uses the bow's session (bow.go): Use Item starts the charge,
@@ -124,25 +126,9 @@ func (c *client) loadCrossbow(hand int32, crossbow protocol.ItemStack) bool {
 		}
 		ammo = bowFind{stack: protocol.ItemStack{ItemID: int32(registry.ItemArrow), Count: 1}, slot: -1, ok: true}
 	}
-	var drawn []protocol.ItemStack
-	for i := range rules.CrossbowProjectileCount(crossbow, c.itemEnchContext()) {
-		use := int32(0)
-		if i == 0 && !creative {
-			use = rules.ProcessAmmoUse(crossbow, ammo.stack)
-		}
-		if use > ammo.stack.Count {
-			continue
-		}
-		one := ammo.stack
-		one.Count = 1
-		if use == 0 {
-			one.Intangible = true
-		}
-		drawn = append(drawn, one)
-		if use > 0 {
-			c.consumeAmmo(ammo, 1)
-			ammo.stack.Count -= use
-		}
+	drawn, spent := rules.CrossbowDraw(crossbow, ammo.stack, creative, c.itemEnchContext())
+	if spent != 0 {
+		c.consumeAmmo(ammo, spent)
 	}
 	if len(drawn) == 0 {
 		return false
@@ -188,44 +174,32 @@ func (c *client) fireCrossbow(hand int32) {
 	for i, projectile := range projectiles {
 		aimX, aimY, aimZ := entity.CrossbowShotVector(pos.Yaw, pos.Pitch, angles[i])
 		vx, vy, vz := entity.ShootVelocity(aimX, aimY, aimZ, power, 1.0, rng)
-		yaw, pitch := entity.ArrowAngles(vx, vy, vz)
 		firework := isFireworkRocket(projectile)
 		if firework {
-			// vanilla: CrossbowItem.createProjectile
-			rocket := s.newFirework(c.theWorld(), projectile, pos.X,
+			s.spawnCrossbowRocket(c.theWorld(), projectile, pos.X,
 				pos.Y+c.dims(c.player.Appearance().Pose).EyeHeight-0.15, pos.Z,
-				c.player.EntityID, c.player.UUID, 0)
-			rocket.rocket.ShotAtAngle = true
-			rocket.rocket.VX, rocket.rocket.VY, rocket.rocket.VZ = vx, vy, vz
-			rocket.rocket.Yaw, rocket.rocket.Pitch = yaw, pitch
-			s.registerFirework(rocket)
-			r := rocket.rocket
-			s.projectileSpawned(c.theWorld(), crossbow, enchantTarget{uuid: rocket.uuid, x: r.X, y: r.Y, z: r.Z, width: .25, height: .25,
-				entityID: r.ID, causeID: c.player.EntityID})
+				vx, vy, vz, c.player.EntityID, c.player.UUID, false)
 			c.shotSoundAndWear(hand, i, firework)
 			if c.heldItem(hand).Empty() {
 				break
 			}
 			continue
 		}
+		yaw, pitch := entity.ArrowAngles(vx, vy, vz)
 		pickup := entity.PickupAllowed
 		if projectile.Intangible {
 			pickup = entity.PickupCreativeOnly
 		}
-		// vanilla: Projectile.applyOnProjectileSpawned, Entity.igniteForTicks
-		fireTicks := max(rules.ProjectileIgniteTicks(projectile), rules.ProjectileIgniteTicks(crossbow))
 		// A shooter that is a player always shoots critical arrows.
 		// vanilla: CrossbowItem.performShooting
 		it := newArrowEntity(s, c.theWorld(),
 			pos.X, pos.Y+c.dims(c.player.Appearance().Pose).EyeHeight-entity.ArrowSpawnBelow, pos.Z,
 			vx, vy, vz, yaw, pitch, true, entity.ArrowBaseDamage, pickup,
-			c.player.EntityID, c.player.UUID, crossbow, fireTicks)
+			c.player.EntityID, c.player.UUID, crossbow, 0)
 		armArrow(it, projectile)
 		it.arrow.PierceLevel = rules.PiercingLevel(crossbow, projectile, &rules.EnchContext{Rand: s.levelRng})
 		it.arrow.HitSound = crossbowHitSound
-		if s.launchArrow(it) {
-			s.arrowSpawned(it, crossbow)
-		}
+		s.launchArrowFrom(it, projectile, crossbow)
 		c.shotSoundAndWear(hand, i, firework)
 		if c.heldItem(hand).Empty() {
 			break
@@ -234,6 +208,28 @@ func (c *client) fireCrossbow(hand int32) {
 	// vanilla: CrossbowItem.performShooting
 	c.shotCrossbowAdvancements(crossbow)
 	c.awardItemStat(registry.StatTypeUsed, crossbow.ItemID, 1)
+}
+
+// spawnCrossbowRocket launches a loaded rocket along the velocity and runs its
+// stack's projectile_spawned effects, ignite included. deferStep holds back the
+// first step to the next tick, for a mob's shot made in the mob pass.
+// vanilla: CrossbowItem.createProjectile, Projectile.applyOnProjectileSpawned
+func (s *Server) spawnCrossbowRocket(w *world.World, stack protocol.ItemStack, x, y, z, vx, vy, vz float64,
+	ownerID int32, ownerUUID uuid.UUID, deferStep bool) {
+	yaw, pitch := entity.ArrowAngles(vx, vy, vz)
+	rocket := s.newFirework(w, stack, x, y, z, ownerID, ownerUUID, 0)
+	// The rocket carries the whole loaded stack, count and all.
+	// vanilla: CrossbowItem.createProjectile, FireworkRocketEntity(Level, ItemStack, ...)
+	rocket.stack = stack
+	r := rocket.rocket
+	r.ShotAtAngle = true
+	r.VX, r.VY, r.VZ = vx, vy, vz
+	r.Yaw, r.Pitch = yaw, pitch
+	rocket.skipStep = deferStep
+	rocket.spawning = len(stack.Enchantments) > 0
+	if s.launchFirework(rocket) && rocket.spawning {
+		s.spawnEffects(spawnedProjectile{w: rocket.w, typ: protocol.EntityTypeFireworkRocket, body: rocket}, stack, protocol.ItemStack{})
+	}
 }
 
 // shotSoundAndWear plays the index-th projectile's shot sound and wears the

@@ -178,9 +178,9 @@ func (o *openWindow) halves() [][3]int32 {
 }
 
 // shows reports whether the window shows block containers; a chest boat's,
-// a cart's, a plugin's and a virtual one's do not.
+// a cart's, a trade's, a mount's, a plugin's and a virtual one's do not.
 func (o *openWindow) shows() bool {
-	return o.boat == nil && o.cart == nil && o.menu == nil && !o.virtual
+	return o.boat == nil && o.cart == nil && o.menu == nil && o.trader == nil && o.mount == nil && !o.virtual
 }
 
 // covers reports whether the window shows the container at the position;
@@ -424,7 +424,7 @@ func (v windowView) clickView(inv *player.Inventory) inventory.View {
 		}
 	case windowDouble:
 		if v.be != nil && v.be2 != nil {
-			view.Entity = inventory.Compound{First: containerSlots(v.be, v.w.w), Second: containerSlots(v.be2, v.w.w)}
+			view.Entity = doubleChestSlots(v.be, v.be2, v.w.w)
 		}
 	case windowEnderChest:
 		if inv != nil {
@@ -546,6 +546,24 @@ type blockEntitySlots struct {
 	be   *world.BlockEntity
 	w    *world.World
 	kind windowKind
+}
+
+type chestHalfSlots struct {
+	blockEntitySlots
+	other *world.BlockEntity
+}
+
+func doubleChestSlots(first, second *world.BlockEntity, w *world.World) inventory.Pair[chestHalfSlots] {
+	return inventory.Pair[chestHalfSlots]{
+		First:  chestHalfSlots{blockEntitySlots: containerSlots(first, w), other: second},
+		Second: chestHalfSlots{blockEntitySlots: containerSlots(second, w), other: first},
+	}
+}
+
+// Put writes one slot and marks the compound container changed.
+func (b chestHalfSlots) Put(slot int, stack protocol.ItemStack) {
+	b.be.Put(slot, stack)
+	b.w.TouchContainerPair([3]int32{b.be.X, b.be.Y, b.be.Z}, [3]int32{b.other.X, b.other.Y, b.other.Z})
 }
 
 // containerSlots adapts a container block entity; a nil world marks nothing

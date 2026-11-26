@@ -214,7 +214,12 @@ type BlockEntity struct {
 	// Furnace progress in ticks: the current smelt's progress and length, and
 	// the current fuel lot's remaining and total burn. Zero for a chest.
 	CookingSpent, CookingTotal int32
-	LitRemaining, LitTotal     int32
+	// CookCheck is the id of the cooking recipe that last matched, which wins
+	// over an earlier recipe taking the same input; not saved.
+	// vanilla: AbstractFurnaceBlockEntity.quickCheck, CampfireBlock.getTicker
+	CookCheck              string
+	cookReset              atomic.Bool // a state write asks the campfire to drop CookCheck
+	LitRemaining, LitTotal int32
 	// SpeedMultiplier is what the fuel last lit (a furnace) or loaded (a
 	// brewing stand) divides the recipe's time by; nought counts as 1.
 	// vanilla: AbstractFurnaceBlockEntity.speedMultiplier
@@ -660,7 +665,7 @@ func (b *BlockEntity) Put(slot int, stack protocol.ItemStack) {
 	// another count is not.
 	// vanilla: AbstractFurnaceBlockEntity.setItem
 	if slot == 0 && IsCooking(b.Kind) && (stack.Empty() || !stack.SamePtr(&b.Slots[0])) {
-		b.CookingTotal = b.CookTotalOf(registry.CookingMatch(b.Kind.Name(), stack))
+		b.CookingTotal = b.CookTotalOf(registry.CookingMatchCached(b.Kind.Name(), stack, &b.CookCheck))
 		b.CookingSpent = 0
 	}
 	// A write into a disabled grid slot enables it first, even an empty one.
@@ -1238,7 +1243,13 @@ func (c *Chunk) removeBlockEntity(x, y, z int32) *BlockEntity {
 // blockEntities lists the chunk's entities in insertion order, vanilla's ticker
 // order and a deterministic save order so two saves give the same bytes.
 func (c *Chunk) blockEntities() []*BlockEntity {
-	out := make([]*BlockEntity, 0, len(c.entityOrder))
+	return c.appendBlockEntities(nil)
+}
+
+// appendBlockEntities appends the entities in blockEntities' order to out,
+// growing it once for all of them.
+func (c *Chunk) appendBlockEntities(out []*BlockEntity) []*BlockEntity {
+	out = slices.Grow(out, len(c.entityOrder))
 	for _, key := range c.entityOrder {
 		if b := c.entities[key]; b != nil {
 			out = append(out, b)
@@ -2486,7 +2497,11 @@ func putBlockEntities(b *protocol.Buffer, own []*BlockEntity, rides []pistonRide
 	}
 	// Filter before writing the count, so a type the client's registry cannot
 	// number is left out of both.
-	entries := make([]entry, 0, len(own)+len(rides)+len(carried))
+	var entryBuf [16]entry
+	entries := entryBuf[:0]
+	if n := len(own) + len(rides) + len(carried); n > len(entryBuf) {
+		entries = make([]entry, 0, n)
+	}
 	for _, be := range own {
 		id := blockEntityID(be.Kind)
 		if id < 0 {

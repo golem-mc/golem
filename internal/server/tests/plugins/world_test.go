@@ -1,6 +1,8 @@
 package plugins_test
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -333,5 +335,42 @@ func TestPluginWeatherAndWorldSaveReload(t *testing.T) {
 			t.Error("rule did not persist")
 		}
 		w.Save(false)
+	})
+}
+
+// vanilla: DimensionType.logicalHeight
+func TestPluginWorldLogicalHeight(t *testing.T) {
+	t.Parallel()
+	cfg := servertest.BlockTestConfig()
+	cfg.LevelName = t.TempDir()
+	pack := filepath.Join(cfg.LevelName, "datapacks", "p")
+	files := map[string]string{
+		"pack.mcmeta":                     `{"pack":{"description":"p"}}`,
+		"data/pk/dimension_type/low.json": `{"min_y":0,"height":256,"logical_height":200,"has_skylight":true}`,
+		"data/pk/dimension/low.json":      `{"type":"pk:low","generator":{"type":"minecraft:flat","settings":{"biome":"minecraft:plains","layers":[{"block":"minecraft:stone","height":4}]}}}`,
+	}
+	for name, body := range files {
+		path := filepath.Join(pack, name)
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	_, h, run := worldPlugin(t, cfg)
+	run(func() {
+		want := map[string]int{"minecraft:overworld": 384, "minecraft:the_nether": 128, "minecraft:the_end": 256, "pk:low": 200}
+		for key, lh := range want {
+			k, _ := plugin.ParseKey(key)
+			w, ok := h.World(k)
+			if !ok {
+				t.Errorf("world %s missing", key)
+				continue
+			}
+			if got := w.LogicalHeight(); got != lh {
+				t.Errorf("%s LogicalHeight = %d, want %d", key, got, lh)
+			}
+		}
 	})
 }

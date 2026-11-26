@@ -36,12 +36,25 @@ func (s *Server) thornsOnOwner(w *world.World, victim *client, ownerID int32, da
 		Victim: protocol.EntityTypePlayer, Attacker: -1, DirectAttacker: directAttacker,
 	}
 	if owner := s.entityClient(ownerID); owner != nil {
-		ctx.Attacker = protocol.EntityTypePlayer
-		s.postAttack(w, attackBody{player: owner}, attackBody{player: victim}, protocol.ItemStack{}, ctx, syncVelocityAfterTravel)
+		s.thornsOnPlayerOwner(w, victim, owner, protocol.ItemStack{}, damageType, directAttacker)
 	} else if ent := s.mobByEntityID(w, ownerID); ent != nil {
-		ctx.Attacker = mobEntityType(ent.mob.Type)
-		s.postAttack(w, attackBody{mob: ent.mob}, attackBody{player: victim}, protocol.ItemStack{}, ctx, syncVelocityAfterTravel)
+		s.thornsOnMobOwner(w, victim, ent.mob, w, ctx)
 	}
+}
+
+// thornsOnMobOwner hits back a mob owner already resolved, living in ownerW.
+func (s *Server) thornsOnMobOwner(w *world.World, victim *client, owner *entity.Mob, ownerW *world.World, ctx *rules.EnchContext) {
+	ctx.Attacker = mobEntityType(owner.Type)
+	s.postAttack(w, attackBody{mob: owner, w: ownerW}, attackBody{player: victim}, protocol.ItemStack{}, ctx, syncVelocityAfterTravel)
+}
+
+// thornsOnPlayerOwner is thornsOnOwner for an owner already resolved to a
+// player, whose weapon's effects also run (empty for none).
+func (s *Server) thornsOnPlayerOwner(w *world.World, victim, owner *client, weapon protocol.ItemStack, damageType registry.DamageType, directAttacker int32) {
+	s.postAttack(w, attackBody{player: owner}, attackBody{player: victim}, weapon, &rules.EnchContext{
+		DamageType: damageType,
+		Victim:     protocol.EntityTypePlayer, Attacker: protocol.EntityTypePlayer, DirectAttacker: directAttacker,
+	}, syncVelocityAfterTravel)
 }
 
 // mobThorns defers a mob victim's post-attack dispatch until after the mob lock.

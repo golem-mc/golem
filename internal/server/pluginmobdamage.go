@@ -34,7 +34,7 @@ func (g mobHurtGate) Ask(p *entity.HurtProbe) {
 	}
 	// The source is resolved inside: relatedByID takes mobsMu.
 	s.askUnlocked(func() {
-		e.Source = s.pluginSource(ent.w, p.Type, &damageCause{entityID: p.CauseID, directID: p.Direct, exploder: exploder})
+		e.Source = s.pluginSource(ent.w, p.Type, &damageCause{entityID: p.CauseID, directUUID: p.Direct, exploder: exploder})
 		s.plugins.Fire(e)
 	})
 	if _, live := s.herdOf(ent.w).book[p.Mob]; !live {

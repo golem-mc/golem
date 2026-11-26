@@ -322,7 +322,7 @@ func (s *Server) dispenseFirework(w *world.World, d world.Dispense, stack protoc
 	it.rocket.ShotAtAngle = true
 	it.rocket.VX, it.rocket.VY, it.rocket.VZ = vx, vy, vz
 	it.rocket.Yaw, it.rocket.Pitch = entity.ArrowAngles(vx, vy, vz)
-	s.registerFirework(it)
+	s.launchFirework(it)
 	s.broadcastLevelEvent(w, 1004, d.X, d.Y, d.Z, 0) // vanilla: FireworkRocketItem.createDispenseConfig
 	s.dispenseAnimation(w, d)
 }

@@ -167,16 +167,22 @@ func (s *Server) itemsSpawned(reason plugin.SpawnReason, its ...*itemEntity) {
 // whether it stays. Call it with no lock of the body's kind held.
 // vanilla: ServerLevel.addFreshEntity
 func (s *Server) bodySpawned(id uuid.UUID, reason plugin.SpawnReason) bool {
+	if s.bodySpawnAllowed(id, reason) {
+		return true
+	}
+	removeSpawned(s, id)
+	return false
+}
+
+// bodySpawnAllowed puts the spawn of a body to EntitySpawnEvent listeners and
+// leaves a refused one to the caller.
+func (s *Server) bodySpawnAllowed(id uuid.UUID, reason plugin.SpawnReason) bool {
 	if s.plugins == nil || !s.plugins.Has(pluginruntime.EntitySpawn) {
 		return true
 	}
 	e := &plugin.EntitySpawnEvent{Entity: pluginEntity{id: id}, Reason: reason}
 	s.askBody(func() { s.plugins.Fire(e) })
-	if !e.Cancelled() {
-		return true
-	}
-	removeSpawned(s, id)
-	return false
+	return !e.Cancelled()
 }
 
 // removeSpawned discards a refused body. It is set in init: the entity

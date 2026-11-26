@@ -3,6 +3,7 @@ package world
 import (
 	"errors"
 	"fmt"
+	"io/fs"
 	"log/slog"
 	"math/rand/v2"
 	"os"
@@ -71,7 +72,9 @@ type World struct {
 	// means no limit.
 	limit *Border
 	dir   string
-	gen   Generator
+	// oldVersionLogged limits the unsupported-data-version warning to one per world.
+	oldVersionLogged atomic.Bool
+	gen              Generator
 	// debug is the debug world flag: no block writes, ticks or spawning.
 	// Every dimension of a debug world carries it.
 	debug atomic.Bool
@@ -199,6 +202,7 @@ type World struct {
 	entityWriteFault atomic.Pointer[error]
 	entityWriteGate  atomic.Pointer[func()]
 	regionMu         sync.Mutex
+	lodestones       lodestoneCache
 	regions          *regionCache
 	entityRegions    *regionCache
 	entityWrites     entityWrites
@@ -392,6 +396,11 @@ func NewWorld(dir string, gen Generator) (*World, error) {
 // NewDimensionWorld). An overworld whose level.dat and backup both fail to read
 // is an error, so a fresh world never starts over unreadable data.
 func newWorld(dir string, gen Generator, name string, shape dimensionShape, levelDat bool) (*World, error) {
+	return newWorldIn(dir, DimensionDir(dir, name), gen, name, shape, levelDat)
+}
+
+// newWorldIn is newWorld with the dimension's files in storage.
+func newWorldIn(dir, storage string, gen Generator, name string, shape dimensionShape, levelDat bool) (*World, error) {
 	level := defaultLevel("")
 	if levelDat {
 		loaded, err := LoadLevel(dir)
@@ -404,7 +413,7 @@ func newWorld(dir string, gen Generator, name string, shape dimensionShape, leve
 		dir:        dir,
 		gen:        gen,
 		level:      level,
-		storage:    DimensionDir(dir, name),
+		storage:    storage,
 		dim:        shape,
 		dimName:    name,
 		levelDat:   levelDat,
@@ -678,7 +687,17 @@ func (w *World) holdLocked(pos ChunkPos) *Chunk {
 // world lock so chunks prepare in parallel without holding readers up.
 func (w *World) readyChunk(pos ChunkPos) (*Chunk, *[16][16]int32, bool) {
 	c, err := w.loadChunk(pos)
-	if err != nil {
+	if old, ok := errors.AsType[*unsupportedVersionError](err); ok {
+		// Terrain generated over the stored chunk would hide it from the
+		// player; the record stays on disk (marked unreadable, never saved).
+		if !w.oldVersionLogged.Swap(true) {
+			slog.Warn("world has chunks this server cannot upgrade (saved before Minecraft 1.18.2, or holding item stacks from before 1.20.5), "+
+				"they are served empty and left unchanged on disk",
+				"dimension", w.dimName, "chunk", pos, "data_version", old.version)
+		}
+		c = newChunk(pos.X, pos.Z)
+		w.encodeChunk(c)
+	} else if err != nil {
 		slog.Warn("could not load chunk, generating instead; changes to it will not be saved",
 			"x", pos.X, "z", pos.Z, "error", err)
 	}
@@ -783,7 +802,9 @@ func (w *World) putChunk(pos ChunkPos, c *Chunk, motion *[16][16]int32, fresh bo
 	loaded.users.Add(1)
 	w.queueGeneratedTicks(c)
 	w.queueLoadedTicks(c)
+	c.rebuildRandomTickSections()
 	w.chunks[pos] = loaded
+	w.lodestones.drop(pos)
 	touches, comparators := c.redstoneBlockCounts()
 	w.touchBlocks += touches
 	if comparators != 0 {
@@ -1141,12 +1162,12 @@ func (w *World) SwapBlock(x, y, z int32, state uint16) (old uint16, changed bool
 		w.journal = append(w.journal, journalEntry{x, y, z, old, state})
 	}
 	if be := loaded.chunk.blockEntity(x, y, z); be != nil {
-		be.Wake()
+		be.StateWritten()
 	}
 	if old != airState && shulkerBoxBlocks[registry.BlockOf(old)] {
 		w.shulkerLidsOpen.Delete([3]int32{x, y, z})
 	}
-	w.updateMotion(loaded, x&15, z&15)
+	w.updateMotion(loaded, x&15, y, z&15, state)
 	w.updateSurface(loaded, x&15, y, z&15, state)
 	w.afterWrite(loaded)
 	return old, true
@@ -1192,11 +1213,22 @@ func (w *World) afterWrite(loaded *loadedChunk) {
 	loaded.markDirty()
 }
 
-// updateMotion refreshes the written column's MOTION_BLOCKING height so the
-// rain needs no rescan. The caller holds w.mu.
-func (w *World) updateMotion(loaded *loadedChunk, lx, lz int32) {
-	if loaded.motion != nil {
-		loaded.motion[lx][lz] = w.motionHeight(loaded.chunk, lx, lz)
+// updateMotion keeps the written column's MOTION_BLOCKING height true without
+// a rescan: a write below the top changes nothing, a blocking one raises the
+// top, and only removing the top block searches downward. The caller holds
+// w.mu.
+// vanilla: Heightmap.update
+func (w *World) updateMotion(loaded *loadedChunk, lx, y, lz int32, state uint16) {
+	if loaded.motion == nil || !contains(y) {
+		return
+	}
+	h := &loaded.motion[lx][lz]
+	switch {
+	case y < *h:
+	case motionBlockingByState[state]:
+		*h = y
+	case y == *h:
+		*h = w.motionHeightFrom(loaded.chunk, lx, lz, y-1)
 	}
 }
 
@@ -1291,12 +1323,12 @@ func (w *World) SetBlocks(changes []BlockChange) []BlockChange {
 		loaded.chunk.SetBlock(lx, ch.Y, lz, ch.State)
 		w.updateRedstoneBlockCounts(old, ch.State)
 		if be := loaded.chunk.blockEntity(ch.X, ch.Y, ch.Z); be != nil {
-			be.Wake()
+			be.StateWritten()
 		}
 		if old != airState && shulkerBoxBlocks[registry.BlockOf(old)] {
 			w.shulkerLidsOpen.Delete([3]int32{ch.X, ch.Y, ch.Z})
 		}
-		w.updateMotion(loaded, lx, lz)
+		w.updateMotion(loaded, lx, ch.Y, lz, ch.State)
 		w.updateSurface(loaded, lx, ch.Y, lz, ch.State)
 	}
 	for _, loaded := range touched {
@@ -1325,31 +1357,58 @@ func (w *World) updateRedstoneBlockCounts(old, state uint16) {
 	}
 }
 
-// Touch marks the block's chunk dirty without changing a block, vanilla's
-// setChanged for a block entity whose contents moved, so a chest's, furnace's
-// or hopper's contents reach disk at the next save. The position also waits for
-// the next physics tick to wake its comparators.
+// Touch marks a block entity's chunk dirty and queues a comparator wake from
+// its position. vanilla: BlockEntity.setChanged
 func (w *World) Touch(x, y, z int32) {
-	pos := ChunkPos{X: x >> 4, Z: z >> 4}
+	w.touchContainers([3]int32{x, y, z}, nil)
+}
+
+// TouchContainerPair marks both halves of a compound container changed on
+// the same tick. vanilla: CompoundContainer.setChanged
+func (w *World) TouchContainerPair(first, second [3]int32) {
+	w.touchContainers(first, &second)
+}
+
+func (w *World) touchContainers(first [3]int32, second *[3]int32) {
+	pos := ChunkPos{X: first[0] >> 4, Z: first[2] >> 4}
 	// A comparator added after the touch reads the container on placement.
 	if w.comparatorBlocks.Load() == 0 {
-		if loaded := w.nearAt(pos); loaded != nil && loaded.markDirty() {
-			return
-		}
-		w.mu.RLock()
-		defer w.mu.RUnlock()
-		if loaded := w.chunks[pos]; loaded != nil {
-			loaded.markDirty()
+		w.touchContainerChunk(pos)
+		if second != nil {
+			other := ChunkPos{X: second[0] >> 4, Z: second[2] >> 4}
+			if other != pos {
+				w.touchContainerChunk(other)
+			}
 		}
 		return
 	}
 	tick := w.timeWorld().worldAge.Load()
 	w.mu.Lock()
 	defer w.mu.Unlock()
+	wake := w.comparatorBlocks.Load() != 0
+	w.touchContainerAt(first, pos, tick, wake)
+	if second != nil {
+		w.touchContainerAt(*second, ChunkPos{X: second[0] >> 4, Z: second[2] >> 4}, tick, wake)
+	}
+}
+
+func (w *World) touchContainerChunk(pos ChunkPos) {
+	if loaded := w.nearAt(pos); loaded != nil && loaded.markDirty() {
+		return
+	}
+	w.mu.RLock()
+	defer w.mu.RUnlock()
+	if loaded := w.chunks[pos]; loaded != nil {
+		loaded.markDirty()
+	}
+}
+
+// touchContainerAt requires w.mu for writing.
+func (w *World) touchContainerAt(at [3]int32, pos ChunkPos, tick int64, wake bool) {
 	if loaded, ok := w.loadedAt(pos); ok {
 		loaded.markDirty()
-		if w.comparatorBlocks.Load() != 0 {
-			w.containerChanges = append(w.containerChanges, containerChange{pos: posKey{x, y, z}, tick: tick})
+		if wake {
+			w.containerChanges = append(w.containerChanges, containerChange{pos: at, tick: tick})
 		}
 	}
 }
@@ -1371,6 +1430,7 @@ func (w *World) takeContainerChanges() []containerChange {
 	if w.comparatorBlocks.Load() == 0 {
 		return nil
 	}
+	changes = w.filterContainerChanges(changes)
 	if len(changes) < 2 {
 		return changes
 	}
@@ -1393,6 +1453,37 @@ func (w *World) takeContainerChanges() []containerChange {
 		unique = append(unique, c)
 	}
 	return unique
+}
+
+// filterContainerChanges keeps, in order and in place, the changes with a
+// comparator in the same Y section within three blocks horizontally.
+// analogOutputChanged checks the exact cells from each changed position.
+// The caller holds w.mu.
+func (w *World) filterContainerChanges(changes []containerChange) []containerChange {
+	kept := changes[:0]
+	for _, c := range changes {
+		if w.comparatorNear(c.pos) {
+			kept = append(kept, c)
+		}
+	}
+	return kept
+}
+
+// comparatorNear reports whether a loaded chunk within three blocks of pos
+// holds a comparator in pos's section. The caller holds w.mu.
+func (w *World) comparatorNear(pos posKey) bool {
+	if !contains(pos[1]) {
+		return false
+	}
+	si := (pos[1] - worldMinY) / sectionSize
+	for cx := (pos[0] - 3) >> 4; cx <= (pos[0]+3)>>4; cx++ {
+		for cz := (pos[2] - 3) >> 4; cz <= (pos[2]+3)>>4; cz++ {
+			if l, ok := w.loadedAt(ChunkPos{X: cx, Z: cz}); ok && l.chunk.sections[si].comparators != 0 {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // takePendingGenerated returns and clears the generated chunks' scheduled
@@ -1564,20 +1655,35 @@ func (w *World) BlockAt(x, y, z int32) uint16 {
 	if loaded := w.nearAt(pos); loaded != nil {
 		return loaded.chunk.sharedBlockAt(x&15, y, z&15)
 	}
+	if chunk := w.sharedChunkOnNearMiss(pos); chunk != nil {
+		return chunk.sharedBlockAt(x&15, y, z&15)
+	}
+	return airState
+}
+
+// sharedChunkAt returns pos's loaded chunk for lock-free sharedBlockAt reads,
+// or nil if not loaded.
+func (w *World) sharedChunkAt(pos ChunkPos) *Chunk {
+	if loaded := w.nearAt(pos); loaded != nil {
+		return loaded.chunk
+	}
+	return w.sharedChunkOnNearMiss(pos)
+}
+
+func (w *World) sharedChunkOnNearMiss(pos ChunkPos) *Chunk {
 	w.mu.RLock()
 	loaded, ok := w.chunks[pos]
 	if !ok {
 		w.mu.RUnlock()
-		return airState
+		return nil
 	}
-	// Two chunks sharing a slot (more than nearSlots chunks apart on an axis)
-	// take it from each other on a miss, so a run of reads in one chunk hits.
+	// Chunks sharing a slot take it from each other on a miss, so a run of
+	// reads in one chunk hits.
 	if slot := &w.near[nearIndex(pos)]; slot.Load() != loaded {
 		slot.Store(loaded)
 	}
-	state := loaded.chunk.BlockAt(x&15, y, z&15)
 	w.mu.RUnlock()
-	return state
+	return loaded.chunk
 }
 
 // blockReader reads blocks under one hold of the read lock with a last-chunk
@@ -2028,33 +2134,13 @@ func (w *World) RegionFileCounts() (chunks, entities int) {
 // coordinates is relocated to the slot read.
 // vanilla: SerializableChunkData.read
 func (w *World) loadChunk(pos ChunkPos) (*Chunk, error) {
-	rx, rz := regionCoords(pos)
-	path := regionFilePath(w.storage, rx, rz)
-	if _, err := os.Stat(path); err != nil {
-		return nil, nil // no region file, no chunk to load
-	}
-	rf, err := w.region(rx, rz)
-	if err != nil {
-		return nil, err
-	}
-	defer w.releaseRegion(rf)
-	index := regionIndex(pos.X, pos.Z)
-	data, err := rf.readChunk(pos)
-	if err != nil {
-		return nil, err
-	}
-	if data == nil {
-		return nil, nil // chunk not in this region
-	}
-	root, err := decodeRoot(data)
 	var chunk *Chunk
-	if err == nil {
-		relocateChunkRoot(root, pos)
+	_, err := w.withChunkRoot(pos, false, func(root nbt.Compound) (err error) {
 		chunk, err = decodeChunkNBT(root)
-	}
+		return err
+	})
 	if err != nil {
-		rf.markUnreadable(index)
-		return nil, fmt.Errorf("chunk (%d,%d): %w", pos.X, pos.Z, err)
+		return nil, err
 	}
 	// Encode for this dimension: the decode built the full-height form, which
 	// nether and end clients would read past the end of their shorter chunks.
@@ -2062,6 +2148,51 @@ func (w *World) loadChunk(pos ChunkPos) (*Chunk, error) {
 		w.encodeChunk(chunk)
 	}
 	return chunk, nil
+}
+
+// withChunkRoot reads a chunk's stored NBT and hands it to read, relocated to
+// pos; found is false when the chunk is absent. A loading read marks a chunk
+// that does not parse, or that read refuses, unreadable and treats a region
+// file it cannot stat as absent. A peek leaves the file and record alone, and an
+// unreadable file or record is an error, not an absence.
+func (w *World) withChunkRoot(pos ChunkPos, peek bool, read func(root nbt.Compound) error) (found bool, err error) {
+	rx, rz := regionCoords(pos)
+	path := regionFilePath(w.storage, rx, rz)
+	if _, err := os.Stat(path); err != nil {
+		if peek && !errors.Is(err, fs.ErrNotExist) {
+			return false, err
+		}
+		return false, nil // no region file, no chunk to load
+	}
+	open, readRecord := w.region, (*regionFile).readChunk
+	if peek {
+		open, readRecord = w.peekRegion, (*regionFile).peekChunk
+	}
+	rf, err := open(rx, rz)
+	if err != nil {
+		return false, err
+	}
+	defer w.releaseRegion(rf)
+	index := regionIndex(pos.X, pos.Z)
+	data, err := readRecord(rf, pos)
+	if err != nil {
+		return false, err
+	}
+	if data == nil {
+		return false, nil // chunk not in this region
+	}
+	root, err := decodeRoot(data)
+	if err == nil {
+		relocateChunkRoot(root, pos)
+		err = read(root)
+	}
+	if err != nil {
+		if !peek {
+			rf.markUnreadable(index)
+		}
+		return false, fmt.Errorf("chunk (%d,%d): %w", pos.X, pos.Z, err)
+	}
+	return true, nil
 }
 
 // decodeRoot parses a chunk's region NBT, whose root must be a compound.
@@ -2217,6 +2348,9 @@ func (w *World) saveChunk(pos ChunkPos, c *Chunk) (bool, error) {
 		}
 		err = rf.writeChunk(pos, data)
 		w.releaseRegion(rf)
+		if err == nil {
+			w.lodestones.drop(pos)
+		}
 		*buf = data // keeps the grown capacity; writeChunk has copied or compressed data by now
 		saveBuffers.Put(buf)
 		return err == nil, skipUnreadable(err, "chunk", pos)
@@ -2243,6 +2377,16 @@ func (w *World) region(rx, rz int32) (*regionFile, error) {
 	w.regionMu.Lock()
 	defer w.regionMu.Unlock()
 	return w.regions.get(rx, rz)
+}
+
+// peekRegion is region that leaves a file it has to open unchanged, refusing
+// one with no full header.
+func (w *World) peekRegion(rx, rz int32) (*regionFile, error) {
+	w.regionMu.Lock()
+	defer w.regionMu.Unlock()
+	return w.regions.getWith(rx, rz, func(rx, rz int32) (*regionFile, error) {
+		return peekRegion(regionFilePath(w.storage, rx, rz), w.saveFormat)
+	})
 }
 
 // releaseRegion gives back a handle from region.

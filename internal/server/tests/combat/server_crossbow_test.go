@@ -4,6 +4,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/golem-mc/golem/internal/config"
 	"github.com/golem-mc/golem/internal/server/servertest"
 
 	"github.com/golem-mc/golem/internal/protocol"
@@ -299,4 +300,35 @@ func checkCrossbowPickupAfterModeChange(t *testing.T, srv *server.Server, c *ser
 			t.Errorf("%d arrows remain after touching an intangible arrow, want 1", got)
 		}
 	}
+}
+
+// TestACrossbowRocketKeepsItsLoadedStack fires a crossbow loaded with a stack
+// of two rockets: one rocket flies, carrying the whole stack.
+// vanilla: CrossbowItem.createProjectile, FireworkRocketEntity.<init>
+func TestACrossbowRocketKeepsItsLoadedStack(t *testing.T) {
+	t.Parallel()
+	cfg := servertest.BowTestConfig()
+	cfg.ViewDistance, cfg.SimulationDistance = config.MinDistance, config.MinDistance
+	srv, c := servertest.Join(t, cfg, "Archer")
+	servertest.HoldTicks(t, srv)
+	crossbow := servertest.ItemStack(t, "minecraft:crossbow", 1)
+	crossbow.SetChargedProjectiles([]protocol.ItemStack{servertest.ItemStack(t, "minecraft:firework_rocket", 2)})
+	srv.GiveSlot("Archer", 36, crossbow)
+	c.MoveTo(0.5, 64, 0.5, -90, 0)
+	servertest.DrawBow(c, -90, 0)
+	if !servertest.ASpawnOfWithinTicks(c, srv, 2, protocol.EntityTypeFireworkRocket) {
+		t.Fatal("the crossbow fired no rocket")
+	}
+	if n := srv.FireworkCount(); n != 1 {
+		t.Fatalf("%d rockets fly, want 1", n)
+	}
+	for _, text := range srv.RunLine("data get entity @e[type=firework_rocket,limit=1] FireworksItem.count") {
+		if text.Translate == "commands.data.entity.query" && len(text.With) == 2 {
+			if got := text.With[1].Plain(); got != "2" {
+				t.Errorf("the rocket carries %s items, want 2", got)
+			}
+			return
+		}
+	}
+	t.Fatal("no FireworksItem.count on the rocket")
 }

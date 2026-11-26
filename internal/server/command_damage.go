@@ -5,6 +5,7 @@ import (
 	"github.com/golem-mc/golem/internal/server/command"
 	"github.com/golem-mc/golem/internal/server/entity"
 	"github.com/golem-mc/golem/internal/server/rules"
+	"github.com/golem-mc/golem/internal/server/world"
 	"github.com/golem-mc/golem/registry"
 )
 
@@ -23,6 +24,7 @@ func damageCauseOf(origin command.DamageOrigin, damageType registry.DamageType) 
 	if causing != nil {
 		cause.entityID = causing.EntityID()
 		cause.directID = direct.EntityID() + 1
+		cause.directUUID = direct.UUID()
 		cause.killer = &rules.Killer{Name: causing.DisplayName()}
 		if p, ok := causing.(command.Target); ok {
 			cause.player, cause.creative = true, p.GameModeNumber() == protocol.GameModeCreative
@@ -128,27 +130,46 @@ func (e *entitySnapshot) Damage(amount float32, damageType registry.DamageType, 
 		}))
 		hitFrom = &hs
 	}
-	s, w := e.srv, ref.w
+	resolveHit := func() *entity.HitSource {
+		if hitFrom != nil {
+			return hitFrom
+		}
+		snap, ok := causing.(*entitySnapshot)
+		if !ok {
+			return nil
+		}
+		if mob, ok := snap.ref.(*mobEntity); ok {
+			hs := mob.mob.HitSource()
+			return &hs
+		}
+		pos := snap.pos
+		eye := pos.Y + float64(float32(snap.box[4]-snap.box[1])*0.85)
+		return &entity.HitSource{
+			X: pos.X, Y: pos.Y, Z: pos.Z, Eye: eye,
+			Yaw: float64(pos.Yaw), Pitch: float64(pos.Pitch),
+		}
+	}
+	return e.srv.hurtMobTyped(ref.w, ref.mob, float64(amount), damageType, cause, directID, "", false, resolveHit)
+}
+
+// hurtMobTyped hurts m with a typed blow from cause (nil for none), then tells
+// its watchers of the new health and the Damage Event (direct is an entity ID
+// + 1). It reports whether the hurt landed. A landed blow notes directType,
+// the entity type of its direct entity, for the kill criterion. With
+// spareInvulnerable a mob with the invulnerable flag takes nothing even from a
+// creative cause. hitFrom, if set, runs under the mob lock.
+// vanilla: LivingEntity.hurtServer, broadcastDamageEvent
+func (s *Server) hurtMobTyped(w *world.World, m *entity.Mob, amount float64, damageType registry.DamageType, cause *damageCause,
+	direct int32, directType string, spareInvulnerable bool, hitFrom func() *entity.HitSource) bool {
 	s.mobsMu.Lock()
-	m := ref.mob
-	if s.herdOf(w).book[m] == nil || m.Dead {
+	ent := s.herdOf(w).book[m]
+	if ent == nil || m.Dead || spareInvulnerable && m.Invulnerable {
 		s.mobsMu.Unlock()
 		return false
 	}
-	if hitFrom == nil {
-		if snap, ok := causing.(*entitySnapshot); ok {
-			if mob, ok := snap.ref.(*mobEntity); ok {
-				hs := mob.mob.HitSource()
-				hitFrom = &hs
-			} else {
-				pos := snap.pos
-				eye := pos.Y + float64(float32(snap.box[4]-snap.box[1])*0.85)
-				hitFrom = &entity.HitSource{
-					X: pos.X, Y: pos.Y, Z: pos.Z, Eye: eye,
-					Yaw: float64(pos.Yaw), Pitch: float64(pos.Pitch),
-				}
-			}
-		}
+	var hs *entity.HitSource
+	if hitFrom != nil {
+		hs = hitFrom()
 	}
 	// With no source the shove's direction has no length, so knockback
 	// picks a random one. vanilla: LivingEntity.dealDefaultKnockback
@@ -156,14 +177,18 @@ func (e *entitySnapshot) Damage(amount float32, damageType registry.DamageType, 
 	if cause != nil {
 		src = *cause
 	}
-	landed, softened := m.HurtByCommand(float64(amount), damageType, src.entityID, src.player, src.creative, src.x, src.z, hitFrom)
+	s.pendingExploder = src.exploder
+	landed, softened := m.HurtByCommand(amount, damageType, src.entityID, src.directUUID, src.player, src.creative, src.x, src.z, hs)
+	s.pendingExploder = nil // under mobsMu, which guards it
 	var health []byte
 	var sends []mobSend
 	if landed {
-		health = ref.syncHealth()
+		if directType != "" {
+			m.NoteBlowDirect(directType)
+		}
+		health = ent.syncHealth()
 		if !softened {
-			// vanilla: LivingEntity.hurtServer broadcastDamageEvent
-			sends = mobHurtToldBy(w, m, damageType, causeEntityID(cause), directID, damageEventPos(cause))
+			sends = mobHurtToldBy(w, m, damageType, causeEntityID(cause), direct, damageEventPos(cause))
 		}
 	}
 	s.mobsMu.Unlock()

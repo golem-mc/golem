@@ -52,10 +52,10 @@ func (w *World) LoadChunkEntities(pos ChunkPos) ([]nbt.Tag, bool, error) {
 		return nil, false, fmt.Errorf("entities of chunk (%d,%d): %w", pos.X, pos.Z, err)
 	}
 	version, _ := nbt.Get[nbt.Int](root, "DataVersion")
-	if version != 0 && version < chunkDataVersionFloor {
+	if version != 0 && version < entityDataVersionFloor {
 		rf.markUnreadable(index) // so the next save keeps the refused record
 		return nil, false, fmt.Errorf("entities of chunk (%d,%d): data version %d is below %d",
-			pos.X, pos.Z, version, chunkDataVersionFloor)
+			pos.X, pos.Z, version, entityDataVersionFloor)
 	}
 	entities, ok := nbt.Get[nbt.List](root, "Entities")
 	if !ok {

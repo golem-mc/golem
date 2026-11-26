@@ -123,6 +123,23 @@ func (c *Client) Input(k Keys) (Result, error) {
 // Use right-clicks on what the crosshair points at, or uses the held item.
 func (c *Client) Use() (Result, error) { return c.Call("use", map[string]any{}) }
 
+// UseFor holds the use key for ticks client ticks and releases it, answering
+// once the hold is over: using says whether an item was in use just before the
+// release. A negative ticks holds until UseFor(0) releases it.
+func (c *Client) UseFor(ticks int) (Result, error) { return c.hold("use", ticks) }
+
+// AttackFor is UseFor for the attack key.
+func (c *Client) AttackFor(ticks int) (Result, error) { return c.hold("attack", ticks) }
+
+// hold waits for the agent's answer, which takes as long as the hold.
+func (c *Client) hold(path string, ticks int) (Result, error) {
+	long := *c
+	httpc := *c.HTTP
+	httpc.Timeout += time.Duration(max(ticks, 0)) * 100 * time.Millisecond
+	long.HTTP = &httpc
+	return long.Call(path, map[string]any{"ticks": ticks})
+}
+
 // Attack attacks what the crosshair points at, or starts digging a block.
 func (c *Client) Attack() (Result, error) { return c.Call("attack", map[string]any{}) }
 

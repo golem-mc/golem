@@ -67,9 +67,8 @@ func (s *Server) arrowMannequinOutcome(hit arrowMannequinHit) arrowOutcome {
 	for _, in := range arrowPostEffects(it) {
 		m.AddEffect(in)
 	}
-	packets, watchers := mannequinEffectPackets(ent), trackedWatchers(ent.tracked)
+	syncMannequinEffects(ent)
 	s.mannequinsMu.Unlock()
-	s.tellWatchers(it.w, watchers, packets)
 	s.arrowsMu.Lock()
 	killed := it.killedByArrow(hurt.died, mannequinEntityID)
 	s.arrowsMu.Unlock()

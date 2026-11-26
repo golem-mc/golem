@@ -203,6 +203,22 @@ func (s *Server) EndClockTime() int64 {
 	return total
 }
 
+// PluginEntityDataKeys counts the keys of the plugin Data stored for an
+// entity UUID, live or not.
+func (s *Server) PluginEntityDataKeys(id uuid.UUID) (n int) {
+	s.entityData.Read(entityDataID(id), func(c nbt.CompoundTag) { n = len(c.Entries()) })
+	return n
+}
+
+// PluginCallsQueued is signalled when a connection queues a plugin call for
+// the tick goroutine, nil with no plugins.
+func (s *Server) PluginCallsQueued() <-chan struct{} {
+	if s.plugins == nil {
+		return nil
+	}
+	return s.plugins.CallsQueued()
+}
+
 // SetTickClock replaces the clock the main loop schedules its ticks by and
 // the logger the loop's own lines go to, the backlog warning and a
 // finished sprint's report. It has to be called before the main loop is
@@ -408,6 +424,9 @@ func (s *Server) SetLoadedBlock(x, y, z int32, state uint16) {
 	s.world.ReleaseWait(pos, &saves)
 	saves.Wait()
 }
+
+// ForgetLodestoneAnswers drops the overworld's kept lodestone answers.
+func (s *Server) ForgetLodestoneAnswers() { s.world.ForgetLodestones() }
 
 // ScanOverworldBlocks walks the generated overworld inside the block square
 // x0..x1 by z0..z1, between the Y bounds given, and calls visit with the Y
@@ -1023,6 +1042,12 @@ func (s *Server) PlayerHealth(name string) float64 {
 		return c.player.Vitals().Health
 	}
 	return -1
+}
+
+// PlayerHoldsChunks reports whether the named online player keeps chunk tickets.
+func (s *Server) PlayerHoldsChunks(name string) bool {
+	c := s.playerClient(name)
+	return c != nil && c.holdsChunks()
 }
 
 // HoldPlayerUnloaded makes the named player's client count as still loading
@@ -3825,7 +3850,7 @@ func (s *Server) SpawnCloudEntity(x, y, z float64) TestTrackedBody {
 
 // SpawnOwnerlessCloud stands an area effect cloud with the effects given and
 // no owner, already past its wait, where the tests put it.
-func (s *Server) SpawnOwnerlessCloud(x, y, z float64, specs []protocol.PotionEffectSpec) {
+func (s *Server) SpawnOwnerlessCloud(x, y, z float64, specs []protocol.PotionEffectSpec) TestTrackedBody {
 	effects := make([]effect.Instance, 0, len(specs))
 	for _, spec := range specs {
 		effects = append(effects, effect.FromWireSpec(spec))
@@ -3836,6 +3861,18 @@ func (s *Server) SpawnOwnerlessCloud(x, y, z float64, specs []protocol.PotionEff
 	it := s.clouds[len(s.clouds)-1]
 	it.cloud.WaitTime = 0
 	it.cloud.Restore(0, 3, -1e-3)
+	return TestTrackedBody{ID: it.cloud.ID, UUID: it.uuid}
+}
+
+// SetCloudRadius sets the radius of the cloud with the identity given.
+func (s *Server) SetCloudRadius(id uuid.UUID, radius float32) {
+	s.arrowsMu.Lock()
+	defer s.arrowsMu.Unlock()
+	for _, it := range s.clouds {
+		if it.uuid == id {
+			it.cloud.Restore(it.cloud.TickCount, radius, -1e-3)
+		}
+	}
 }
 
 // CloudState reads the age and radius of the cloud with the identity given.
@@ -4767,6 +4804,13 @@ func (s *Server) PlayerTrackBetween(between func()) {
 	s.mu.Unlock()
 }
 
+// CorpseExpiryBetween runs between finding an expired corpse and removing it.
+func (s *Server) CorpseExpiryBetween(between func()) {
+	s.mu.Lock()
+	s.corpseExpirySeam = between
+	s.mu.Unlock()
+}
+
 // PlayerSendBetween holds open the window the players' tracking pass leaves
 // between deciding a pairing and sending it, running between there the way a
 // step from another connection would: a spawn the mover's step then doubles,
@@ -4930,6 +4974,14 @@ func (s *Server) SetPhysicsSeed(seed int64) {
 	for _, dim := range s.allDims() {
 		dim.physics.SetSeed(seed)
 	}
+}
+
+// TickProjectiles runs the arrow and rocket passes once, as the main loop
+// runs them. A plugin listener calls it to step a projectile between two of
+// the server's own steps.
+func (s *Server) TickProjectiles() {
+	s.tickArrows()
+	s.tickFireworks()
 }
 
 // TickEntities runs the entity passes the main loop runs after the physics,
@@ -6400,6 +6452,13 @@ func (s *Server) LaunchFireball(kind entity.ThrownKind, x, y, z, dx, dy, dz floa
 	return s.spawnFireball(kind, s.allDims()[0].w, x, y, z, dx, dy, dz, ownerID, uuid.Nil, explosionPower, 1)
 }
 
+// LaunchAcceleratedFireball is LaunchFireball with the acceleration power a
+// saved projectile may carry.
+func (s *Server) LaunchAcceleratedFireball(kind entity.ThrownKind, x, y, z, dx, dy, dz, acceleration float64) int32 {
+	return s.spawnFireball(kind, s.allDims()[0].w, x, y, z, dx, dy, dz, 0, uuid.Nil, 1, 1,
+		func(t *entity.Thrown) { t.AccelerationPower = acceleration })
+}
+
 // LaunchShulkerBullet puts a shulker bullet at (x, y, z) in the first
 // dimension's world, homing on the mob with the entity ID given.
 func (s *Server) LaunchShulkerBullet(x, y, z float64, targetMobID int32, seed int64) {
@@ -7424,6 +7483,23 @@ func (s *Server) SpawnFangs(x, y, z float64, ownerID int32) {
 	s.spawnFangs(fangsCast{w: s.world, owner: ownerID, x: x, y: y, z: z, warmup: 0})
 }
 
+// SpawnExpiringFangs stands overworld fangs whose next tick is both their bite
+// and their last, owned by the entity ID given.
+func (s *Server) SpawnExpiringFangs(x, y, z float64, ownerID int32) {
+	s.spawnFangs(fangsCast{w: s.world, owner: ownerID, x: x, y: y, z: z, warmup: 0})
+	s.fangs.mu.Lock()
+	defer s.fangs.mu.Unlock()
+	f := s.fangs.list[len(s.fangs.list)-1].fangs
+	f.SetWarmup(-7)
+	f.SetLife(0)
+}
+
+// SpawnFangsWarmup raises fangs that bite after the warmup in ticks, owned by
+// the mob with the ID given.
+func (s *Server) SpawnFangsWarmup(x, y, z float64, ownerID int32, warmup int) {
+	s.spawnFangs(fangsCast{w: s.world, owner: ownerID, x: x, y: y, z: z, warmup: warmup})
+}
+
 // RunWindBurst bursts a wind charge at the centre given, owned by nobody.
 func (s *Server) RunWindBurst(x, y, z float64) {
 	s.burstWindCharge(windBurst{w: s.world, x: x, y: y, z: z, rng: rand.New(rand.NewSource(1))})
@@ -7850,7 +7926,8 @@ func (s *Server) SetMannequinForTest(id int32, health, fall float64) {
 	defer s.mannequinsMu.Unlock()
 	for _, it := range s.mannequins {
 		if it.mannequin.ID == id {
-			it.mannequin.Health, it.mannequin.FallDistance = health, fall
+			it.mannequin.SetHealth(health)
+			it.mannequin.FallDistance = fall
 		}
 	}
 }

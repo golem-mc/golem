@@ -137,6 +137,7 @@ func mannequinOfTag(s *Server, w *world.World, compound nbt.Compound) *mannequin
 // vanilla: Entity.load, Mannequin.readAdditionalSaveData
 func applyMannequinTag(ent *mannequinEntity, compound nbt.Compound) bool {
 	m := ent.mannequin
+	ent.needsSync = true
 	if x, y, z, ok := entityPositionOfTag(compound); ok {
 		m.SetPos(x, y, z)
 	}
@@ -152,7 +153,7 @@ func applyMannequinTag(ent *mannequinEntity, compound nbt.Compound) bool {
 	equipment, _ := nbt.Get[nbt.Compound](compound, "equipment")
 	m.MainHand, m.OffHand, m.Worn = heldEquipmentOf(equipment)
 	if health, named := nbt.FloatField(compound, "Health"); named {
-		m.Health = max(0, float64(health))
+		m.SetHealth(max(0, float64(health)))
 	}
 	fire, _ := nbt.ShortField(compound, "Fire")
 	m.FireTicks = int(fire)
@@ -172,7 +173,7 @@ func applyMannequinTag(ent *mannequinEntity, compound nbt.Compound) bool {
 	}
 	m.SyncEquipmentModifiers()
 	rules.UpdateEffectAttributes(m.Attributes, m.AllEffects())
-	m.Health = min(m.Health, m.HealthCap())
+	m.SetHealth(min(m.Health, m.HealthCap()))
 	m.Profile = mannequinProfileOfTag(compound["profile"])
 	m.Layers = entity.MannequinAllLayers
 	if list, ok := nbt.Get[nbt.List](compound, "hidden_layers"); ok {

@@ -36,7 +36,7 @@ func TestNaturalSpawnEmptyColumnHeight(t *testing.T) {
 			counts := entity.SpawnCounts{}
 			entity.SpawnNaturally(sw, actual, []entity.ChunkPos{{X: pos.X, Z: pos.Z}},
 				[]entity.SpawnPlayer{{EntityID: 1, X: -8, Y: 64, Z: 24}}, nil, &entity.SpawnPotential{},
-				[]entity.SpawnPass{entity.NewSpawnPass(entity.CategoryMonster, &counts, -1)}, 289,
+				[]entity.SpawnPass{entity.NewSpawnPass(entity.CategoryMonster, &counts, -1)}, 289, nil,
 				func(entity.SpawnRequest) { t.Fatal("spawned in an empty chunk") })
 			// The inclusive range [minY, minY] still consumes nextInt(1),
 			// then the floor guard returns without drawing a pack walk.

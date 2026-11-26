@@ -57,7 +57,7 @@ func (s *Server) tickArrows() {
 			arrowTracker.unfile(it)
 			continue // hit, picked up, or expired before this tick
 		}
-		if !gate.ticks(it.w, it.arrow.X, it.arrow.Z) {
+		if it.spawning || !gate.ticks(it.w, it.arrow.X, it.arrow.Z) {
 			held = append(held, it)
 			alive = append(alive, it)
 			continue
@@ -121,13 +121,14 @@ type arrowTickInputs struct {
 	spareByOwner map[int32][]int32
 }
 
-// arrowWorldTargets holds the player and mannequin snapshots and the
-// vertical bounds of the mob chunks searched so far.
+// arrowWorldTargets holds the shared targets and the vertical bounds of
+// the mob chunks searched so far.
 type arrowWorldTargets struct {
-	targets    []entity.ArrowTarget // players, then mannequins
-	index      map[int32]int
-	clients    map[int32]*client
-	mobHeights map[world.ChunkPos][2]float64
+	targets             []entity.ArrowTarget // players, then mannequins
+	index               map[int32]int
+	clients             map[int32]*client
+	mobHeights          map[world.ChunkPos][2]float64
+	hasNonLivingTargets bool
 }
 
 type arrowTargetScratch struct {
@@ -219,6 +220,11 @@ func (s *Server) crossArrowPortalsLocked(fx *arrowEffects, gate entityGate) (fly
 	for _, it := range s.arrows {
 		if it.arrow.Dead {
 			arrowTracker.unfile(it)
+			continue
+		}
+		if it.spawning {
+			// Portals wait for the arrow's first tick, after its spawn effects.
+			portalAlive = append(portalAlive, it)
 			continue
 		}
 		state, kind, due := gate.stepPortal(it.w, it.arrow.X, it.arrow.Y, it.arrow.Z, &it.portal, projectileCooldownTicks)
@@ -403,10 +409,13 @@ func (s *Server) stepArrow(fx *arrowEffects, in *arrowTickInputs, hv *arrowHangi
 	fx.watchArrow(it, in.watchers[it.w], in.nearby[it.w], events)
 }
 
-func (in *arrowTickInputs) targetsIn(w *world.World) *arrowWorldTargets {
+func (in *arrowTickInputs) targetsIn(w *world.World, hv *arrowHangingView) *arrowWorldTargets {
 	wt := in.worldTargets[w]
 	if wt == nil {
-		wt = &arrowWorldTargets{}
+		wt = &arrowWorldTargets{
+			hasNonLivingTargets: len(hv.frames[w])+len(hv.paintings.byWorld[w])+len(hv.knots[w])+len(hv.projectiles[w])+
+				len(in.boatsByWorld[w])+len(in.standsByWorld[w])+len(in.crystalsByWorld[w])+len(in.cushionsByWorld[w]) != 0,
+		}
 		watchers, mannequins := in.watchers[w], in.mannequins.byWorld[w]
 		if count := len(watchers) + len(mannequins); count != 0 {
 			wt.targets = make([]entity.ArrowTarget, 0, count)
@@ -439,23 +448,35 @@ func (in *arrowTickInputs) targetsIn(w *world.World) *arrowWorldTargets {
 // arrowTargets gathers the bodies the arrow might hit and its shooter.
 // The arrow and mob locks are held until the scratch is done being read.
 func (s *Server) arrowTargets(it *arrowEntity, dim *dimension, in *arrowTickInputs, hv *arrowHangingView, scratch *arrowTargetScratch, bodies *arrowBodies) (targets []entity.ArrowTarget, owner *entity.ArrowTarget) {
-	wt := in.targetsIn(it.w)
+	ownerID := it.arrow.OwnerID
+	// A lodged arrow only needs targets to resolve its owner.
+	// vanilla: AbstractArrow.tick, ThrownTrident.tick
+	if ownerID == 0 && it.arrow.InGround {
+		return nil, nil
+	}
+	wt := in.targetsIn(it.w, hv)
 	bodies.clients = wt.clients
+	targets = wt.targets
+	if ownerID != 0 {
+		if i, ok := wt.index[ownerID]; ok {
+			owner = &targets[i]
+		}
+	}
+	hasMobs := len(dim.mobs.book) != 0
+	if !hasMobs && (it.arrow.InGround || !wt.hasNonLivingTargets) {
+		return targets, owner
+	}
+
 	scratch.targets = scratch.targets[:0]
 	clear(scratch.byID)
 	// Capped so a sliver appended below cannot write into the shared list.
-	targets = wt.targets[:len(wt.targets):len(wt.targets)]
-	ownerID := it.arrow.OwnerID
+	targets = targets[:len(targets):len(targets)]
 	var mobOwner *entity.Mob
-	if i, ok := wt.index[ownerID]; ok {
-		owner = &targets[i]
-	} else if ownerID != 0 {
+	if hasMobs && ownerID != 0 && owner == nil {
 		if ent := s.mobByEntityIDLocked(it.w, ownerID); ent != nil {
 			mobOwner = ent.mob
 		}
 	}
-	// The lodged branch never sweeps entities. Loyalty still needs the owner.
-	// vanilla: AbstractArrow.tick, ThrownTrident.tick
 	if it.arrow.InGround {
 		if mobOwner != nil {
 			owner = scratch.addMob(mobOwner, ownerID, in.boatRoots[mobOwner.ID])
@@ -464,7 +485,7 @@ func (s *Server) arrowTargets(it *arrowEntity, dim *dimension, in *arrowTickInpu
 		return targets, owner
 	}
 	boxMinX, boxMinY, boxMinZ, boxMaxX, boxMaxY, boxMaxZ := it.arrow.SweptBox()
-	if len(dim.mobs.book) != 0 {
+	if hasMobs {
 		// SweptBox already includes the horizontal block of inflation.
 		// vanilla: AbstractArrow.findHitEntities
 		box := [6]float64{boxMinX, boxMinY - 1, boxMinZ, boxMaxX, boxMaxY + 1, boxMaxZ}
@@ -672,7 +693,7 @@ func (scratch *arrowTargetScratch) addMob(m *entity.Mob, ownerID, root int32) *e
 // held.
 func (fx *arrowEffects) watchArrow(it *arrowEntity, watchers []arrowWatcher, near *nearbyPlayers, events []entity.ArrowEvent) {
 	body := arrowTracker.body(it)
-	mt := body.schedule(it.takeSync)
+	mt := body.schedule(it.takeSync())
 
 	// Velocity updates go to the watchers alone, including newly paired ones.
 	// vanilla: ServerEntity.sendChanges, sendToTrackingPlayers
@@ -865,7 +886,7 @@ func (s *Server) arrowHitTarget(fx *arrowEffects, in *arrowTickInputs, hv *arrow
 			effects:     arrowPostEffects(it),
 			custom:      it.custom,
 			x:           ev.X, y: ev.Y, z: ev.Z,
-			vx: ev.VX, vz: ev.VZ,
+			vx: ev.VX, vy: ev.VY, vz: ev.VZ,
 		})
 	case hv.frameByID[it.w][target.EntityID] != nil:
 		// A frame takes the hurt a body does: its item pops, or

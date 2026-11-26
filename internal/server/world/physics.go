@@ -71,17 +71,19 @@ var updateShapeOrder = [6][3]int32{
 }
 
 // TickPriority ranks, smaller more urgent: among ticks due the same instant the
-// higher priority runs first. The two below the block ticks are the piston
-// passes: vanilla drains block events after the scheduled-tick pass, and block
-// entities (moving pistons landing) after the events, so both wait for every
-// block tick of their game tick, the landing after the events.
+// higher priority runs first. Block ticks use vanilla's -3..3; the two after
+// them are the piston passes, outside that range so no saved or copied tick
+// takes one: vanilla drains block events after the scheduled-tick pass, and
+// block entities (moving pistons landing) after the events, so both wait for
+// every block tick of their game tick, the landing after the events.
+// vanilla: TickPriority
 const (
 	tickPriorityExtremelyHigh = -3
 	tickPriorityVeryHigh      = -2
 	tickPriorityHigh          = -1
 	tickPriorityNormal        = 0
-	tickPriorityEvent         = 1
-	tickPriorityFinalize      = 2
+	tickPriorityEvent         = 4
+	tickPriorityFinalize      = 5
 )
 
 // fluidKind numbers the two fluids; the zero value is no fluid, what every
@@ -504,6 +506,9 @@ type scheduledTick struct {
 	event    uint8
 	// fluid is the booked fluid type of a fluid visit, zero for any other.
 	fluid fluidType
+	// block is the block a block tick was booked for (air is a valid type);
+	// vanilla's ScheduledTick keeps the type it was booked for.
+	block registry.Block
 }
 
 // tickQueue orders ticks by due time, then priority (smaller more urgent), then
@@ -623,7 +628,9 @@ type Physics struct {
 	// randomTickKeys is RandomTick's sort buffer, reused between ticks.
 	randomTickKeys []uint64
 	queue          tickQueue
-	pending        map[blockKey]bool
+	// chunkIdx caches where each chunk's entries sit in queue; see tickIndex.
+	chunkIdx tickIndex
+	pending  map[blockKey]bool
 	// fluidBooked holds the fluid visits queued, one per position and type.
 	fluidBooked map[fluidBook]struct{}
 	finalizeSeq map[blockKey]int64
@@ -674,6 +681,11 @@ type Physics struct {
 	// waterlogged leaf's fluid tick so neither delays the other. Set when
 	// booked, cleared when run.
 	leafBooked map[blockKey]bool
+	// dirtPathBooked marks dirt paths with a tick booked, apart from the
+	// pending visit a replaced farmland leaves at the same position.
+	dirtPathBooked map[blockKey]bool
+	// farmlandBooked is the same for farmland.
+	farmlandBooked map[blockKey]bool
 	// scaffoldingBooked keeps stability visits apart from fluid visits.
 	scaffoldingBooked map[blockKey]bool
 
@@ -779,6 +791,9 @@ type Physics struct {
 	// them through takeWake under mu, so one caller never clears another's.
 	effects    []Effect
 	wakePrimes []TNTPrime
+	// physicsAsked holds the answers of one write's BlockPhysicsEvent asks, by
+	// neighbour and written cell, so its wake and shape pass ask once.
+	physicsAsked map[[6]int32]bool
 
 	// rides are the cells of the moving pistons still sweeping, in creation
 	// order.
@@ -876,6 +891,8 @@ func NewPhysics(w *World) *Physics {
 		cauldronBooked:      make(map[blockKey]bool),
 		leafBooked:          make(map[blockKey]bool),
 		scaffoldingBooked:   make(map[blockKey]bool),
+		dirtPathBooked:      make(map[blockKey]bool),
+		farmlandBooked:      make(map[blockKey]bool),
 		coralBooked:         make(map[blockKey]bool),
 		redstoneBooked:      make(map[blockKey]bool),
 		sculkBooked:         make(map[blockKey]bool),
@@ -900,6 +917,7 @@ func NewPhysics(w *World) *Physics {
 func (p *Physics) takeWake() ([]Effect, []TNTPrime) {
 	effects, primes := p.effects, p.wakePrimes
 	p.effects, p.wakePrimes = nil, nil
+	p.physicsAsked = nil
 	return effects, primes
 }
 
@@ -936,8 +954,11 @@ func (p *Physics) NotifyPlacedHooks(x, y, z int32, oldState uint16) ([]BlockChan
 	}
 	var changes []BlockChange
 	p.redstoneOnPlace(x, y, z, oldState, &changes)
+	p.physicsAsked = nil
 	p.shapePass(x, y, z, oldState, newState, &changes)
+	asked := p.physicsAsked // NotifyPlacedWake is the same write's wake
 	effects, primes := p.takeWake()
+	p.physicsAsked = asked
 	return changes, effects, primes
 }
 
@@ -972,6 +993,7 @@ func (p *Physics) notifyChanged(x, y, z int32, oldState uint16, handNew bool) ([
 	p.redstoneAfterRemoval(x, y, z, oldState, false, false, &changes)
 	p.containerRemoved(x, y, z, oldState, newState)
 	p.redstoneOnPlace(x, y, z, oldState, &changes)
+	p.physicsAsked = nil
 	if handNew {
 		p.updateAsNeighbor(x, y, z, &changes, true, oldState, newState, [3]int32{})
 		p.wakeNeighbors(x, y, z, newState, newState, &changes)
@@ -1025,6 +1047,7 @@ func (p *Physics) ShapeUpdateNeighbors(x, y, z int32) ([]BlockChange, []Effect, 
 	defer p.mu.Unlock()
 	var changes []BlockChange
 	p.effects, p.wakePrimes = nil, nil
+	p.physicsAsked = nil
 	p.shapeUpdateNeighbors(x, y, z, &changes)
 	effects, primes := p.takeWake()
 	return changes, effects, primes
@@ -1048,9 +1071,6 @@ func (p *Physics) SurvivalShapeUpdates(x, y, z int32) ([]BlockChange, []Effect, 
 		}
 		if survivalOf[state].watch != 0 {
 			p.supportCheck(nx, ny, nz, state, blocklogic.Opposite(directionOf(d)), &changes)
-		} else {
-			// The halves of a double plant answer for each other.
-			p.doublePlantUpdate(nx, ny, nz, state, false, [3]int32{-d[0], -d[1], -d[2]}, &changes)
 		}
 	}
 	effects, primes := p.takeWake()
@@ -1105,7 +1125,7 @@ func (p *Physics) releaseParked() {
 			continue
 		}
 		for _, t := range ts {
-			p.queue.push(t)
+			p.pushTick(t)
 		}
 		delete(p.parked, cp)
 	}
@@ -1161,7 +1181,7 @@ func (p *Physics) Tick(gameTime int64) ([]BlockChange, []FallingSpawn, []TNTPrim
 	// due visits. Each carries the tick it was made in, so the comparator's
 	// delay runs from then, not from this drain.
 	for _, c := range p.w.takeContainerChanges() {
-		p.containerChanged(c.pos[0], c.pos[1], c.pos[2], c.tick)
+		p.analogOutputChanged(c.pos[0], c.pos[1], c.pos[2], c.tick)
 	}
 
 	// Generated ticks and fluid post-processing visits run on
@@ -1193,7 +1213,7 @@ func (p *Physics) Tick(gameTime int64) ([]BlockChange, []FallingSpawn, []TNTPrim
 		if next.due > p.now {
 			break
 		}
-		p.queue.pop()
+		p.popTick()
 		// A spent budget leaves its kind queued while the other keeps draining.
 		if blocks >= maxBlockTicksPerTick || fluids >= maxFluidTicksPerTick {
 			fluid := next.fluid != 0
@@ -1229,6 +1249,10 @@ func (p *Physics) Tick(gameTime int64) ([]BlockChange, []FallingSpawn, []TNTPrim
 			delete(p.leafBooked, next.pos)
 		case scaffoldingTickEvent:
 			delete(p.scaffoldingBooked, next.pos)
+		case dirtPathTickEvent:
+			delete(p.dirtPathBooked, next.pos)
+		case farmlandTickEvent:
+			delete(p.farmlandBooked, next.pos)
 		case coralTickEvent:
 			delete(p.coralBooked, next.pos)
 		case redstoneTickEvent:
@@ -1244,7 +1268,7 @@ func (p *Physics) Tick(gameTime int64) ([]BlockChange, []FallingSpawn, []TNTPrim
 		default:
 			if next.fluid != 0 {
 				delete(p.fluidBooked, fluidBook{next.pos, next.fluid})
-			} else {
+			} else if next.priority != tickPriorityFinalize {
 				delete(p.pending, next.pos)
 			}
 		}
@@ -1295,6 +1319,21 @@ func (p *Physics) Tick(gameTime int64) ([]BlockChange, []FallingSpawn, []TNTPrim
 		if next.event == leafTickEvent {
 			blocks++
 			p.leafTick(x, y, z, state, &changes)
+			continue
+		}
+		if next.event == dirtPathTickEvent {
+			blocks++
+			if block == registry.BlockDirtPath {
+				// vanilla: PathBlock.tick
+				p.turnSoilToDirt(x, y, z, &changes, &p.effects)
+			}
+			continue
+		}
+		if next.event == farmlandTickEvent {
+			blocks++
+			if block == registry.BlockFarmland {
+				p.farmlandSurvivalScheduled(x, y, z, &changes)
+			}
 			continue
 		}
 		if next.event == scaffoldingTickEvent {
@@ -1356,16 +1395,6 @@ func (p *Physics) Tick(gameTime int64) ([]BlockChange, []FallingSpawn, []TNTPrim
 		}
 		// The farm families' one-tick deaths, booked by updateShape when
 		// placement or a neighbour change leaves them unable to survive.
-		if block == registry.BlockFarmland {
-			blocks++
-			p.farmlandSurvivalScheduled(x, y, z, &changes)
-			continue
-		}
-		if block == registry.BlockDirtPath {
-			blocks++
-			p.dirtPathSurvivalScheduled(x, y, z, &changes)
-			continue
-		}
 		if block == registry.BlockSugarCane {
 			blocks++
 			p.caneSurvivalScheduled(x, y, z, &changes)
@@ -1396,7 +1425,7 @@ func (p *Physics) Tick(gameTime int64) ([]BlockChange, []FallingSpawn, []TNTPrim
 		}
 	}
 	for _, t := range deferred {
-		p.queue.push(t)
+		p.pushTick(t)
 	}
 	p.handlingTick = false
 	// The block entities tick after the scheduled ticks.
@@ -1461,6 +1490,31 @@ func (p *Physics) bookTick(x, y, z int32, typ fluidType, due int64, priority int
 	p.insertTick(blockKey{x, y, z}, typ, due, priority)
 }
 
+// dropTickIndex forgets the chunk index after a queue mutation. The stores are
+// skipped while no snapshot has scanned the heap, the common case between saves.
+func (p *Physics) dropTickIndex() {
+	if p.chunkIdx.scanned {
+		p.chunkIdx = tickIndex{}
+	}
+}
+
+func (p *Physics) pushTick(t scheduledTick) {
+	p.dropTickIndex()
+	p.queue.push(t)
+}
+
+func (p *Physics) popTick() scheduledTick {
+	p.dropTickIndex()
+	return p.queue.pop()
+}
+
+// setTicks replaces the heap's entries with kept and restores heap order.
+func (p *Physics) setTicks(kept tickQueue) {
+	p.dropTickIndex()
+	p.queue = kept
+	p.queue.init()
+}
+
 // insertTick queues a visit unless one is waiting for the same key and fluid
 // type. Runs under p.mu.
 func (p *Physics) insertTick(key blockKey, typ fluidType, due int64, priority int) {
@@ -1470,6 +1524,12 @@ func (p *Physics) insertTick(key blockKey, typ fluidType, due int64, priority in
 			return
 		}
 		p.fluidBooked[book] = struct{}{}
+	} else if priority == tickPriorityFinalize {
+		// A landing is a block-entity tick: it neither waits behind nor holds
+		// back an ordinary block tick of the cell.
+		if _, ok := p.finalizeSeq[key]; ok {
+			return
+		}
 	} else {
 		if p.pending[key] {
 			return
@@ -1477,7 +1537,11 @@ func (p *Physics) insertTick(key blockKey, typ fluidType, due int64, priority in
 		p.pending[key] = true
 	}
 	p.seq++
-	p.queue.push(scheduledTick{pos: key, due: due, priority: priority, seq: p.seq, fluid: typ})
+	t := scheduledTick{pos: key, due: due, priority: priority, seq: p.seq, fluid: typ}
+	if typ == 0 {
+		t.block = registry.BlockOf(p.w.BlockAt(key.x, key.y, key.z))
+	}
+	p.pushTick(t)
 	if priority == tickPriorityFinalize && typ == 0 {
 		p.finalizeSeq[key] = p.seq
 	}
@@ -1505,13 +1569,10 @@ func (p *Physics) BlockTicksIn(loX, loY, loZ, hiX, hiY, hiZ int32) BlockTicks {
 			t.pos.z < loZ || t.pos.z > hiZ {
 			continue
 		}
-		state := p.w.BlockAt(t.pos.x, t.pos.y, t.pos.z)
 		if t.fluid != 0 {
 			continue
 		}
-		if name, _, ok := registry.BlockStateName(state); ok {
-			out = append(out, boxTick{tick: t, id: name})
-		}
+		out = append(out, boxTick{tick: t, id: bookedBlockName(t)})
 	}
 	p.mu.Unlock()
 	slices.SortFunc(out, func(a, b boxTick) int {
@@ -1541,8 +1602,7 @@ func (p *Physics) ClearTicksIn(loX, loY, loZ, hiX, hiY, hiZ int32) {
 		}
 		kept = append(kept, t)
 	}
-	p.queue = kept
-	p.queue.init()
+	p.setTicks(kept)
 }
 
 // dropTickIn reports whether ClearTicksIn removes t, forgetting its booking.
@@ -1578,7 +1638,8 @@ func (p *Physics) allTicks(yield func(scheduledTick) bool) {
 
 // ScheduleBlockTicks books ticks on p offset by (offX, offY, offZ), keeping
 // each one's due tick, priority and order; one whose cell now holds another
-// block is dropped, and a cell with a tick pending keeps its own.
+// block is dropped (a soil block's is not, see adoptBlockTick), and a cell
+// with a tick pending keeps its own.
 // vanilla: LevelTicks.copyAreaFrom
 func (p *Physics) ScheduleBlockTicks(ticks BlockTicks, offX, offY, offZ int32) {
 	p.mu.Lock()
@@ -1604,7 +1665,7 @@ func (p *Physics) schedulePistonEvent(x, y, z int32, dir int8, typ uint8) {
 	}
 	p.pendingEvent[key] = event
 	p.seq++
-	p.queue.push(scheduledTick{
+	p.pushTick(scheduledTick{
 		pos: key, due: p.now + p.eventDelay, priority: tickPriorityEvent, seq: p.seq, event: event,
 	})
 }
@@ -1623,7 +1684,6 @@ func (p *Physics) schedulePistonFinalize(x, y, z int32, due int64) {
 func (p *Physics) cancelPistonFinalize(x, y, z int32) {
 	key := blockKey{x, y, z}
 	if seq, ok := p.finalizeSeq[key]; ok {
-		delete(p.pending, key)
 		delete(p.finalizeSeq, key)
 		p.cancelled[seq] = struct{}{}
 	}
@@ -1635,6 +1695,24 @@ func (p *Physics) tickCancelled(t scheduledTick) bool {
 	}
 	_, ok := p.cancelled[t.seq]
 	return ok
+}
+
+// hasTickDueAt reports whether the active queue contains a live visit
+// at pos with the requested due tick. Runs under p.mu.
+func (p *Physics) hasTickDueAt(pos blockKey, due int64) bool {
+	return p.hasTickDueIn(0, pos, due)
+}
+
+func (p *Physics) hasTickDueIn(i int, pos blockKey, due int64) bool {
+	// A heap child can only be due at the same time as its parent or later.
+	if i >= len(p.queue) || p.queue[i].due > due {
+		return false
+	}
+	t := p.queue[i]
+	if t.due == due && t.pos == pos && !p.tickCancelled(t) {
+		return true
+	}
+	return p.hasTickDueIn(2*i+1, pos, due) || p.hasTickDueIn(2*i+2, pos, due)
 }
 
 // set writes a block, records the change and runs the position's neighbour
@@ -1812,11 +1890,8 @@ func (p *Physics) wakeNeighbors(x, y, z int32, old, changed uint16, changes *[]B
 	for _, d := range [6][3]int32{
 		{0, -1, 0}, {0, 1, 0}, {-1, 0, 0}, {1, 0, 0}, {0, 0, -1}, {0, 0, 1},
 	} {
-		if listens {
-			hd := HookDecision{Kind: HookPhysics, X: x + d[0], Y: y + d[1], Z: z + d[2], Old: p.w.BlockAt(x+d[0], y+d[1], z+d[2]), From: [3]int32{x, y, z}}
-			if p.ask(&hd) {
-				continue
-			}
+		if listens && p.physicsVetoed(x+d[0], y+d[1], z+d[2], [3]int32{x, y, z}) {
+			continue
 		}
 		p.updateAsNeighbor(x+d[0], y+d[1], z+d[2], changes, false, old, changed, [3]int32{-d[0], -d[1], -d[2]})
 	}
@@ -1895,21 +1970,27 @@ func (p *Physics) updateAsNeighborBody(x, y, z int32, changes *[]BlockChange, pl
 			return
 		}
 	}
-	// A container's fluid visit spreads through the faces its shape leaves
-	// open. Kelp and seagrass hold water without a waterlogged property.
-	// vanilla: SimpleWaterloggedBlock.placeLiquid, FenceBlock.updateShape,
-	// SpeleothemBlock.updateShape
-	if fs.kind != fluidNone && fluidContainer(state) {
-		p.bookFluid(x, y, z, fs)
-	}
 	block := registry.BlockOf(state)
+	// Tall seagrass holds water but inherits DoublePlantBlock.updateShape,
+	// which books no fluid tick.
+	if fs.kind != fluidNone && block != registry.BlockTallSeagrass {
+		// For seagrass and sea pickles, BlockInput.place keeps the state
+		// after a failed support check, but the shape offer books no water.
+		// vanilla: SeagrassBlock.updateShape, SeaPickleBlock.updateShape
+		if !placed || (block != registry.BlockSeagrass && block != registry.BlockSeaPickle) ||
+			canSurvive(p.w, x, y, z, state) {
+			p.bookFluid(x, y, z, fs)
+		}
+	}
 	if placed && block == registry.BlockFrogspawn && registry.BlockOf(old) != block {
 		p.scheduleFrogspawn(x, y, z)
 	}
 	if placed && block == registry.BlockSnifferEgg && registry.BlockOf(old) != block {
 		p.scheduleSnifferEgg(x, y, z)
 	}
-	if p.doublePlantUpdate(x, y, z, state, placed, from, changes) {
+	if isDoublePlantHalf(block, state) {
+		// Neighbour changes reach a half through the shape pass only.
+		// vanilla: VegetationBlock has no neighborChanged
 		return
 	}
 	if (placed || neighbors) && p.spongeChanged(x, y, z, block, placed, old, changes) {
@@ -2024,7 +2105,9 @@ func (p *Physics) updateAsNeighborBody(x, y, z int32, changes *[]BlockChange, pl
 	}
 	if block == registry.BlockAttachedMelonStem || block == registry.BlockAttachedPumpkinStem {
 		if !placed && from != ([3]int32{}) {
-			p.attachedStemUpdateShape(x, y, z, state, from, changed, changes)
+			if next, ok := attachedStemShape(state, from, changed); ok {
+				p.setShaped(x, y, z, next, changes)
+			}
 		}
 		return
 	}
@@ -2032,13 +2115,13 @@ func (p *Physics) updateAsNeighborBody(x, y, z int32, changes *[]BlockChange, pl
 	// vanilla: Block.updateFromNeighbourShapes, FarmlandBlock.updateShape, PathBlock.updateShape
 	if block == registry.BlockFarmland && (placed || from == [3]int32{0, 1, 0}) {
 		if !farmlandCanSurvive(p.w, x, y, z) {
-			p.schedule(x, y, z, p.now+farmlandTickDelay)
+			p.scheduleSoil(registry.BlockFarmland, x, y, z, p.now+farmlandTickDelay, tickPriorityNormal)
 		}
 		return
 	}
 	if block == registry.BlockDirtPath && (placed || from == [3]int32{0, 1, 0}) {
 		if !dirtPathCanSurvive(p.w, x, y, z) {
-			p.schedule(x, y, z, p.now+dirtPathTickDelay)
+			p.scheduleSoil(registry.BlockDirtPath, x, y, z, p.now+dirtPathTickDelay, tickPriorityNormal)
 		}
 		return
 	}
@@ -2259,21 +2342,19 @@ func newLiquidAt(w fluidSpreadReader, x, y, z int32, state uint16, b fluidBehavi
 		if !passWall(state, axis, positive, ns) {
 			continue
 		}
-		if nfs.isSource() {
-			sources++
-		}
 		if nfs.amount > highest {
 			highest = nfs.amount
 		}
-	}
-	if sources >= 2 && w.BoolRule(b.conversionRule) {
-		// Two sources beside over body-holding ground, or a same-fluid source
-		// below, make an infinite-pool source.
-		belowState := w.BlockAt(x, y-1, z)
-		belowFS := fluidHolding(belowState)
-		if collisionSolid(belowState) || (belowFS.kind == kind && belowFS.isSource()) {
-			return fluidState{kind: kind, amount: 8}
+		if nfs.isSource() {
+			sources++
+			if sources == 2 {
+				// A source already supplies the maximum neighbor amount.
+				break
+			}
 		}
+	}
+	if sources >= 2 && w.BoolRule(b.conversionRule) && supportsFluidSource(w.BlockAt(x, y-1, z), kind) {
+		return fluidState{kind: kind, amount: 8}
 	}
 	if y < worldMinY+worldHeight {
 		aboveState := w.BlockAt(x, y+1, z)
@@ -2286,6 +2367,24 @@ func newLiquidAt(w fluidSpreadReader, x, y, z int32, state uint16, b fluidBehavi
 		return fluidState{}
 	}
 	return fluidState{kind: kind, amount: amount}
+}
+
+func supportsFluidSource(state uint16, kind fluidKind) bool {
+	if collisionSolid(state) {
+		return true
+	}
+	f := blocklogic.FluidOf(state)
+	return f.Kind == kind && f.IsSource()
+}
+
+// The downward face is already open in both directions. With matching fluid
+// above and no support for source conversion, the neighbors cannot affect the
+// level.
+func downwardLiquidAt(w fluidSpreadReader, x, y, z int32, originState, destinationState uint16, b fluidBehaviour) fluidState {
+	if blocklogic.FluidOf(originState).Kind == b.kind && !supportsFluidSource(w.BlockAt(x, y-1, z), b.kind) {
+		return fluidState{kind: b.kind, amount: 8, falling: true}
+	}
+	return newLiquidAt(w, x, y, z, destinationState, b)
 }
 
 // spread pours down first, where the face below is open and the cell will take
@@ -2301,11 +2400,11 @@ func (p *Physics) spread(x, y, z int32, fs fluidState, changes *[]BlockChange) {
 	bx, by, bz := x, y-1, z
 	belowState := p.w.BlockAt(bx, by, bz) // air past the world's floor
 	if canMaybePassThrough(fs.kind, state, 1, false, belowState, fluidHolding(belowState)) {
-		newBelow := newLiquidAt(p.w, bx, by, bz, belowState, p.behaviourOf(fs.kind))
+		newBelow := downwardLiquidAt(p.w, bx, by, bz, state, belowState, p.behaviourOf(fs.kind))
 		if canReplaceWith(p.w, fluidHolding(belowState), bx, by, bz, newBelow.kind, true) &&
 			canHoldSpecific(belowState, newBelow) {
 			p.spreadTo(bx, by, bz, belowState, newBelow, [3]int32{x, y, z}, changes)
-			if p.sourceNeighborCount(x, y, z, fs.kind) >= 3 {
+			if pourSurroundedBySources(p.w, x, y, z, fs.kind) {
 				// Hemmed in by sources on three sides, the pour also floods.
 				p.spreadToSides(x, y, z, state, fs, changes)
 			}
@@ -2347,9 +2446,17 @@ const spreadSide = 2*spreadReach + 1
 // square they are read uncached.
 // vanilla: FlowingFluid.SpreadContext
 type spreadContext struct {
-	w fluidSpreadReader
+	w     fluidSpreadReader
+	world *World // live worlds can cache the chunk sections
 	// A spread uses one tag snapshot throughout its slope search.
 	holdFlags     *[registry.StateCount]uint8
+	topWords      [4]*blockWords
+	belowWords    [4]*blockWords
+	topFill       [4]uint16
+	belowFill     [4]uint16
+	cx0, cz0      int32
+	topYOff       int
+	belowYOff     int
 	y             int32
 	ox, oz        int32
 	kind          fluidKind
@@ -2359,6 +2466,7 @@ type spreadContext struct {
 	lastHoleBelow uint16
 	lastFlags     uint8
 	lastHoleFlags uint8
+	chunksLoaded  uint8
 	states        [spreadSide * spreadSide]uint16
 	flags         [spreadSide * spreadSide]uint8
 	failedDepth   [spreadSide * spreadSide][4]uint8
@@ -2372,16 +2480,54 @@ var spreadOffsets = func() (t [spreadSide * spreadSide][2]int8) {
 	return
 }()
 
+func (c *spreadContext) init(w fluidSpreadReader, x, y, z int32, kind fluidKind) {
+	c.w = w
+	c.world, _ = w.(*World)
+	c.y = y
+	c.ox = x
+	c.oz = z
+	c.cx0 = (x - spreadReach) >> 4
+	c.cz0 = (z - spreadReach) >> 4
+	c.topYOff = int(uint32(y-worldMinY)&15) << 8
+	c.belowYOff = int(uint32(y-1-worldMinY)&15) << 8
+	c.kind = kind
+	c.flowingType = fluidState{kind: kind, amount: 8, falling: true}
+	c.holdFlags = currentFluidHoldFlags()
+}
+
 func newSpreadContext(w fluidSpreadReader, x, y, z int32, kind fluidKind) spreadContext {
-	return spreadContext{
-		w:           w,
-		y:           y,
-		ox:          x,
-		oz:          z,
-		kind:        kind,
-		flowingType: fluidState{kind: kind, amount: 8, falling: true},
-		holdFlags:   currentFluidHoldFlags(),
+	var c spreadContext
+	c.init(w, x, y, z, kind)
+	return c
+}
+
+// loadChunk resolves one chunk in the 2x2 quadrant and snapshots its block
+// storage at y and y-1.
+func (c *spreadContext) loadChunk(q uint, cx, cz int32) {
+	ch := c.world.sharedChunkAt(ChunkPos{X: cx, Z: cz})
+	if ch == nil {
+		// A chunk worker can publish this neighbour during the search.
+		return
 	}
+	c.chunksLoaded |= 1 << q
+	c.topFill[q] = airState
+	c.belowFill[q] = airState
+	if ly := uint32(c.y - worldMinY); ly < worldHeight {
+		s := &ch.sections[ly>>4]
+		c.topWords[q] = s.blocks.Load()
+		c.topFill[q] = s.fill
+	}
+	if ly := uint32(c.y - 1 - worldMinY); ly < worldHeight {
+		s := &ch.sections[ly>>4]
+		c.belowWords[q] = s.blocks.Load()
+		c.belowFill[q] = s.fill
+	}
+}
+
+// quadrant maps a position to its chunk's slot in the 2x2 cache; small enough
+// to inline on the slope search's hot path.
+func (c *spreadContext) quadrant(x, z int32) uint {
+	return uint((x>>4-c.cx0)|(z>>4-c.cz0)<<1) & 3
 }
 
 // index maps a position to its cell, or reports it outside the square.
@@ -2400,6 +2546,7 @@ const (
 	cellKnown
 	cellHoleKnown
 	cellHole
+	cellNoAdjacentHole
 )
 
 // cellFlags classifies the state for this spread's fluid and tag snapshot.
@@ -2424,7 +2571,29 @@ func (c *spreadContext) load(i int) {
 	off := spreadOffsets[i]
 	x := c.ox + int32(off[0]) - spreadReach
 	z := c.oz + int32(off[1]) - spreadReach
-	state := c.w.BlockAt(x, c.y, z)
+	var state uint16
+	if c.world != nil {
+		q := c.quadrant(x, z)
+		if c.chunksLoaded>>q&1 == 0 {
+			// A missing chunk stays unloaded, which keeps the World.BlockAt fallback.
+			c.loadChunk(q, x>>4, z>>4)
+		}
+		if b := c.topWords[q]; b != nil {
+			state = b.load(c.topYOff | int(z&15)<<4 | int(x&15))
+		} else if c.chunksLoaded&(1<<q) != 0 {
+			state = c.topFill[q]
+		} else {
+			state = c.w.BlockAt(x, c.y, z)
+		}
+	} else {
+		state = c.w.BlockAt(x, c.y, z)
+	}
+	c.seed(i, state)
+}
+
+// seed stores a cell's state and classification, reusing the last one computed
+// for the same state.
+func (c *spreadContext) seed(i int, state uint16) {
 	c.states[i] = state
 	if c.lastFlags&cellKnown != 0 && state == c.lastState {
 		c.flags[i] = c.lastFlags
@@ -2468,14 +2637,31 @@ func (c *spreadContext) isHole(x, z int32) bool {
 	return c.holeAt(i)
 }
 
-// holeAt caches whether an already loaded cell hangs over a hole.
+// holeAt caches whether a seeded cell hangs over a hole, resolving its chunk
+// if the seed did not.
 func (c *spreadContext) holeAt(i int) bool {
 	if c.flags[i]&cellHoleKnown == 0 {
 		off := spreadOffsets[i]
 		x := c.ox + int32(off[0]) - spreadReach
 		z := c.oz + int32(off[1]) - spreadReach
 		top := c.states[i]
-		below := c.w.BlockAt(x, c.y-1, z)
+		var below uint16
+		if c.world != nil {
+			q := c.quadrant(x, z)
+			if c.chunksLoaded>>q&1 == 0 {
+				// A missing chunk stays unloaded, which keeps the World.BlockAt fallback.
+				c.loadChunk(q, x>>4, z>>4)
+			}
+			if b := c.belowWords[q]; b != nil {
+				below = b.load(c.belowYOff | int(z&15)<<4 | int(x&15))
+			} else if c.chunksLoaded&(1<<q) != 0 {
+				below = c.belowFill[q]
+			} else {
+				below = c.w.BlockAt(x, c.y-1, z)
+			}
+		} else {
+			below = c.w.BlockAt(x, c.y-1, z)
+		}
 		var holeFlags uint8
 		if c.lastHoleFlags&cellHoleKnown != 0 && top == c.lastHoleTop && below == c.lastHoleBelow {
 			holeFlags = c.lastHoleFlags
@@ -2517,18 +2703,16 @@ func fluidSideFlows(w fluidSpreadReader, x, y, z int32, state uint16, fs fluidSt
 	if gate <= 0 {
 		return flows, winners
 	}
-	ctx := newSpreadContext(w, x, y, z, fs.kind)
-	c := &ctx
 	var sides [4]struct {
 		into, held     fluidState
 		state          uint16
 		eligible, hole bool
 	}
-	hasHole, anyDiffers := false, false
+	anyDiffers := false
 	eligible := 0
 	for i, d := range horizontal4 {
 		tx, tz := x+d[0], z+d[1]
-		tState := c.state(tx, tz)
+		tState := w.BlockAt(tx, y, tz)
 		tFS := fluidHolding(tState)
 		axis, positive := faceOf(d[0], d[1])
 		if !canMaybePassThrough(fs.kind, state, axis, positive, tState, tFS) {
@@ -2544,8 +2728,6 @@ func fluidSideFlows(w fluidSpreadReader, x, y, z int32, state uint16, fs fluidSt
 		side.state = tState
 		side.held = tFS
 		side.eligible = true
-		side.hole = c.isHole(tx, tz)
-		hasHole = hasHole || side.hole
 		eligible++
 		anyDiffers = anyDiffers || tFS.kind != fs.kind
 	}
@@ -2553,8 +2735,28 @@ func fluidSideFlows(w fluidSpreadReader, x, y, z int32, state uint16, fs fluidSt
 	if !anyDiffers {
 		return flows, winners
 	}
+	hasHole := false
+	var c *spreadContext
+	if eligible > 1 {
+		var ctx spreadContext
+		c = &ctx
+		// Only ranking competing sides needs the slope-search cache.
+		c.init(w, x, y, z, fs.kind)
+		// A hole check reads only its own cell and the one below, so seed and
+		// test each side in turn; all are seeded before the recursive search.
+		for i := range horizontal4 {
+			side := &sides[i]
+			if !side.eligible {
+				continue
+			}
+			ci := spreadCenter + spreadStep[i]
+			c.seed(ci, side.state)
+			side.hole = c.holeAt(ci)
+			hasHole = hasHole || side.hole
+		}
+	}
 	lowest := 1000
-	for i, d := range horizontal4 {
+	for i := range horizontal4 {
 		side := &sides[i]
 		if !side.eligible || (hasHole && !side.hole) {
 			continue
@@ -2562,8 +2764,7 @@ func fluidSideFlows(w fluidSpreadReader, x, y, z int32, state uint16, fs fluidSt
 		distance := 0
 		// A lone outlet wins at any distance.
 		if !hasHole && eligible > 1 {
-			ti, _ := c.index(x+d[0], z+d[1])
-			distance = c.slopeDistance(ti, 1, i^2, min(b.slopeFindDistance, lowest))
+			distance = c.slopeDistance(spreadCenter+spreadStep[i], 1, i^2, min(b.slopeFindDistance, lowest))
 		}
 		if distance < lowest {
 			winners = [4]bool{}
@@ -2598,6 +2799,9 @@ func fluidSideFlows(w fluidSpreadReader, x, y, z int32, state uint16, fs fluidSt
 // spreadStep follows horizontal4's north, east, south, west order.
 var spreadStep = [4]int{-spreadSide, 1, spreadSide, -1}
 
+// spreadCenter is the origin's cell.
+const spreadCenter = spreadReach*spreadSide + spreadReach
+
 // slopeDistance finds the nearest hole without stepping back. i is a loaded
 // cell in the cached square, which the walk cannot leave; from is the
 // horizontal4 direction it came in by. reach also bounds the distance past
@@ -2610,8 +2814,11 @@ func (c *spreadContext) slopeDistance(i, pass, from, reach int) int {
 	if *failedDepth >= depth {
 		return 1000
 	}
-	lowest := 1000
 	flags := c.flags[i]
+	if depth == 1 && flags&cellNoAdjacentHole != 0 {
+		return 1000
+	}
+	lowest := 1000
 	for d, step := range spreadStep {
 		if d == from {
 			continue
@@ -2648,20 +2855,33 @@ func (c *spreadContext) slopeDistance(i, pass, from, reach int) int {
 	}
 	if lowest == 1000 {
 		*failedDepth = depth
+		// The scan ruled out three exits. Use only cached facts for the skipped face.
+		nf := c.flags[i+spreadStep[from]]
+		if nf&cellKnown != 0 && (nf&cellEnterable == 0 || nf&(cellHoleKnown|cellHole) == cellHoleKnown) {
+			c.flags[i] |= cellNoAdjacentHole
+		}
 	}
 	return lowest
 }
 
-// sourceNeighborCount counts same-fluid sources beside a cell, the hem a pour
-// needs to also flood.
-func (p *Physics) sourceNeighborCount(x, y, z int32, kind fluidKind) int {
-	count := 0
+// vanilla: FlowingFluid.sourceNeighborCount
+func pourSurroundedBySources(w BlockReader, x, y, z int32, kind fluidKind) bool {
+	sources, misses := 0, 0
 	for _, d := range horizontal4 {
-		if fs := fluidHolding(p.w.BlockAt(x+d[0], y, z+d[1])); fs.kind == kind && fs.isSource() {
-			count++
+		f := blocklogic.FluidOf(w.BlockAt(x+d[0], y, z+d[1]))
+		if f.Kind == kind && f.IsSource() {
+			sources++
+			if sources == 3 {
+				return true
+			}
+		} else {
+			misses++
+			if misses == 2 {
+				return false
+			}
 		}
 	}
-	return count
+	return false
 }
 
 // spreadTo writes the flow into a cell. A container takes a water source

@@ -176,18 +176,16 @@ func encodeSectionNBT(s *section, y int32) nbt.Compound {
 		// One packed index per cell, at the width the palette's entries need.
 		// A cell array holding one biome (a whole-section /fillbiome) has no
 		// width to pack at, so it saves as the single-entry form.
-		cellPalette, index := s.biomePalette()
+		var palette [biomesPerSection]int32
+		var cellIndices [biomesPerSection]uint16
+		cellPalette := palette[:s.biomePalette(&palette, &cellIndices)]
 		entries := make([]nbt.Tag, len(cellPalette))
 		for i, biome := range cellPalette {
 			entries[i] = nbt.String(biomeName(biome))
 		}
-		cellIndices := make([]uint16, len(s.biomes))
-		for i, biome := range s.biomes {
-			cellIndices[i] = index[biome]
-		}
 		biomes = nbt.Compound{"palette": nbt.List{Elem: nbt.TypeString, Items: entries}}
 		if len(cellPalette) > 1 {
-			biomes["data"] = packLongs(cellIndices, bits.Len(uint(len(cellPalette)-1)))
+			biomes["data"] = packLongs(cellIndices[:], bits.Len(uint(len(cellPalette)-1)))
 		}
 	}
 
@@ -321,10 +319,16 @@ func biomeID(name string) int32 {
 	return id
 }
 
-// chunkDataVersionFloor is the oldest DataVersion whose block names this server
-// reads; the renames after it are applied by fixLegacyPalette.
-// vanilla: DataFixers.addFixers (v3692 grass to short_grass)
-const chunkDataVersionFloor = 3692
+// chunkDataVersionFloor is the oldest chunk DataVersion read: 1.18.2, the first
+// after the structure and biome fixes this server does not carry. The fixes
+// after it are fixLegacyPalette and fixOldBlockEntity.
+// vanilla: DataFixers.addFixers (v2970 StructuresBecomeConfiguredFix)
+const chunkDataVersionFloor = 2975
+
+// entityDataVersionFloor is the oldest DataVersion of a stored entity read:
+// older ones hold item stacks this server does not componentize.
+// vanilla: DataFixers.addFixers (v3692)
+const entityDataVersionFloor = 3692
 
 // Data versions of the block renames a chunk palette from below them gets.
 const (
@@ -378,6 +382,11 @@ var legacyPaletteFixes = map[string]func(entry, props nbt.Compound, nameKey stri
 			props["mode"] = mode
 		}
 	},
+	"minecraft:grass": func(entry, _ nbt.Compound, nameKey string, version int32) {
+		if version < grassRenameVersion {
+			entry[nameKey] = nbt.String("minecraft:short_grass")
+		}
+	},
 	"minecraft:chain": func(entry, _ nbt.Compound, nameKey string, _ int32) {
 		entry[nameKey] = nbt.String("minecraft:iron_chain")
 	},
@@ -394,9 +403,43 @@ func checkChunkFormat(root nbt.Compound) error {
 		return fmt.Errorf("chunk status %q has no namespace", status)
 	}
 	if version, ok := nbt.Get[nbt.Int](root, "DataVersion"); ok && version != 0 && version < chunkDataVersionFloor {
-		return fmt.Errorf("chunk data version %d is below %d", version, chunkDataVersionFloor)
+		return &unsupportedVersionError{version: int32(version)}
+	}
+	if version, _ := nbt.Get[nbt.Int](root, "DataVersion"); version != 0 && version < storedItemVersion {
+		if be, ok := nbt.Get[nbt.List](root, "block_entities"); ok && holdsUnfixableItem(be) {
+			return &unsupportedVersionError{version: int32(version)}
+		}
 	}
 	return nil
+}
+
+// unsupportedVersionError is a record saved before chunkDataVersionFloor,
+// which this server has no data fixers for.
+type unsupportedVersionError struct{ version int32 }
+
+func (e *unsupportedVersionError) Error() string {
+	return fmt.Sprintf("chunk data version %d is below %d", e.version, chunkDataVersionFloor)
+}
+
+// chunkIsFull reports whether the root is a readable, fully generated chunk;
+// a Status other than "minecraft:full" is (false, nil).
+func chunkIsFull(root nbt.Compound) (bool, error) {
+	if err := checkChunkFormat(root); err != nil {
+		return false, err
+	}
+	status, _ := nbt.Get[nbt.String](root, "Status")
+	return string(status) == "minecraft:full", nil
+}
+
+// sectionBlockStates returns a section's block_states with the legacy palette
+// renames of dataVersion (0: unknown) applied.
+func sectionBlockStates(sec nbt.Compound, dataVersion int32) (nbt.Compound, bool) {
+	bs, ok := nbt.Get[nbt.Compound](sec, "block_states")
+	if ok && dataVersion != 0 {
+		palette, _ := nbt.Get[nbt.List](bs, "palette")
+		fixLegacyPalette(palette, dataVersion)
+	}
+	return bs, ok
 }
 
 // decodeChunkNBT reads a chunk's root into a Chunk with its sections, biome
@@ -412,11 +455,8 @@ func checkChunkFormat(root nbt.Compound) error {
 // block renames since chunkDataVersionFloor are fixed, and reading it as air or regenerating would let the next save
 // replace the original. Sections outside the overworld's Y range are skipped.
 func decodeChunkNBT(root nbt.Compound) (*Chunk, error) {
-	if err := checkChunkFormat(root); err != nil {
+	if full, err := chunkIsFull(root); !full {
 		return nil, err
-	}
-	if status, _ := nbt.Get[nbt.String](root, "Status"); string(status) != "minecraft:full" {
-		return nil, nil
 	}
 
 	x, _ := nbt.Get[nbt.Int](root, "xPos")
@@ -451,11 +491,7 @@ func decodeChunkNBT(root nbt.Compound) (*Chunk, error) {
 		}
 		s := &c.sections[idx]
 
-		if bs, ok := nbt.Get[nbt.Compound](sec, "block_states"); ok {
-			if c.dataVersion != 0 {
-				palette, _ := nbt.Get[nbt.List](bs, "palette")
-				fixLegacyPalette(palette, c.dataVersion)
-			}
+		if bs, ok := sectionBlockStates(sec, c.dataVersion); ok {
 			if err := decodeSectionBlocks(s, bs); err != nil {
 				return nil, fmt.Errorf("section %d: %w", int32(y), err)
 			}
@@ -477,6 +513,7 @@ func decodeChunkNBT(root nbt.Compound) (*Chunk, error) {
 				continue
 			}
 			rebaseBlockEntityPos(compound, c.x, c.z)
+			fixOldBlockEntity(compound, c.dataVersion)
 			if c.dataVersion != 0 && c.dataVersion < furnaceBurnTimeVersion {
 				fixFurnaceBurnTime(compound)
 			}
@@ -535,37 +572,76 @@ func carryChunkRoot(root nbt.Compound) nbt.Compound {
 	return carried
 }
 
+// blockStatesLayout reads a section's block_states palette as state IDs and
+// checks its packed data covers every cell. data is empty for a uniform
+// section; stateIDs is empty for one with no palette.
+func blockStatesLayout(bs nbt.Compound) (stateIDs []uint16, data nbt.LongArray, bitsPerEntry int, err error) {
+	palette, _ := nbt.Get[nbt.List](bs, "palette")
+	if len(palette.Items) == 0 {
+		return nil, nil, 0, nil
+	}
+	stateIDs = make([]uint16, len(palette.Items))
+	for i, entry := range palette.Items {
+		id, ok := resolveBlockState(entry)
+		if !ok {
+			return nil, nil, 0, fmt.Errorf("unknown block state in palette entry %d", i)
+		}
+		stateIDs[i] = id
+	}
+	data, _ = nbt.Get[nbt.LongArray](bs, "data")
+	if len(data) == 0 {
+		return stateIDs, nil, 0, nil
+	}
+	bitsPerEntry = max(minIndirectBits, bits.Len(uint(len(stateIDs)-1)))
+	perLong := 64 / bitsPerEntry
+	if need := (blocksPerSection + perLong - 1) / perLong; len(data) < need {
+		return nil, nil, 0, fmt.Errorf("block_states data holds %d longs, %d entries at %d bits per entry need %d",
+			len(data), blocksPerSection, bitsPerEntry, need)
+	}
+	return stateIDs, data, bitsPerEntry, nil
+}
+
+// blockStatesAt reads the states of the given cells (y<<8|z<<4|x) of a
+// section's block_states without building the section; a cell index outside
+// the palette reads as air, as in decodeSectionBlocks.
+func blockStatesAt(bs nbt.Compound, cells []int, out []uint16) error {
+	stateIDs, data, bitsPerEntry, err := blockStatesLayout(bs)
+	if err != nil {
+		return err
+	}
+	for i, cell := range cells {
+		switch {
+		case len(stateIDs) == 0:
+			out[i] = airState
+		case len(data) == 0:
+			out[i] = stateIDs[0]
+		default:
+			perLong := 64 / bitsPerEntry
+			word := uint64(data[cell/perLong]) >> (cell % perLong * bitsPerEntry)
+			out[i] = airState
+			if idx := int(word & (1<<bitsPerEntry - 1)); idx < len(stateIDs) {
+				out[i] = stateIDs[idx]
+			}
+		}
+	}
+	return nil
+}
+
 // decodeSectionBlocks fills a section from block_states: a single-entry palette
 // without data fills it whole, otherwise the longs unpack to palette indices.
 // The file has no bits-per-entry, so the palette size decides it, and an array
 // too short for 4096 entries at that width is refused rather than read past.
 // vanilla: PalettedContainer.unpack
 func decodeSectionBlocks(s *section, bs nbt.Compound) error {
-	palette, _ := nbt.Get[nbt.List](bs, "palette")
-	if len(palette.Items) == 0 {
-		return nil
+	stateIDs, data, bitsPerEntry, err := blockStatesLayout(bs)
+	if err != nil || len(stateIDs) == 0 {
+		return err
 	}
-	stateIDs := make([]uint16, len(palette.Items))
-	for i, entry := range palette.Items {
-		id, ok := resolveBlockState(entry)
-		if !ok {
-			return fmt.Errorf("unknown block state in palette entry %d", i)
-		}
-		stateIDs[i] = id
-	}
-
-	data, hasData := nbt.Get[nbt.LongArray](bs, "data")
-	if !hasData || len(data) == 0 {
+	if len(data) == 0 {
 		s.setAll(stateIDs[0])
 		return nil
 	}
-
-	bitsPerEntry := max(minIndirectBits, bits.Len(uint(len(stateIDs)-1)))
 	perLong := 64 / bitsPerEntry
-	if need := (blocksPerSection + perLong - 1) / perLong; len(data) < need {
-		return fmt.Errorf("block_states data holds %d longs, %d entries at %d bits per entry need %d",
-			len(data), blocksPerSection, bitsPerEntry, need)
-	}
 
 	// Counts must represent all 4096 cells, including an explicit uniform array.
 	counts := make([]uint32, len(stateIDs))
@@ -603,47 +679,17 @@ func decodeSectionBlocks(s *section, bs nbt.Compound) error {
 	s.shapes.Store(0)
 	s.colliding, s.comparators = 0, 0
 	var sculkCounts [sculkCellKinds]int
+	var touches, shapes int32
 	// Invalid indices read as air, which contributes to none of these tallies.
 	for pIdx, state := range stateIDs {
-		n := int(counts[pIdx])
-		if n == 0 {
-			continue
-		}
-		if randomlyTicking(state) {
-			s.ticking += n
-		}
-		if registry.LightEmission(state) > 0 {
-			s.emitting += n
-		}
-		if MayCollide(state) {
-			s.colliding += n
-		}
-		if isLightningRod(state) {
-			s.rods += n
-		}
-		if IsTurtleEgg(state) {
-			s.eggs += n
-		}
-		block := registry.BlockOf(state)
-		if kind := sculkCellKindOf(block); kind != noSculkCell {
-			sculkCounts[kind] += n
-		}
-		switch block {
-		case registry.BlockNetherPortal:
-			s.portals += n
-		case registry.BlockComparator:
-			s.comparators += int32(n)
-		}
-		if registry.IsPOI(state) {
-			s.pois += n
-		}
-		if isTouchBlock[block] {
-			s.touches.Add(int32(n))
-		}
-		if isShapeBlock[block] {
-			s.shapes.Add(int32(n))
+		if n := int(counts[pIdx]); n > 0 {
+			if kind := s.countState(state, n, &touches, &shapes); kind != noSculkCell {
+				sculkCounts[kind] += n
+			}
 		}
 	}
+	s.touches.Store(touches)
+	s.shapes.Store(shapes)
 	if sculkCounts != [sculkCellKinds]int{} {
 		s.indexDecodedSculkCells(blocks, sculkCounts)
 	}
