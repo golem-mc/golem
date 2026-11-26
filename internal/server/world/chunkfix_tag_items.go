@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/golem-mc/golem/nbt"
+	"github.com/golem-mc/golem/registry"
 )
 
 var (
@@ -149,26 +150,27 @@ func blockPredicate(s string) nbt.Tag {
 // componentizeItemKind moves the tag keys only some items carry.
 // vanilla: ItemStackComponentizationFix.fixItemStack
 func componentizeItemKind(c, tag nbt.Compound, id string) {
+	item := itemOrNone(id)
 	move := func(key, component string) {
 		if v, ok := takeKey(tag, key); ok {
 			c[component] = v
 		}
 	}
 	switch {
-	case id == "minecraft:crossbow":
+	case item == registry.ItemCrossbow:
 		delete(tag, "Charged")
 		if v, ok := takeKey(tag, "ChargedProjectiles"); ok {
 			if l, isList := v.(nbt.List); !isList || len(l.Items) > 0 {
 				c["minecraft:charged_projectiles"] = v
 			}
 		}
-	case id == "minecraft:bundle":
+	case item == registry.ItemBundle:
 		if v, ok := takeKey(tag, "Items"); ok {
 			if l, isList := v.(nbt.List); !isList || len(l.Items) > 0 {
 				c["minecraft:bundle_contents"] = v
 			}
 		}
-	case id == "minecraft:filled_map":
+	case item == registry.ItemFilledMap:
 		move("map", "minecraft:map_id")
 		if v, ok := takeKey(tag, "Decorations"); ok {
 			list, _ := v.(nbt.List)
@@ -199,11 +201,11 @@ func componentizeItemKind(c, tag nbt.Compound, id string) {
 		if len(potion) > 0 {
 			c["minecraft:potion_contents"] = potion
 		}
-	case id == "minecraft:writable_book":
+	case item == registry.ItemWritableBook:
 		if pages := bookPages(tag); pages != nil {
 			c["minecraft:writable_book_content"] = nbt.Compound{"pages": pages}
 		}
-	case id == "minecraft:written_book":
+	case item == registry.ItemWrittenBook:
 		pages := bookPages(tag)
 		title, _ := takeKey(tag, "title")
 		filtered, hasFiltered := takeKey(tag, "filtered_title")
@@ -217,9 +219,9 @@ func componentizeItemKind(c, tag nbt.Compound, id string) {
 			book["pages"] = pages
 		}
 		c["minecraft:written_book_content"] = book
-	case id == "minecraft:suspicious_stew":
+	case item == registry.ItemSuspiciousStew:
 		move("effects", "minecraft:suspicious_stew_effects")
-	case id == "minecraft:debug_stick":
+	case item == registry.ItemDebugStick:
 		move("DebugProperty", "minecraft:debug_stick_state")
 	case slices.Contains(bucketedMobItems, id):
 		data := nbt.Compound{}
@@ -231,11 +233,11 @@ func componentizeItemKind(c, tag nbt.Compound, id string) {
 		if len(data) > 0 {
 			c["minecraft:bucket_entity_data"] = data
 		}
-	case id == "minecraft:goat_horn":
+	case item == registry.ItemGoatHorn:
 		move("instrument", "minecraft:instrument")
-	case id == "minecraft:knowledge_book":
+	case item == registry.ItemKnowledgeBook:
 		move("Recipes", "minecraft:recipes")
-	case id == "minecraft:compass":
+	case item == registry.ItemCompass:
 		pos, hasPos := takeKey(tag, "LodestonePos")
 		dim, hasDim := takeKey(tag, "LodestoneDimension")
 		if hasPos || hasDim {
@@ -249,7 +251,7 @@ func componentizeItemKind(c, tag nbt.Compound, id string) {
 			}
 			c["minecraft:lodestone_tracker"] = comp
 		}
-	case id == "minecraft:firework_rocket":
+	case item == registry.ItemFireworkRocket:
 		if fw, ok := nbt.CompoundView(tag["Fireworks"]); ok {
 			list, _ := fw["Explosions"].(nbt.List)
 			explosions := make([]nbt.Tag, 0, len(list.Items))
@@ -264,7 +266,7 @@ func componentizeItemKind(c, tag nbt.Compound, id string) {
 				delete(tag, "Fireworks")
 			}
 		}
-	case id == "minecraft:firework_star":
+	case item == registry.ItemFireworkStar:
 		if ex, ok := nbt.CompoundView(tag["Explosion"]); ok {
 			c["minecraft:firework_explosion"] = fireworkExplosion(ex)
 			for _, k := range []string{"Type", "Colors", "FadeColors", "Trail", "Flicker"} {
@@ -274,7 +276,7 @@ func componentizeItemKind(c, tag nbt.Compound, id string) {
 				delete(tag, "Explosion")
 			}
 		}
-	case id == "minecraft:player_head":
+	case item == registry.ItemPlayerHead:
 		if v, ok := takeKey(tag, "SkullOwner"); ok {
 			c["minecraft:profile"] = skullProfile(v)
 		}
@@ -404,4 +406,13 @@ func skullProfile(tag nbt.Tag) nbt.Tag {
 		}
 	}
 	return out
+}
+
+// itemOrNone returns the item a name stands for, or -1 when this version has
+// no such item.
+func itemOrNone(name string) registry.Item {
+	if n, ok := registry.ItemID(name); ok {
+		return registry.Item(n)
+	}
+	return -1
 }

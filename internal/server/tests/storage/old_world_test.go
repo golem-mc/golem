@@ -62,7 +62,7 @@ func signFront(t *testing.T, tag nbt.Compound) (messages []string, color string,
 }
 
 // chestItems reads a chest's saved stacks as "id xCount [enchantment levels]"
-// by slot, the way a vanilla 26.3 server reports them under /data get block.
+// by slot, read through /data get block.
 func chestItems(t *testing.T, srv *server.Server, x, y, z int32) map[int8]string {
 	t.Helper()
 	chest, ok := srv.BlockEntityTagAt(x, y, z)

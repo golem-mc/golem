@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/golem-mc/golem/nbt"
+	"github.com/golem-mc/golem/registry"
 )
 
 // Bits of a pre-1.20.5 stack's HideFlags.
@@ -32,6 +33,7 @@ var tagComponentized = []string{
 // entries["components"]; what is left of the tag becomes custom_data.
 // vanilla: ItemStackComponentizationFix.fixItemStack
 func componentizeTag(entries nbt.Compound, id string) {
+	item := itemOrNone(id)
 	tag, ok := nbt.CompoundView(entries["tag"])
 	delete(entries, "tag")
 	if !ok || len(tag) == 0 {
@@ -72,7 +74,7 @@ func componentizeTag(entries nbt.Compound, id string) {
 		c["minecraft:unbreakable"] = u
 	}
 	componentizeEnchantments(c, tag, "Enchantments", "minecraft:enchantments", hide&hideEnchantments != 0)
-	if id == "minecraft:enchanted_book" {
+	if item == registry.ItemEnchantedBook {
 		componentizeEnchantments(c, tag, "StoredEnchantments", "minecraft:stored_enchantments", hide&hideAdditional != 0)
 	}
 	if display, ok := nbt.CompoundView(tag["display"]); ok {
@@ -180,7 +182,7 @@ func componentizeDisplay(c, display nbt.Compound, id string, hide int) {
 		b, _ := json.Marshal(map[string]string{"translate": string(loc)})
 		c["minecraft:item_name"] = nbt.String(b)
 	}
-	if mc, ok := display["MapColor"]; ok && id == "minecraft:filled_map" {
+	if mc, ok := display["MapColor"]; ok && itemOrNone(id) == registry.ItemFilledMap {
 		c["minecraft:map_color"] = mc
 		delete(display, "MapColor")
 	}

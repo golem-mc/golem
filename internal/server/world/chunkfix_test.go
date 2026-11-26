@@ -61,7 +61,7 @@ func TestOldChunkGrassBecomesShortGrass(t *testing.T) {
 	}
 }
 
-func TestOldChunkWithTaggedItemIsRefused(t *testing.T) {
+func TestOldChunkWithTaggedItemIsUpgraded(t *testing.T) {
 	t.Parallel()
 	chest := nbt.Compound{
 		"id": nbt.String("minecraft:chest"), "x": nbt.Int(16), "y": nbt.Int(64), "z": nbt.Int(32),
@@ -72,8 +72,8 @@ func TestOldChunkWithTaggedItemIsRefused(t *testing.T) {
 	}
 	w, pos := oldChunkWorld(t, 3465, chest)
 	w.Acquire(pos)
-	if !w.oldVersionLogged.Load() {
-		t.Error("a chunk with a pre-1.20.5 stack with a tag was read")
+	if w.oldVersionLogged.Load() {
+		t.Error("a chunk with a pre-1.20.5 stack with a tag was refused")
 	}
 }
 
