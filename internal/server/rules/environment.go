@@ -579,6 +579,11 @@ func OnPosCell(w BlockAt, x, y, z, halfWidth float64) (int32, int32, int32, uint
 // vanilla: Entity.getOnPosLegacy
 func onPosCell(w BlockAt, x, y, z, halfWidth float64) (int32, int32, int32, uint16) {
 	sx, sy, sz, sstate, found := supportCell(w, x, y, z, halfWidth)
+	return onPosFrom(w, x, y, z, sx, sy, sz, sstate, found)
+}
+
+// onPosFrom is onPosCell given the support search's result.
+func onPosFrom(w BlockAt, x, y, z float64, sx, sy, sz int32, sstate uint16, found bool) (int32, int32, int32, uint16) {
 	if found && isPostBlock(sstate) {
 		return sx, sy, sz, sstate
 	}
@@ -630,14 +635,27 @@ func standingBlock(w BlockAt, x, y, z, halfWidth float64) (bx, by, bz int32, sta
 // answers the cell under the centre and its state, found false.
 // vanilla: Entity.setOnGroundWithMovement, CollisionGetter.findSupportingBlock
 func supportCell(w BlockAt, x, y, z, halfWidth float64) (bx, by, bz int32, state uint16, found bool) {
-	const slab = 1e-6
 	cx, cz := int32(math.Floor(x)), int32(math.Floor(z))
-	cy := int32(math.Floor(y - slab))
-	loX, loY, loZ, hiX, hiZ := x-halfWidth, y-slab, z-halfWidth, x+halfWidth, z+halfWidth
+	cy := int32(math.Floor(y - supportSlab))
 	centre := w.BlockAt(cx, cy, cz)
-	if world.StateCollides(centre, cx, cy, cz, loX, loY, loZ, hiX, y, hiZ) {
+	if world.StateCollides(centre, cx, cy, cz, x-halfWidth, y-supportSlab, z-halfWidth, x+halfWidth, y, z+halfWidth) {
 		return cx, cy, cz, centre, true
 	}
+	if bx, by, bz, state, found = searchSupport(w, x, y, z, x, z, halfWidth, true); found {
+		return bx, by, bz, state, true
+	}
+	return cx, cy, cz, centre, false
+}
+
+const supportSlab = 1e-6
+
+// searchSupport is the nearest-support search over the feet slab of a box
+// centred on (boxX, boxZ), distances taken to (x, y, z). skipCentre leaves
+// out the centre column's feet-row cell, which the caller has read.
+// vanilla: CollisionGetter.findSupportingBlock
+func searchSupport(w BlockAt, x, y, z, boxX, boxZ, halfWidth float64, skipCentre bool) (bx, by, bz int32, state uint16, found bool) {
+	cy := int32(math.Floor(y - supportSlab))
+	loX, loY, loZ, hiX, hiZ := boxX-halfWidth, y-supportSlab, boxZ-halfWidth, boxX+halfWidth, boxZ+halfWidth
 	minX, maxX := CellRange(loX, hiX)
 	minZ, maxZ := CellRange(loZ, hiZ)
 	bestD := math.Inf(1)
@@ -646,7 +664,7 @@ func supportCell(w BlockAt, x, y, z, halfWidth float64) (bx, by, bz int32, state
 		dy := float64(row) + 0.5 - y
 		for zz := minZ; zz <= maxZ; zz++ {
 			for xx := minX; xx <= maxX; xx++ {
-				if row == cy && xx == cx && zz == cz {
+				if skipCentre && row == cy && xx == int32(math.Floor(x)) && zz == int32(math.Floor(z)) {
 					continue
 				}
 				s := w.BlockAt(xx, row, zz)
@@ -660,10 +678,36 @@ func supportCell(w BlockAt, x, y, z, halfWidth float64) (bx, by, bz int32, state
 			}
 		}
 	}
+	return bx, by, bz, state, found
+}
+
+// OnPosCellMoved is OnPosCell for a body on the ground that has just moved
+// by (dx, dz). When nothing supports it where it is and the previous check
+// did not already come up empty (noBlocks), the support is searched again
+// with the feet box moved back by the movement, so a box that has just
+// cleared an edge still rests on that block. unsupported is the new noBlocks:
+// whether no support was found at all.
+// vanilla: Entity.checkSupportingBlock
+func OnPosCellMoved(w BlockAt, x, y, z, halfWidth, dx, dz float64, noBlocks bool) (sx, sy, sz int32, state uint16, unsupported bool) {
+	cx, cy, cz, cstate, found := supportCell(w, x, y, z, halfWidth)
 	if found {
-		return bx, by, bz, state, true
+		sx, sy, sz, state = onPosFrom(w, x, y, z, cx, cy, cz, cstate, true)
+		return sx, sy, sz, state, false
 	}
-	return cx, cy, cz, centre, false
+	if !noBlocks && (dx != 0 || dz != 0) {
+		if bx, by, bz, st, ok := searchSupport(w, x, y, z, x-dx, z-dz, halfWidth, false); ok {
+			if isPostBlock(st) {
+				return bx, by, bz, st, false
+			}
+			cy := int32(math.Floor(y - 0.2))
+			if by != cy {
+				st = w.BlockAt(bx, cy, bz)
+			}
+			return bx, cy, bz, st, false
+		}
+	}
+	sx, sy, sz, state = onPosFrom(w, x, y, z, cx, cy, cz, cstate, false)
+	return sx, sy, sz, state, true
 }
 
 // FrostSlowAir reports whether the block the frost slow reads under a body

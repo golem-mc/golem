@@ -1941,13 +1941,19 @@ func (c *client) attackSpeed() float64 {
 // cancels the fall. A step that neither lands nor falls skips the scan.
 // vanilla: Entity.getOnPosLegacy, Entity.checkInsideBlocks
 func (c *client) landingAt(now, was player.Position) rules.Landing {
-	if !now.OnGround && now.Y >= was.Y {
-		return rules.Landing{}
+	if !now.OnGround {
+		c.onGroundNoBlocks = false
+		if now.Y >= was.Y {
+			return rules.Landing{}
+		}
 	}
 	w := c.theWorld()
 	dims := c.dims(c.player.Appearance().Pose)
 	overlapped, _, _ := c.overlapCells(now, dims.Width/2, dims.Height)
-	gx, gy, gz, ground := rules.OnPosCell(w, now.X, now.Y, now.Z, dims.Width/2)
+	gx, gy, gz, ground, noBlocks := rules.OnPosCellMoved(w, now.X, now.Y, now.Z, dims.Width/2, now.X-was.X, now.Z-was.Z, c.onGroundNoBlocks)
+	if now.OnGround {
+		c.onGroundNoBlocks = noBlocks
+	}
 	return rules.Landing{
 		Ground:     ground,
 		GroundX:    gx,

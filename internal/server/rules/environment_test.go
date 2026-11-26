@@ -407,3 +407,24 @@ func TestSupportCellPrefersTheNearestThenTheGreater(t *testing.T) {
 		}
 	}
 }
+
+func TestOnPosCellMovedRetriesAtTheBoxBeforeTheStep(t *testing.T) {
+	stone := stateOf(t, "minecraft:stone")
+	w := stubBlocks{{0, 63, 0}: stone}
+	// Box 1.1..1.7 clears the stone; before a +0.5 step it spanned 0.6..1.2.
+	if _, _, _, s := OnPosCell(w, 1.4, 64, 0.5, 0.3); s == stone {
+		t.Fatal("without a movement nothing supports the body")
+	}
+	x, y, z, s, unsup := OnPosCellMoved(w, 1.4, 64, 0.5, 0.3, 0.5, 0, false)
+	if unsup || x != 0 || y != 63 || z != 0 || s != stone {
+		t.Errorf("got (%d,%d,%d) state %d, want the stone at (0,63,0)", x, y, z, s)
+	}
+}
+
+func TestOnPosCellMovedSkipsTheRetryAfterAnEmptyCheck(t *testing.T) {
+	w := stubBlocks{{0, 63, 0}: stateOf(t, "minecraft:stone")}
+	_, _, _, s, unsup := OnPosCellMoved(w, 1.4, 64, 0.5, 0.3, 0.5, 0, true)
+	if !unsup || s == stateOf(t, "minecraft:stone") {
+		t.Errorf("the retry ran after an empty check: unsupported %v state %d", unsup, s)
+	}
+}
