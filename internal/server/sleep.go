@@ -171,7 +171,10 @@ func (c *client) startSleeping(w *world.World, x, y, z int32, bed registry.Block
 	look := c.player.Appearance()
 	c.refreshPose(&look)
 	c.player.SetAppearance(look)
-	c.tellObserversMoved()
+	// Viewers decode positions relative to the last one they were told and
+	// setPosToBed does not move it; a viewer arriving now is spawned at the baseline.
+	// vanilla: ServerEntity.sendChanges
+	c.tellObserversTeleported()
 	// vanilla: ServerPlayer.startSleepInBed, before updateSleepingPlayerList.
 	if cannotPass {
 		c.send(protocol.IDPlaySystemChat,
@@ -188,16 +191,6 @@ func (c *client) startSleeping(w *world.World, x, y, z int32, bed registry.Block
 		c.sleptInBedAdvancements()
 	}
 	return true
-}
-
-// tellObserversMoved sends the viewers the move the sleep's start or end made.
-// Their position decoding is relative to the last position they were told and
-// setPosToBed does not move it, so a body moved without a packet would later
-// be drawn at the old base plus the next step, and a viewer arriving now is
-// spawned at the baseline.
-// vanilla: ServerEntity.sendChanges
-func (c *client) tellObserversMoved() {
-	c.tellObserversTeleported()
 }
 
 // stopSleeping stands a sleeper up (vanilla's ServerPlayer
@@ -272,7 +265,8 @@ func (c *client) stopSleeping(forceful, updateSleepers bool) {
 	// Position and wait in one step, so a move sent before the client saw the
 	// wake cannot land between.
 	sync := c.placeAt(pos)
-	c.tellObserversMoved()
+	// Viewers decode positions relative to the last one they were told.
+	c.tellObserversTeleported()
 
 	// The pose from now: no longer sleeping, what the inputs ask, derived into
 	// the appearance the wake's packet is built from.
