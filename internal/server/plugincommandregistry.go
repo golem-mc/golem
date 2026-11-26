@@ -209,18 +209,29 @@ func (p pluginCommands) All() []plugin.CommandInfo {
 // holds, until a plugin command is registered or unregistered.
 func (s *Server) pluginCommandTree(src command.Source, level int) *command.Node {
 	r := &s.pluginCommands
+	key := treeKey{level: level, plugins: s.plugins.Any()}
 	r.mu.Lock()
+	epoch := r.epoch
+	if r.permsEpoch != epoch+1 {
+		var roots []*command.Node
+		for _, c := range r.roots {
+			roots = append(roots, c.roots...)
+		}
+		r.perms, r.permsEpoch = distinctPermissions(roots), epoch+1
+	}
+	perms := r.perms
+	if len(perms) == 0 {
+		// Common case: one lock round trip, no sender.
+		if t := r.trees[key]; t != nil {
+			r.mu.Unlock()
+			return t
+		}
+	}
 	var roots []*command.Node
 	for _, c := range r.roots {
 		roots = append(roots, c.roots...)
 	}
-	epoch := r.epoch
-	if r.permsEpoch != epoch+1 {
-		r.perms, r.permsEpoch = distinctPermissions(roots), epoch+1
-	}
-	perms := r.perms
 	r.mu.Unlock()
-	key := treeKey{level: level, plugins: s.plugins.Any()}
 	var sender plugin.CommandSender
 	if len(perms) != 0 {
 		sender = s.pluginCommandSender(src)
@@ -232,12 +243,12 @@ func (s *Server) pluginCommandTree(src command.Source, level int) *command.Node 
 			}
 		}
 		key.perms = string(sig)
-	}
-	r.mu.Lock()
-	t := r.trees[key]
-	r.mu.Unlock()
-	if t != nil {
-		return t
+		r.mu.Lock()
+		t := r.trees[key]
+		r.mu.Unlock()
+		if t != nil {
+			return t
+		}
 	}
 	hasCommands := len(roots) != 0
 	taken := make(map[string]bool, len(roots))
