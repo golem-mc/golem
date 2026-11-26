@@ -1,6 +1,7 @@
 package movement
 
 import (
+	"math"
 	"testing"
 
 	"github.com/golem-mc/golem/internal/server/servertest"
@@ -102,4 +103,17 @@ func afterTick(t *testing.T, srv *server.Server) {
 	t.Helper()
 	since := srv.TicksRun()
 	servertest.WaitFor(t, srv, 600, func() bool { return srv.TicksRun() > since })
+}
+
+// A lily pad's collision is a 14x14 column, so a step whose box only reaches
+// the pad's outer pixel is taken.
+// vanilla: LilyPadBlock.SHAPE
+func TestAStepIntoALilyPadsOuterPixelIsTaken(t *testing.T) {
+	srv, c := joinWithMoveChecks(t, servertest.SurvivalTestConfig(), "Padder")
+	from := c.Pos()
+	px := int32(math.Floor(from.X)) + 1
+	srv.SetBlock(px, int32(from.Y), int32(from.Z), registry.MustState("minecraft:lily_pad", nil))
+	// The box spans x px-0.55..px+0.05, short of the pad's shape at px+1/16.
+	c.MoveTo(float64(px)-0.25, from.Y, from.Z, 0, 0)
+	expectNoTeleport(srv, c)
 }

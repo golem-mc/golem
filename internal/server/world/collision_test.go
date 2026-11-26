@@ -28,7 +28,7 @@ func TestCollisionBoxes(t *testing.T) {
 			[]CollisionBox{{MinY: 0.5, MaxX: 1, MaxY: 1, MaxZ: 1}}},
 		{"minecraft:chest", nil,
 			[]CollisionBox{{MinX: 1.0 / 16, MinZ: 1.0 / 16, MaxX: 15.0 / 16, MaxY: 14.0 / 16, MaxZ: 15.0 / 16}}},
-		{"minecraft:lily_pad", nil, []CollisionBox{{MaxX: 1, MaxY: 1.5 / 16, MaxZ: 1}}},
+		{"minecraft:lily_pad", nil, []CollisionBox{{MinX: 1.0 / 16, MinZ: 1.0 / 16, MaxX: 15.0 / 16, MaxY: 1.5 / 16, MaxZ: 15.0 / 16}}},
 		// An end portal frame is a 13/16 base; the eye adds the 8x8 middle
 		// column that reaches the full 16/16.
 		{"minecraft:end_portal_frame", map[string]string{"eye": "false", "facing": "north"},

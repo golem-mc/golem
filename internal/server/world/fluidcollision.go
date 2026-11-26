@@ -266,8 +266,11 @@ func modelledGeometry(state uint16, block registry.Block, p map[string]string) (
 		default: // north
 			return []box{boxF(0, 0, 13, 16, 16, 16), boxF(0, 12, 11, 16, 16, 13), boxF(0, 0, 11, 16, 4, 13)}, true
 		}
-	case block == registry.BlockFrogspawn || block == registry.BlockLilyPad:
+	case block == registry.BlockFrogspawn:
 		return []box{boxF(0, 0, 0, 16, 1.5, 16)}, true
+	case block == registry.BlockLilyPad:
+		// vanilla: LilyPadBlock.SHAPE, Block.column(14.0, 0.0, 1.5)
+		return []box{boxF(1, 0, 1, 15, 1.5, 15)}, true
 	case block == registry.BlockPiston || block == registry.BlockStickyPiston:
 		// Retracted, a full cube; extended, minus the four-pixel strip at the
 		// facing end (the notch the head's arm crosses, which the outline
