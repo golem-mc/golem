@@ -2670,6 +2670,24 @@ func (s *Server) mobByUUIDLocked(id uuid.UUID, first *dimension) (*mobEntity, *d
 	return nil, nil
 }
 
+// mobOrCorpseByUUIDLocked is mobByUUIDLocked that also finds a mob dying in
+// any dimension, which vanilla still resolves until its body is removed.
+// The caller holds mobsMu.
+// vanilla: EntityReference.getEntity
+func (s *Server) mobOrCorpseByUUIDLocked(id uuid.UUID, first *dimension) (*mobEntity, *dimension) {
+	if ent, dim := s.mobByUUIDLocked(id, first); ent != nil || id == uuid.Nil {
+		return ent, dim
+	}
+	for _, dim := range s.allDims() {
+		for _, body := range dim.mobs.dying {
+			if body.ent.uuid == id && !body.ent.mob.Discarded() {
+				return body.ent, dim
+			}
+		}
+	}
+	return nil, nil
+}
+
 // mobNameByID is the display name of the mob with this ID in w, false for
 // none. Read under mobsMu, which guards name tag names.
 func (s *Server) mobNameByID(w *world.World, id int32) (string, bool) {

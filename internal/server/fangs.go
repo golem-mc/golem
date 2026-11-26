@@ -200,9 +200,10 @@ func (s *Server) fangsBite(it fangsBiteEffect) {
 	var ownerID int32
 	ownerW := w
 	var ownerClient *client
-	// The owner is found by identity: a dimension transfer gives it a new entity ID.
+	// The owner is found by identity: a dimension transfer gives it a new entity ID,
+	// and a corpse stays the owner until it is removed.
 	// vanilla: EntityReference.getEntity
-	if ent, at := s.mobByUUIDLocked(it.ownerUUID, dim); ent != nil && !ent.mob.Dead {
+	if ent, at := s.mobOrCorpseByUUIDLocked(it.ownerUUID, dim); ent != nil {
 		ownerW = at.w
 		owner = entity.AllianceMember{Mob: ent.mob, Team: ent.mob.Team}
 		ownerUUID = ent.uuid
