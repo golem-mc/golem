@@ -35,8 +35,8 @@ func TestEmbeddedCatalog(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(c.Plugins) != 7 {
-		t.Errorf("%d plugins, want 7", len(c.Plugins))
+	if len(c.Plugins) != 8 {
+		t.Errorf("%d plugins, want 8", len(c.Plugins))
 	}
 	if _, err := parseCatalog([]byte(`{"plugins":[{"name":"A","path":"a","requires":["b"]}]}`)); err == nil {
 		t.Error("a requirement outside the catalog was accepted")
@@ -51,7 +51,7 @@ func TestCatalogFallsBackToEmbedded(t *testing.T) {
 	old := catalogURL
 	defer func() { catalogURL = old }()
 	catalogURL = bad.URL
-	if c := loadCatalog(t.Context()); len(c.Plugins) != 7 {
+	if c := loadCatalog(t.Context()); len(c.Plugins) != 8 {
 		t.Errorf("fallback catalog has %d plugins", len(c.Plugins))
 	}
 	good := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

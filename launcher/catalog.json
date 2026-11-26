@@ -46,6 +46,12 @@
       "description": "Region protection and flags",
       "path": "github.com/golem-mc/worldguard/worldguardplugin",
       "requires": ["github.com/golem-mc/worldedit"]
+    },
+    {
+      "name": "Plots",
+      "description": "Plot worlds: claim, merge and manage plots",
+      "path": "github.com/golem-mc/plots/plotsplugin",
+      "requires": ["github.com/golem-mc/worldedit"]
     }
   ]
 }
