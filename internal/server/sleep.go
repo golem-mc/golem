@@ -197,14 +197,7 @@ func (c *client) startSleeping(w *world.World, x, y, z int32, bed registry.Block
 // spawned at the baseline.
 // vanilla: ServerEntity.sendChanges
 func (c *client) tellObserversMoved() {
-	w := c.dimension().w
-	c.trackMu.Lock()
-	for _, p := range c.movementPackets(moveTick{teleported: true}) {
-		for _, r := range c.seenBy {
-			r.sendIn(w, p.id, p.data)
-		}
-	}
-	c.trackMu.Unlock()
+	c.tellObserversTeleported()
 }
 
 // stopSleeping stands a sleeper up (vanilla's ServerPlayer
