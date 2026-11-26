@@ -90,6 +90,9 @@ func fireAgeOf(state uint16) int {
 // where the block stood and plays the priming sound.
 type TNTPrime struct {
 	X, Y, Z int32
+	// Asked is set when the listeners already allowed this prime before the
+	// block was removed.
+	Asked bool
 }
 
 // fireTick is one fire visit in FireBlock.tick's dice order: book the next
@@ -221,6 +224,10 @@ func (p *Physics) burnOut(x, y, z int32, chance, age int, from [3]int32, changes
 	// rain, then the new age.
 	keeps := p.rng.Intn(age+10) < 5 && !p.w.RainingAt(x, y, z)
 	burned := p.w.BlockAt(x, y, z)
+	tnt := registry.BlockOf(burned) == registry.BlockTnt
+	if tnt && p.w.TNTExplodes() && p.tntPrimeVetoed(x, y, z) {
+		return
+	}
 	if p.listens(HookBurn) {
 		d := HookDecision{Kind: HookBurn, X: x, Y: y, Z: z, Old: burned, From: from}
 		if p.ask(&d) {
@@ -238,7 +245,7 @@ func (p *Physics) burnOut(x, y, z int32, chance, age int, from [3]int32, changes
 		p.setShaped(x, y, z, airState, changes)
 	}
 	if registry.BlockOf(burned) == registry.BlockTnt {
-		*primes = append(*primes, TNTPrime{X: x, Y: y, Z: z})
+		*primes = append(*primes, TNTPrime{X: x, Y: y, Z: z, Asked: p.listens(HookTNTPrime)})
 	}
 }
 

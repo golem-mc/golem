@@ -33,6 +33,7 @@ var physicsHookIDs = [...]int{
 	world.HookFertilize: pluginruntime.BlockFertilize,
 	world.HookStructure: pluginruntime.StructureGrow,
 	world.HookMoisture:  pluginruntime.MoistureChange,
+	world.HookTNTPrime:  pluginruntime.TNTPrime,
 }
 
 func (h physicsHooks) Listening(kind world.HookKind) bool {
@@ -60,6 +61,10 @@ func (h physicsHooks) fire(d *world.HookDecision) {
 	pl := h.s.plugins
 	at := h.block(d.X, d.Y, d.Z)
 	switch d.Kind {
+	case world.HookTNTPrime:
+		e := &plugin.TNTPrimeEvent{Block: at}
+		pl.Fire(e)
+		d.Cancel = e.Cancelled()
 	case world.HookBurn:
 		src := h.blockAt(d.From)
 		e := &plugin.BlockBurnEvent{Block: at, Fire: &src}

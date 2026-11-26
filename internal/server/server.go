@@ -50,6 +50,9 @@ const (
 
 // Server holds configuration and state for the Minecraft server.
 type Server struct {
+	// pendingPrimes and drainingPrimes are runWakePrimes' queue (tick goroutine).
+	pendingPrimes  []pendingPrime
+	drainingPrimes bool
 	// Online player slots are allocated and released under mu.
 	freePlayerSlots      []int
 	nextPlayerSlot       int
