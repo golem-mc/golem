@@ -108,6 +108,17 @@ func renameOldItem(name string, version int32) string {
 	if version < shardRenameVersion && strings.HasSuffix(name, "_pottery_shard") {
 		name = strings.TrimSuffix(name, "_pottery_shard") + "_pottery_sherd"
 	}
+	if version < fungusRenameVersion {
+		name = strings.Replace(name, "_fungi", "_fungus", 1)
+	}
+	if version < soulFireRenameVersion {
+		switch name {
+		case "minecraft:soul_fire_torch":
+			name = "minecraft:soul_torch"
+		case "minecraft:soul_fire_lantern":
+			name = "minecraft:soul_lantern"
+		}
+	}
 	if name == "minecraft:grass_path" && version < grassPathRenameVersion {
 		name = "minecraft:dirt_path"
 	}
@@ -140,6 +151,16 @@ func fixOldBlockEntity(entry nbt.CompoundTag, version int32) {
 	id, _ := nbt.Get[nbt.String](tag, "id")
 	if version < storedItemVersion {
 		upgradeLegacyStacks(entry, version)
+	}
+	switch string(id) {
+	case "minecraft:furnace", "minecraft:blast_furnace", "minecraft:smoker":
+		if version < furnaceRecipesVersion {
+			fixFurnaceRecipes(tag)
+		}
+	case "minecraft:conduit", "minecraft:skull":
+		if version < blockEntityUUIDFixed {
+			fixBlockEntityUUIDs(string(id), tag)
+		}
 	}
 	kind, _ := BlockEntityKindByName(string(id))
 	switch {

@@ -355,8 +355,11 @@ func fixLegacyPalette(palette nbt.List, version int32) {
 			nameKey, propsKey = "Name", "Properties"
 			name, _ = nbt.Get[nbt.String](entry, nameKey)
 		}
+		props, _ := nbt.Get[nbt.Compound](entry, propsKey)
+		if wallBlocks[registry.Qualify(string(name))] {
+			fixWallSides(props, version)
+		}
 		if fix, ok := legacyPaletteFixes[registry.Qualify(string(name))]; ok {
-			props, _ := nbt.Get[nbt.Compound](entry, propsKey)
 			fix(entry, props, nameKey, version)
 		}
 	}
@@ -382,6 +385,20 @@ var legacyPaletteFixes = map[string]func(entry, props nbt.Compound, nameKey stri
 			props["mode"] = mode
 		}
 	},
+	"minecraft:redstone_wire": func(_, props nbt.Compound, _ string, version int32) { fixRedstoneSides(props, version) },
+	"minecraft:crimson_fungi": func(entry, _ nbt.Compound, nameKey string, version int32) {
+		if version < fungusRenameVersion {
+			entry[nameKey] = nbt.String("minecraft:crimson_fungus")
+		}
+	},
+	"minecraft:warped_fungi": func(entry, _ nbt.Compound, nameKey string, version int32) {
+		if version < fungusRenameVersion {
+			entry[nameKey] = nbt.String("minecraft:warped_fungus")
+		}
+	},
+	"minecraft:soul_fire_torch":      renameSoulFire("minecraft:soul_torch"),
+	"minecraft:soul_fire_wall_torch": renameSoulFire("minecraft:soul_wall_torch"),
+	"minecraft:soul_fire_lantern":    renameSoulFire("minecraft:soul_lantern"),
 	"minecraft:grass_path": func(entry, _ nbt.Compound, nameKey string, version int32) {
 		if version < grassPathRenameVersion {
 			entry[nameKey] = nbt.String("minecraft:dirt_path")
@@ -407,6 +424,16 @@ var legacyPaletteFixes = map[string]func(entry, props nbt.Compound, nameKey stri
 	"minecraft:chain": func(entry, _ nbt.Compound, nameKey string, _ int32) {
 		entry[nameKey] = nbt.String("minecraft:iron_chain")
 	},
+}
+
+// renameSoulFire is the fix that renames a block from before
+// soulFireRenameVersion to name.
+func renameSoulFire(name string) func(entry, props nbt.Compound, nameKey string, version int32) {
+	return func(entry, _ nbt.Compound, nameKey string, version int32) {
+		if version < soulFireRenameVersion {
+			entry[nameKey] = nbt.String(name)
+		}
+	}
 }
 
 // checkChunkFormat rejects a record older than decodeChunkNBT reads, a

@@ -9,11 +9,10 @@ import (
 )
 
 // levelChunkFloor is the oldest DataVersion of a chunk in the pre-1.18 layout
-// (a Level wrapper) that unwrapLevelChunk reads: 1.16. No block or block
-// entity fix lies between it and 1.16.5 (2586); 1.15.2 and older chunks need
-// the bit storage alignment and the 1.16 snapshot fixes, which are not ported.
-// vanilla: DataFixers.addFixers (v2527 BitStorageAlignFix)
-const levelChunkFloor = 2566
+// (a Level wrapper) that unwrapLevelChunk reads: 1.15, the first that has
+// the 1.15 biome array. Older ones need the 1.13 and 1.14 chunk fixes, which
+// are not ported.
+const levelChunkFloor = 2225
 
 // Data versions of the block and item renames a 1.16.5 chunk gets that a
 // 1.17 chunk is already past.
@@ -98,7 +97,7 @@ func unwrapLevelChunk(root nbt.Compound, version int32) error {
 		if idx := int(y) - newMinSectionY; idx >= 0 && idx < len(biomes) && biomes[idx] != nil {
 			sec["biomes"] = biomes[idx]
 		}
-		fixLevelSectionBlocks(sec)
+		fixLevelSectionBlocks(sec, version)
 	}
 	for idx, container := range biomes {
 		if y := int32(idx + newMinSectionY); container != nil && !done[y] {
@@ -122,13 +121,16 @@ func unwrapLevelChunk(root nbt.Compound, version int32) error {
 // fixLevelSectionBlocks turns a section's Palette and BlockStates into the
 // block_states compound; a section without both is air.
 // vanilla: ChunkHeightAndBiomeFix.makeOptimizedPalettedContainer
-func fixLevelSectionBlocks(sec nbt.Compound) {
+func fixLevelSectionBlocks(sec nbt.Compound, version int32) {
 	palette, hasPalette := nbt.Get[nbt.List](sec, "Palette")
 	data, hasData := nbt.Get[nbt.LongArray](sec, "BlockStates")
 	delete(sec, "Palette")
 	delete(sec, "BlockStates")
 	if !hasPalette || !hasData {
 		return
+	}
+	if version < bitStorageAlignFixed {
+		data = realignBlockStates(data, len(palette.Items))
 	}
 	bs := nbt.Compound{"palette": palette}
 	if len(palette.Items) > 1 {
