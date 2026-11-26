@@ -359,8 +359,11 @@ func fixLegacyPalette(palette nbt.List, version int32) {
 			nameKey, propsKey = "Name", "Properties"
 			name, _ = nbt.Get[nbt.String](entry, nameKey)
 		}
+		props, _ := nbt.Get[nbt.Compound](entry, propsKey)
+		if b, ok := registry.BlockByName(registry.Qualify(string(name))); ok && b.IsWall() {
+			fixWallSides(props, version)
+		}
 		if fix, ok := legacyPaletteFixes[registry.Qualify(string(name))]; ok {
-			props, _ := nbt.Get[nbt.Compound](entry, propsKey)
 			fix(entry, props, nameKey, version)
 		}
 	}
@@ -386,6 +389,37 @@ var legacyPaletteFixes = map[string]func(entry, props nbt.Compound, nameKey stri
 			props["mode"] = mode
 		}
 	},
+	"minecraft:redstone_wire": func(_, props nbt.Compound, _ string, version int32) { fixRedstoneSides(props, version) },
+	"minecraft:crimson_fungi": func(entry, _ nbt.Compound, nameKey string, version int32) {
+		if version < fungusRenameVersion {
+			entry[nameKey] = nbt.String("minecraft:crimson_fungus")
+		}
+	},
+	"minecraft:warped_fungi": func(entry, _ nbt.Compound, nameKey string, version int32) {
+		if version < fungusRenameVersion {
+			entry[nameKey] = nbt.String("minecraft:warped_fungus")
+		}
+	},
+	"minecraft:soul_fire_torch":      renameSoulFire("minecraft:soul_torch"),
+	"minecraft:soul_fire_wall_torch": renameSoulFire("minecraft:soul_wall_torch"),
+	"minecraft:soul_fire_lantern":    renameSoulFire("minecraft:soul_lantern"),
+	"minecraft:grass_path": func(entry, _ nbt.Compound, nameKey string, version int32) {
+		if version < grassPathRenameVersion {
+			entry[nameKey] = nbt.String("minecraft:dirt_path")
+		}
+	},
+	"minecraft:cauldron": func(entry, props nbt.Compound, nameKey string, version int32) {
+		if version >= cauldronRenameVersion {
+			return
+		}
+		// vanilla: CauldronRenameFix
+		if level, _ := props["level"].(nbt.String); level == "" || level == "0" {
+			delete(entry, "Properties")
+			delete(entry, "properties")
+		} else {
+			entry[nameKey] = nbt.String("minecraft:water_cauldron")
+		}
+	},
 	"minecraft:grass": func(entry, _ nbt.Compound, nameKey string, version int32) {
 		if version < grassRenameVersion {
 			entry[nameKey] = nbt.String("minecraft:short_grass")
@@ -396,13 +430,31 @@ var legacyPaletteFixes = map[string]func(entry, props nbt.Compound, nameKey stri
 	},
 }
 
-// checkChunkFormat rejects a record older than decodeChunkNBT reads: a Level
-// wrapper or a DataVersion below chunkDataVersionFloor, or a Status without
-// namespace from a version that wrote one.
+// renameSoulFire is the fix that renames a block from before
+// soulFireRenameVersion to name.
+func renameSoulFire(name string) func(entry, props nbt.Compound, nameKey string, version int32) {
+	return func(entry, _ nbt.Compound, nameKey string, version int32) {
+		if version < soulFireRenameVersion {
+			entry[nameKey] = nbt.String(name)
+		}
+	}
+}
+
+// checkChunkFormat rejects a record older than decodeChunkNBT reads, a
+// DataVersion below chunkDataVersionFloor or below levelChunkFloor for a Level
+// wrapper, or a Status without namespace from a version that wrote one. A
+// chunk in the Level layout is rewritten in place to the current one.
 func checkChunkFormat(root nbt.Compound) error {
 	version, _ := nbt.Get[nbt.Int](root, "DataVersion")
-	if _, ok := root["Level"]; ok || version != 0 && version < chunkDataVersionFloor {
+	if _, ok := root["Level"]; ok {
 		// A Level wrapper with no DataVersion is from before 1.9.
+		if version < levelChunkFloor {
+			return &unsupportedVersionError{version: int32(version)}
+		}
+		if err := unwrapLevelChunk(root, int32(version)); err != nil {
+			return err
+		}
+	} else if version != 0 && version < chunkDataVersionFloor {
 		return &unsupportedVersionError{version: int32(version)}
 	}
 	if status, ok := nbt.Get[nbt.String](root, "Status"); ok && !strings.Contains(string(status), ":") && (version == 0 || version >= chunkStatusVersion) {

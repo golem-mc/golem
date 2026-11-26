@@ -135,7 +135,7 @@ func init() {
 		"cb3f55d3-645c-4f38-a497-9c13a33db5cf": "minecraft:base_attack_damage",
 		"fa233e1c-4180-4865-b01b-bcce9785aca3": "minecraft:base_attack_speed",
 	} {
-		key, _ := uuidInts(uuid)
+		key, _ := parseUUIDInts(uuid)
 		attributeModifierIDs[key] = id
 	}
 }
@@ -150,8 +150,8 @@ var attributeModifierNames = map[string]string{
 	"Zombie reinforcement caller charge": "minecraft:reinforcement_caller_charge",
 }
 
-// uuidInts parses a dashed UUID into the four ints an NBT UUID is stored as.
-func uuidInts(s string) (out [4]int32, ok bool) {
+// parseUUIDInts parses a dashed UUID into the four ints an NBT UUID is stored as.
+func parseUUIDInts(s string) (out [4]int32, ok bool) {
 	hex := strings.ReplaceAll(s, "-", "")
 	if len(hex) != 32 {
 		return out, false
