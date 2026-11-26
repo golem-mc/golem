@@ -71,3 +71,32 @@ func TestPackReplaceRejectsRetiredRotatedAndRandomizedInt(t *testing.T) {
 func replaceBlockWith(provider string) string {
 	return fmt.Sprintf(`{"type":"minecraft:replace_block","offset":[0,-1,0],"block_state":%s}`, provider)
 }
+
+// vanilla: CopyPropertiesProvider.getState, RuleBasedStateProvider.getState, RandomBlockProvider.getOptionalState
+func TestPackReplaceWorldReadingProviders(t *testing.T) {
+	logX, _ := registry.FindState("minecraft:oak_log", map[string]string{"axis": "x"})
+	setLog := func(srv *server.Server) { srv.SetBlock(2, 63, 0, logX) }
+	t.Run("copy_properties", func(t *testing.T) {
+		srv, _ := hitZombieWith(t, replaceBlockWith(`{"type":"minecraft:copy_properties",
+			"source":{"id":"minecraft:oak_log","properties":{"axis":"y"}}}`), nil, setLog)
+		if got := srv.BlockAt(2, 63, 0); got != logX {
+			t.Fatalf("block = %s %v, want the log's east-west axis kept", registry.BlockOf(got).Name(), registry.StateProps(got))
+		}
+	})
+	t.Run("rule_based", func(t *testing.T) {
+		srv, _ := hitZombieWith(t, `{"type":"minecraft:replace_disk","offset":[0,-1,0],"radius":2,"height":1,
+			"block_state":{"type":"minecraft:rule_based","fallback":{"id":"minecraft:emerald_block"},
+			"rules":[{"if_true":{"type":"minecraft:matching_blocks","blocks":"minecraft:oak_log"},"then":{"id":"minecraft:diamond_block"}}]}}`, nil, setLog)
+		for x, want := range map[int32]registry.Block{2: registry.BlockDiamondBlock, 3: registry.BlockEmeraldBlock} {
+			if got := registry.BlockOf(srv.BlockAt(x, 63, 0)); got != want {
+				t.Errorf("block at x=%d = %s, want %s", x, got.Name(), want.Name())
+			}
+		}
+	})
+	t.Run("random_block_empty", func(t *testing.T) {
+		srv, _ := hitZombieWith(t, replaceBlockWith(`{"type":"minecraft:random_block","blocks":[]}`), nil, setLog)
+		if got := srv.BlockAt(2, 63, 0); got != logX {
+			t.Fatalf("block = %s %v, want the existing state kept", registry.BlockOf(got).Name(), registry.StateProps(got))
+		}
+	})
+}
