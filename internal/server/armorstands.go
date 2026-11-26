@@ -59,7 +59,7 @@ type armorStandEntity struct {
 
 // standTracker tracks the armor stands. A stand is told where it went on a
 // movement tick (every entity.ArmorStandInterval ticks; a teleport waits for
-// the next one), always by an absolute Teleport Entity (standMove).
+// the next one), see standMove.
 var standTracker = trackedKind[*armorStandEntity, *armorStandMeta]{
 	steppedPath:      true,
 	invalidatePiston: func(dim *dimension) { dim.pistons.armorStands.built = false },
@@ -842,8 +842,6 @@ func trackStand(ent *armorStandEntity, watchers []trackingWatcher, near *nearbyP
 	if dirty := ent.stand.Attributes().TakeDirty(); len(dirty) != 0 {
 		attributes = attributesPayload(body.id, dirty)
 	}
-	// move is the pass's Teleport Entity, encoded for the first watcher due it.
-	var move []byte
 	for _, i := range body.watchers(near) {
 		wh := watchers[i]
 		if wh.c.theWorld() != ent.w {
@@ -852,7 +850,7 @@ func trackStand(ent *armorStandEntity, watchers []trackingWatcher, near *nearbyP
 		_, shown := ent.tracked.get(wh.c)
 		if told, seen := body.settle(wh.c, wh.x, wh.z, wh.chunkRadius, &out.trackSends); seen && shown {
 			if mt.gate {
-				standMove(&body, told, wh.c, mt, &move, out)
+				standMove(&body, told, wh.c, mt, out)
 			}
 			if now != told.own {
 				data := armorStandMetadataTable(body.id, now, told.own, armorStandMetaTick)
@@ -868,28 +866,16 @@ func trackStand(ent *armorStandEntity, watchers []trackingWatcher, near *nearbyP
 	}
 }
 
-// standMove tells one watcher where the stand went, with a Teleport Entity
-// when it moved past the movement threshold, turned, or was teleported
-// anywhere new, however short the step. The payload is the same for every
-// watcher, so it is encoded into *move once per pass.
+// standMove tells one watcher where the stand went: a relative move when the
+// step fits and the ground flag is unchanged, a stepped Teleport Entity
+// otherwise (see moveDiff).
 // vanilla: ServerEntity.sendChanges
-func standMove(v *trackedBody[*armorStandEntity, *armorStandMeta], told *toldBody[*armorStandMeta], c *client, mt moveTick, move *[]byte, out *standSends) {
-	now := v.position()
-	dx, dy, dz := now.x-told.x, now.y-told.y, now.z-told.z
-	jumped := mt.teleported && (dx != 0 || dy != 0 || dz != 0)
-	if dx*dx+dy*dy+dz*dz < movedThresholdSq && now.yaw == told.yaw && !jumped {
-		return
+func standMove(v *trackedBody[*armorStandEntity, *armorStandMeta], told *toldBody[*armorStandMeta], c *client, mt moveTick, out *standSends) {
+	mt.forced = false
+	if packet, ok := v.movePacket(told, mt); ok {
+		out.told = append(out.told, packet)
+		out.toldTo = append(out.toldTo, showTo{c, v.w})
 	}
-	told.trackedPosition = now
-	if *move == nil {
-		st := v.b.stand
-		var buf protocol.Buffer
-		buf.Grow(teleportEntityLen)
-		putAbsolute(&buf, v.id, bodyPose{x: st.X, y: st.Y, z: st.Z, yaw: st.Yaw}, mt.stepTicks, st.OnGround)
-		*move = buf.Bytes()
-	}
-	out.told = append(out.told, outbound{id: protocol.IDPlayTeleportEntity, data: *move})
-	out.toldTo = append(out.toldTo, showTo{c, v.w})
 }
 
 // tickArmorStandTracking settles the view of every stand a frozen world
