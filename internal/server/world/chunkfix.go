@@ -130,7 +130,7 @@ var potShardRenames = map[string]string{
 // fixOldBlockEntity applies the block entity fixes between a chunk's data
 // version and the one decodeChunkNBT reads.
 func fixOldBlockEntity(entry nbt.CompoundTag, version int32) {
-	if version == 0 || version >= textComponentVersion {
+	if version == 0 || version >= tooltipDisplayVersion {
 		return
 	}
 	tag := entry.Entries()
@@ -138,6 +138,7 @@ func fixOldBlockEntity(entry nbt.CompoundTag, version int32) {
 	if version < storedItemVersion {
 		upgradeLegacyStacks(entry, version)
 	}
+	fixStoredComponents(entry, version)
 	kind, _ := BlockEntityKindByName(string(id))
 	switch {
 	case string(id) == suspiciousSandID && version < brushableBlockVersion:
@@ -158,7 +159,9 @@ func fixOldBlockEntity(entry nbt.CompoundTag, version int32) {
 		fixBeaconEffect(tag, "Primary", "primary_effect")
 		fixBeaconEffect(tag, "Secondary", "secondary_effect")
 	}
-	unflattenBlockEntityText(tag)
+	if version < textComponentVersion {
+		unflattenBlockEntityText(tag)
+	}
 }
 
 func renameField(tag nbt.Compound, from, to string) {

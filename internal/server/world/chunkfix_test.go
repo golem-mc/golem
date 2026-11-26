@@ -11,9 +11,9 @@ import (
 func oldChunkWorld(t *testing.T, version int32, blockEntities ...nbt.Tag) (*World, ChunkPos) {
 	t.Helper()
 	pos := ChunkPos{X: 1, Z: 2}
-	block := "minecraft:grass"
+	grass := "minecraft:grass"
 	if version >= grassRenameVersion {
-		block = "minecraft:stone"
+		grass = "minecraft:short_grass"
 	}
 	root := nbt.Compound{
 		"DataVersion": nbt.Int(version),
@@ -23,7 +23,7 @@ func oldChunkWorld(t *testing.T, version int32, blockEntities ...nbt.Tag) (*Worl
 		"sections": nbt.List{Elem: nbt.TypeCompound, Items: []nbt.Tag{nbt.Compound{
 			"Y": nbt.Byte(4),
 			"block_states": nbt.Compound{"palette": nbt.List{Elem: nbt.TypeCompound, Items: []nbt.Tag{
-				nbt.Compound{"Name": nbt.String(block)},
+				nbt.Compound{"Name": nbt.String(grass)},
 			}}},
 		}}},
 		"block_entities": nbt.List{Elem: nbt.TypeCompound, Items: blockEntities},
@@ -207,7 +207,7 @@ func TestPre1215TextIsComponentsInMemoryAndJSONOnDisk(t *testing.T) {
 	for i, item := range messages.Items {
 		if s, ok := item.(nbt.String); !ok {
 			t.Errorf("saved message %d is %T, want a JSON string", i, item)
-		} else if parsed := unflattenText(s); parsed == nbt.Tag(s) && i == 1 {
+		} else if parsed := unflattenJSON(s); parsed == nbt.Tag(s) && i == 1 {
 			t.Errorf("saved message 1 %q does not parse", s)
 		}
 	}

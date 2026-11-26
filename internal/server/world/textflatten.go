@@ -4,63 +4,23 @@ import (
 	"encoding/json"
 	"maps"
 
-	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/nbt"
 )
-
-// textComponentVersion is the data version from which a sign's messages and a
-// block entity's CustomName are text components rather than JSON strings.
-// vanilla: DataFixers.addFixers (UnflattenTextComponentFix)
-const textComponentVersion = 4290
-
-// unflattenText reads a JSON string as the component it holds; a string that is
-// no JSON component stays a literal line.
-// vanilla: UnflattenTextComponentFix.parseJSON
-func unflattenText(tag nbt.Tag) nbt.Tag {
-	s, ok := tag.(nbt.String)
-	if !ok {
-		return tag
-	}
-	parsed, _, err := protocol.ParseTextJSON(string(s))
-	if err != nil {
-		return tag
-	}
-	return parsed
-}
 
 // unflattenMessages converts a message list's JSON strings to components.
 func unflattenMessages(list nbt.List) nbt.List {
 	items := make([]nbt.Tag, len(list.Items))
-	allStrings := true
 	for i, item := range list.Items {
-		item = unflattenText(nbt.ListElement(item))
-		if _, ok := item.(nbt.String); !ok {
-			allStrings = false
-		}
-		items[i] = item
+		items[i] = unflattenJSON(nbt.ListElement(item))
 	}
-	return mixedList(items, allStrings)
-}
-
-// mixedList builds a list of components, wrapping a non-compound one in the ""
-// compound a list of mixed types stores it in.
-func mixedList(items []nbt.Tag, allStrings bool) nbt.List {
-	if allStrings {
-		return nbt.List{Elem: nbt.TypeString, Items: items}
-	}
-	for i, item := range items {
-		if _, ok := nbt.CompoundView(item); !ok {
-			items[i] = nbt.Compound{"": item}
-		}
-	}
-	return nbt.List{Elem: nbt.TypeCompound, Items: items}
+	return mixedList(items)
 }
 
 // unflattenBlockEntityText applies UnflattenTextComponentFix to a block entity:
 // sign messages and a CustomName.
 func unflattenBlockEntityText(entries nbt.Compound) {
 	if name, ok := entries["CustomName"]; ok {
-		entries["CustomName"] = unflattenText(name)
+		entries["CustomName"] = unflattenJSON(name)
 	}
 	for _, side := range []string{"front_text", "back_text"} {
 		text, ok := nbt.Get[nbt.Compound](entries, side)
