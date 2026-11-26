@@ -42,8 +42,8 @@ func TestEnchantedChanceAcceptsAnyLevelValue(t *testing.T) {
 		t.Fatal(err)
 	}
 	ctx := func(level int32) *rules.LootContext {
-		return &rules.LootContext{Attacker: rules.LootEntity{Type: "minecraft:player", Mainhand: rules.LootTool{
-			Item: "minecraft:iron_sword", Count: 1, Enchantments: map[string]int32{"minecraft:looting": level}}}}
+		return &rules.LootContext{Attacker: rules.LootEntity{Type: "minecraft:player", Gear: &rules.LootGear{Mainhand: rules.LootTool{
+			Item: "minecraft:iron_sword", Count: 1, Enchantments: map[string]int32{"minecraft:looting": level}}}}}
 	}
 	rng := rand.New(rand.NewSource(5))
 	for range 50 {

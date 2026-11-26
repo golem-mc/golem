@@ -242,7 +242,7 @@ func TestLootingGrowsAMobsDrops(t *testing.T) {
 	}
 	looting := rollMany(t, "minecraft:entities/zombie", LootContext{
 		Attacker: LootEntity{Type: "minecraft:player",
-			Mainhand: toolWith("minecraft:iron_sword", map[string]int32{"minecraft:looting": 3})},
+			Gear: &LootGear{Mainhand: toolWith("minecraft:iron_sword", map[string]int32{"minecraft:looting": 3})}},
 	}, 300, 602)
 	seenHigh := false
 	for _, count := range countsOf(looting, "minecraft:rotten_flesh") {
@@ -328,8 +328,8 @@ func TestAFurnaceSmeltCooksWhatDiedBurning(t *testing.T) {
 func TestAFireAspectBladeCooksWhatItKills(t *testing.T) {
 	ctx := LootContext{
 		This:           LootEntity{Type: "minecraft:cow"},
-		Attacker:       LootEntity{Type: "minecraft:player", Mainhand: toolWith("minecraft:iron_sword", map[string]int32{"minecraft:fire_aspect": 2})},
-		DirectAttacker: LootEntity{Type: "minecraft:player", Mainhand: toolWith("minecraft:iron_sword", map[string]int32{"minecraft:fire_aspect": 2})},
+		Attacker:       LootEntity{Type: "minecraft:player", Gear: &LootGear{Mainhand: toolWith("minecraft:iron_sword", map[string]int32{"minecraft:fire_aspect": 2})}},
+		DirectAttacker: LootEntity{Type: "minecraft:player", Gear: &LootGear{Mainhand: toolWith("minecraft:iron_sword", map[string]int32{"minecraft:fire_aspect": 2})}},
 	}
 	drops := rollNames(t, RollLoot("minecraft:entities/cow", &ctx, rand.New(rand.NewSource(1001))))
 	if beefOf(t, drops, "minecraft:cooked_beef") == 0 {

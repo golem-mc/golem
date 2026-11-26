@@ -586,17 +586,23 @@ func FillLootEntity(out *rules.LootEntity, e Entity) {
 	out.Tags = e.Tags()
 	for _, s := range [...]struct {
 		slot ItemSlot
-		dst  *rules.LootTool
+		dst  func(*rules.LootGear) *rules.LootTool
 	}{
-		{ItemSlotOffHand, &out.Offhand}, {ItemSlotHead, &out.Head}, {ItemSlotChest, &out.Chest},
-		{ItemSlotLegs, &out.Legs}, {ItemSlotFeet, &out.Feet}, {ItemSlotBody, &out.Body},
+		{ItemSlotOffHand, func(g *rules.LootGear) *rules.LootTool { return &g.Offhand }},
+		{ItemSlotHead, func(g *rules.LootGear) *rules.LootTool { return &g.Head }},
+		{ItemSlotChest, func(g *rules.LootGear) *rules.LootTool { return &g.Chest }},
+		{ItemSlotLegs, func(g *rules.LootGear) *rules.LootTool { return &g.Legs }},
+		{ItemSlotFeet, func(g *rules.LootGear) *rules.LootTool { return &g.Feet }},
+		{ItemSlotBody, func(g *rules.LootGear) *rules.LootTool { return &g.Body }},
+		{ItemSlotMainHand, func(g *rules.LootGear) *rules.LootTool { return &g.Mainhand }},
 	} {
-		if stack, ok := e.ItemIn(s.slot); ok {
-			*s.dst = rules.ToolOf(stack)
+		stack, ok := e.ItemIn(s.slot)
+		if !ok || stack.Empty() {
+			continue
 		}
-	}
-	if main, ok := e.ItemIn(ItemSlotMainHand); ok && out.Mainhand.Item == "" {
-		out.Mainhand = rules.ToolOf(main)
+		if dst := s.dst(out.Equip()); s.slot != ItemSlotMainHand || dst.Item == "" {
+			*dst = rules.ToolOf(stack)
+		}
 	}
 	if body, ok := e.(TeamEntity); ok {
 		out.Team = body.Team()
@@ -676,8 +682,8 @@ func lootKill(src Source, target Entity) lootDrop {
 	}
 	if self := src.SelfEntity(); self != nil {
 		attacker := lootEntityOf(self)
-		if held, ok := self.ItemIn(ItemSlotMainHand); ok {
-			attacker.Mainhand = rules.ToolOf(held)
+		if held, ok := self.ItemIn(ItemSlotMainHand); ok && !held.Empty() {
+			attacker.Equip().Mainhand = rules.ToolOf(held)
 		}
 		ctx.Attacker, ctx.DirectAttacker = attacker, attacker
 		ctx.KilledByPlayer = attacker.Type == "minecraft:player"
