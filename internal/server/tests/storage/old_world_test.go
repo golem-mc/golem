@@ -181,7 +181,7 @@ func TestAVanilla1_16_5WorldLoadsItsChunks(t *testing.T) {
 		t.Fatal("no sign block entity")
 	}
 	messages, color, glowing := signFront(t, sign)
-	want := []string{`{"text":"Hello"}`, `{"color":"red","text":"golem"}`, `{"text":""}`, `{"text":""}`}
+	want := []string{"Hello", "map[color:red text:golem]", "", ""}
 	if !slices.Equal(messages, want) {
 		t.Errorf("front messages = %q, want %q", messages, want)
 	}
