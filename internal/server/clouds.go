@@ -558,7 +558,14 @@ func (wt *cloudWorldTargets) fill(c *entity.Cloud, dim *dimension, w *world.Worl
 	minX, minY, minZ, maxX, maxY, maxZ := c.Box().Corners()
 	box := [6]float64{minX, minY, minZ, maxX, maxY, maxZ}
 	area, indexed := smallChunkArea(&box)
+	cloudBox := c.Box()
 	dim.mobs.mobsInArea(area, indexed, func(m *entity.Mob) bool {
+		// Apply drops what the starting-radius box misses, so skip the sort and
+		// the target for it.
+		bx0, by0, bz0, bx1, by1, bz1 := m.BlastBox()
+		if !cloudBox.Crosses(entity.NewAABB(bx0, by0, bz0, bx1, by1, bz1)) {
+			return true
+		}
 		wt.mobs = append(wt.mobs, m)
 		return true
 	})
