@@ -48,6 +48,7 @@ import net.minecraft.world.entity.player.Inventory;
 import net.minecraft.world.inventory.AbstractContainerMenu;
 import net.minecraft.world.inventory.ContainerInput;
 import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.component.ChargedProjectiles;
 import net.minecraft.world.item.component.SwingAnimation;
 import net.minecraft.world.item.enchantment.Enchantment;
 import net.minecraft.world.item.enchantment.ItemEnchantments;
@@ -205,7 +206,14 @@ final class ClientCtl {
                 levels.put(enchantmentName(entry.getKey()), entry.getIntValue());
             }
             components.put("enchantments", levels);
-        }        Component customName = stack.get(DataComponents.CUSTOM_NAME);
+        }
+        ChargedProjectiles charged = stack.get(DataComponents.CHARGED_PROJECTILES);
+        if (charged != null && !charged.isEmpty()) {
+            components.put("charged_projectiles", charged.itemCopies()
+                    .map(projectile -> BuiltInRegistries.ITEM.getKey(projectile.getItem()).toString())
+                    .toList());
+        }
+        Component customName = stack.get(DataComponents.CUSTOM_NAME);
         if (customName != null) {
             components.put("custom_name", customName.getString());
         }
@@ -474,6 +482,11 @@ final class ClientCtl {
         LocalPlayer p = requirePlayer(mc);
         boolean using = p.isUsingItem();
         (attack ? mc.options.keyAttack : mc.options.keyUse).setDown(false);
+        if (using && !attack) {
+            // handleKeybinds does not always see the key up before the next press, so the
+            // item stays in use; releasing here is what the key-up would do.
+            mc.gameMode.releaseUsingItem(p);
+        }
         Map<String, Object> out = new LinkedHashMap<>();
         out.put("ok", true);
         out.put("using", using);
