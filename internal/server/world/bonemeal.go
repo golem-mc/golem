@@ -139,7 +139,7 @@ func (p *Physics) growCrop(x, y, z int32, state uint16, changes *[]BlockChange) 
 		return nil, true
 	case registry.BlockGrassBlock:
 		// vanilla: GrassBlock
-		if !p.airAt(x, y+1, z) || !contains(y+1) {
+		if !p.airAt(x, y+1, z) || !p.w.inBuildHeight(y+1) {
 			return nil, false
 		}
 		p.growGrassSpread(x, y, z, changes)
