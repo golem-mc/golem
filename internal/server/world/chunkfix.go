@@ -48,7 +48,7 @@ func isLegacyStack(entries nbt.Compound) bool {
 }
 
 // holdsUnfixableItem reports whether a block entity list holds a pre-1.20.5
-// stack with a "tag", whose conversion to components is not ported; a chunk
+// stack with a "tag" holding something componentizeTag does not convert; a chunk
 // saved over it would lose the item. A stack without one is converted by
 // upgradeLegacyStacks.
 func holdsUnfixableItem(tag nbt.Tag) bool {
@@ -59,8 +59,11 @@ func holdsUnfixableItem(tag nbt.Tag) bool {
 		}
 	case nbt.CompoundTag:
 		entries := v.Entries()
-		if _, tagged := entries["tag"]; tagged && isLegacyStack(entries) {
-			return true
+		if tag, tagged := nbt.CompoundView(entries["tag"]); tagged && isLegacyStack(entries) {
+			id, _ := nbt.Get[nbt.String](entries, "id")
+			if stackTagUnfixable(string(id), tag) {
+				return true
+			}
 		}
 		for _, child := range entries {
 			if holdsUnfixableItem(child) {
@@ -88,7 +91,9 @@ func upgradeLegacyStacks(tag nbt.Tag, version int32) {
 			delete(entries, "Count")
 			entries["count"] = nbt.Int(count)
 			name, _ := nbt.Get[nbt.String](entries, "id")
-			entries["id"] = nbt.String(renameOldItem(string(name), version))
+			name = nbt.String(renameOldItem(string(name), version))
+			entries["id"] = name
+			componentizeTag(entries, string(name))
 		}
 		for _, child := range entries {
 			upgradeLegacyStacks(child, version)

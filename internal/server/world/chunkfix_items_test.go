@@ -73,3 +73,55 @@ func TestFixComponentShapes(t *testing.T) {
 		t.Errorf("modifier = %v", m)
 	}
 }
+
+func TestComponentizeTag(t *testing.T) {
+	t.Parallel()
+	stack := func(id string, tag nbt.Compound) nbt.Compound {
+		return nbt.Compound{"id": nbt.String(id), "Count": nbt.Byte(1), "tag": tag}
+	}
+	entries := stack("minecraft:diamond_pickaxe", nbt.Compound{
+		"Damage": nbt.Int(7), "RepairCost": nbt.Int(0), "HideFlags": nbt.Int(1 | 4), "Unbreakable": nbt.Byte(1),
+		"Enchantments": nbt.List{Elem: nbt.TypeCompound, Items: []nbt.Tag{
+			nbt.Compound{"id": nbt.String("minecraft:efficiency"), "lvl": nbt.Short(3)},
+			nbt.Compound{"id": nbt.String("minecraft:unbreaking"), "lvl": nbt.Short(0)},
+		}},
+		"display": nbt.Compound{"Name": nbt.String(`{"text":"Pick"}`), "Lore": nbt.List{Elem: nbt.TypeString, Items: []nbt.Tag{nbt.String("plain")}}, "color": nbt.Int(255), "Other": nbt.Byte(1)},
+		"Mine":    nbt.String("x"),
+	})
+	if stackTagUnfixable("minecraft:diamond_pickaxe", entries["tag"].(nbt.Compound)) {
+		t.Fatal("a plain tag was reported unfixable")
+	}
+	componentizeTag(entries, "minecraft:diamond_pickaxe")
+	c := entries["components"].(nbt.Compound)
+	if _, ok := entries["tag"]; ok {
+		t.Error("the tag was kept")
+	}
+	if c["minecraft:damage"] != nbt.Int(7) || c["minecraft:repair_cost"] != nil {
+		t.Errorf("damage %v, repair cost %v", c["minecraft:damage"], c["minecraft:repair_cost"])
+	}
+	ench := c["minecraft:enchantments"].(nbt.Compound)
+	if lv := ench["levels"].(nbt.Compound); len(lv) != 1 || lv["minecraft:efficiency"] != nbt.Int(3) || ench["show_in_tooltip"] != nbt.Byte(0) {
+		t.Errorf("enchantments = %v", ench)
+	}
+	if u := c["minecraft:unbreakable"].(nbt.Compound); u["show_in_tooltip"] != nbt.Byte(0) {
+		t.Errorf("unbreakable = %v", u)
+	}
+	if c["minecraft:custom_name"] != nbt.String(`{"text":"Pick"}`) {
+		t.Errorf("custom_name = %v", c["minecraft:custom_name"])
+	}
+	if lore := c["minecraft:lore"].(nbt.List); len(lore.Items) != 0 {
+		t.Errorf("a lore line that is not JSON was kept: %v", lore)
+	}
+	if dye := c["minecraft:dyed_color"].(nbt.Compound); dye["rgb"] != nbt.Int(255) {
+		t.Errorf("dyed_color = %v", dye)
+	}
+	data := c["minecraft:custom_data"].(nbt.Compound)
+	if data["Mine"] != nbt.String("x") || data["display"].(nbt.Compound)["Other"] != nbt.Byte(1) || len(data) != 2 {
+		t.Errorf("custom_data = %v", data)
+	}
+
+	if !stackTagUnfixable("minecraft:chest", nbt.Compound{"BlockEntityTag": nbt.Compound{}}) ||
+		!stackTagUnfixable("minecraft:potion", nbt.Compound{"x": nbt.Byte(1)}) {
+		t.Error("a tag with an unported conversion was reported fixable")
+	}
+}
