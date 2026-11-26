@@ -507,7 +507,8 @@ func (a *Arrow) step(w World, owner *ArrowTarget, targets []ArrowTarget) []Arrow
 		a.VX, a.VY, a.VZ = 0, 0, 0
 		a.InGround = true
 		a.LastState = a.ownBlockState(w)
-		if a.ShakeTicks <= 0 {
+		// vanilla: onSyncedDataUpdated starts the shake only after the first tick.
+		if a.ShakeTicks <= 0 && a.ticked {
 			a.ShakeTicks = arrowShakeTicks
 		}
 	}
