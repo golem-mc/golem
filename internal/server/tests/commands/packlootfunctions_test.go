@@ -122,3 +122,24 @@ func TestPackLootComponentFunctionsRoll(t *testing.T) {
 		t.Errorf("modify_contents left the box holding %+v, want five sticks", box.Container)
 	}
 }
+
+// TestModifyContentsKeepsEmptyComponents checks that clearing the last entry of
+// a bundle_contents or charged_projectiles component on an item without a
+// default for it leaves an explicit empty component.
+func TestModifyContentsKeepsEmptyComponents(t *testing.T) {
+	t.Cleanup(func() { registry.ApplyPackLoot(nil, nil, nil) })
+	cfg := packWorld(t)
+	tables := filepath.Join(cfg.LevelName, "datapacks", "a", "data", "pk", "loot_table")
+	for _, component := range []string{"bundle_contents", "charged_projectiles"} {
+		writeFile(t, filepath.Join(tables, "clear_"+component+".json"), oneItemTable("minecraft:stone",
+			`[{"function":"minecraft:set_contents","component":"minecraft:`+component+`","entries":[{"type":"minecraft:item","name":"minecraft:stick"}]},`+
+				`{"function":"minecraft:modify_contents","component":"minecraft:`+component+`","modifier":{"function":"minecraft:set_count","count":0}}]`))
+	}
+	_, c := joinPacks(t, cfg)
+	if items, ok := giveStack(t, c, "loot give @s loot pk:clear_bundle_contents").BundleContentsOf(); !ok || len(items) != 0 {
+		t.Errorf("bundle_contents after modify_contents is %+v (%v), want an explicit empty list", items, ok)
+	}
+	if items, ok := giveStack(t, c, "loot give @s loot pk:clear_charged_projectiles").ChargedProjectilesOf(); !ok || len(items) != 0 {
+		t.Errorf("charged_projectiles after modify_contents is %+v (%v), want an explicit empty list", items, ok)
+	}
+}
