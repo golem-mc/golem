@@ -449,7 +449,21 @@ func (m *Mob) canStayAt(w World, at Waypoint, face uint8) bool {
 	}
 	// getProgressAabb at full peek, deflated.
 	open := shulkerDeltaBox(m.attrScale(), face^1, -1, 1, float64(at.X)+0.5, float64(at.Y), float64(at.Z)+0.5)
-	return !overlapsSolid(w, collideCtx{feetY: m.Y, feet: true}, open.inflate(-shulkerDeflate, -shulkerDeflate, -shulkerDeflate))
+	open = open.inflate(-shulkerDeflate, -shulkerDeflate, -shulkerDeflate)
+	return !overlapsSolid(w, collideCtx{feetY: m.Y, feet: true}, open) && !crossesBorder(w, open)
+}
+
+// crossesBorder reports whether the box strictly overlaps the outside of the
+// world border.
+// vanilla: CollisionGetter.noBorderCollision
+func crossesBorder(w World, b AABB) bool {
+	for _, wall := range borderWalls(w, b, 0, 0) {
+		if b.minX < wall.maxX && b.maxX > wall.minX && b.minY < wall.maxY && b.maxY > wall.minY &&
+			b.minZ < wall.maxZ && b.maxZ > wall.minZ {
+			return true
+		}
+	}
+	return false
 }
 
 // teleportShulker tries five random cells within eight blocks and takes the
