@@ -907,7 +907,7 @@ const (
 // isShulkerBoxItem reports whether the stack is a shulker box of any colour
 // (the items share their blocks' names).
 func isShulkerBoxItem(stack protocol.ItemStack) bool {
-	return registry.Item(stack.ItemID).InTag(registry.ItemTagIDShulkerBoxes)
+	return registry.Item(stack.ItemID).IsShulkerBox()
 }
 
 // GridOf is the window's crafting grid and its width, for a window with one.

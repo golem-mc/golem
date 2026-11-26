@@ -42,7 +42,7 @@ func BundleRemoveFirst(bundle protocol.ItemStack) (rest, removed protocol.ItemSt
 // a stored entry does not check it.
 // vanilla: BundleContents.canItemBeInBundle
 func BundleAccepts(stack protocol.ItemStack) bool {
-	return !stack.Empty() && !registry.Item(stack.ItemID).InTag(registry.ItemTagIDShulkerBoxes)
+	return !stack.Empty() && !registry.Item(stack.ItemID).IsShulkerBox()
 }
 
 // BundleItemWeight returns an item's weight inside a bundle, ok false for an

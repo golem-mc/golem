@@ -171,3 +171,19 @@ func IsSkullBlockState(state uint16) bool {
 // IsSkull reports whether a block is an AbstractSkullBlock: any head or skull,
 // floor or wall.
 func (b Block) IsSkull() bool { return b < BlockCount && skullBlock[b] }
+
+// shulkerBoxItems marks the items of the built-in minecraft:shulker_boxes
+// tag, read once so a data pack replacing the tag changes nothing.
+var shulkerBoxItems = func() (t [ItemCount]bool) {
+	for i := range Item(ItemCount) {
+		t[i] = i.InTag(ItemTagIDShulkerBoxes)
+	}
+	return t
+}()
+
+// IsShulkerBox reports whether the item places a shulker box, for the
+// checks vanilla makes with `block instanceof ShulkerBoxBlock`.
+// vanilla: BlockItem.canFitInsideContainerItems
+func (i Item) IsShulkerBox() bool {
+	return i >= 0 && i < ItemCount && shulkerBoxItems[i]
+}

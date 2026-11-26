@@ -340,7 +340,7 @@ func CauldronItemUse(state uint16, held protocol.ItemStack) (use CauldronItem, o
 			return CauldronItem{}, false
 		}
 		return CauldronItem{State: lowerCauldron(level), Result: cleaned, Stat: registry.CustomStatCleanBanner}, true
-	case item.InTag(registry.ItemTagIDShulkerBoxes) && item != registry.ItemShulkerBox:
+	case item.IsShulkerBox() && item != registry.ItemShulkerBox:
 		plain := held
 		plain.Count = 1
 		plain.ItemID = int32(registry.ItemShulkerBox)
