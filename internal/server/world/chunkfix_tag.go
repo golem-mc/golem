@@ -14,8 +14,11 @@ const (
 	hideEnchantments = 1
 	hideModifiers    = 2
 	hideUnbreakable  = 4
+	hideCanDestroy   = 8
+	hideCanPlace     = 16
 	hideAdditional   = 32
 	hideDye          = 64
+	hideUpgrades     = 128
 )
 
 // tagComponentized are the "tag" keys componentizeTag moves; any other key of
@@ -23,37 +26,6 @@ const (
 var tagComponentized = []string{
 	"HideFlags", "Damage", "RepairCost", "CustomModelData", "BlockStateTag", "EntityTag",
 	"Unbreakable", "Enchantments", "StoredEnchantments", "display", "AttributeModifiers",
-}
-
-// tagNeedsFix are the "tag" keys whose conversion is not ported.
-var tagNeedsFix = []string{
-	"BlockEntityTag", "CanDestroy", "CanPlaceOn", "Trim", "Charged", "ChargedProjectiles",
-	"Items", "map", "Decorations", "Potion", "CustomPotionColor", "custom_potion_effects",
-	"pages", "title", "filtered_title", "author", "generation", "resolved", "effects",
-	"DebugProperty", "instrument", "Recipes", "LodestoneTracked", "LodestonePos",
-	"LodestoneDimension", "Fireworks", "Explosion", "SkullOwner", "BucketVariantTag",
-}
-
-// tagNeedsFixItems are the items whose tag carries more than the generic keys.
-var tagNeedsFixItems = map[string]bool{
-	"minecraft:potion": true, "minecraft:splash_potion": true, "minecraft:lingering_potion": true,
-	"minecraft:tipped_arrow": true, "minecraft:writable_book": true, "minecraft:written_book": true,
-	"minecraft:filled_map": true, "minecraft:suspicious_stew": true, "minecraft:firework_rocket": true,
-	"minecraft:firework_star": true, "minecraft:player_head": true,
-}
-
-// stackTagUnfixable reports whether the tag of the stack of item id holds
-// something componentizeTag does not convert.
-func stackTagUnfixable(id string, tag nbt.Compound) bool {
-	if tagNeedsFixItems[id] {
-		return len(tag) > 0
-	}
-	for _, k := range tagNeedsFix {
-		if _, ok := tag[k]; ok {
-			return true
-		}
-	}
-	return false
 }
 
 // componentizeTag moves the tag of a legacy stack, already renamed, into
@@ -66,11 +38,7 @@ func componentizeTag(entries nbt.Compound, id string) {
 		return
 	}
 	c := nbt.Compound{}
-	take := func(key string) (nbt.Tag, bool) {
-		v, ok := tag[key]
-		delete(tag, key)
-		return v, ok
-	}
+	take := func(key string) (nbt.Tag, bool) { return takeKey(tag, key) }
 	hide := 0
 	if v, ok := take("HideFlags"); ok {
 		n, _ := nbt.IntValue(v)
@@ -95,6 +63,7 @@ func componentizeTag(entries nbt.Compound, id string) {
 	if v, ok := take("EntityTag"); ok {
 		c["minecraft:entity_data"] = v
 	}
+	componentizeBlockEntityTag(c, tag)
 	if v, ok := take("Unbreakable"); ok && boolValue(v) {
 		u := nbt.Compound{}
 		if hide&hideUnbreakable != 0 {
@@ -107,7 +76,7 @@ func componentizeTag(entries nbt.Compound, id string) {
 		componentizeEnchantments(c, tag, "StoredEnchantments", "minecraft:stored_enchantments", hide&hideAdditional != 0)
 	}
 	if display, ok := nbt.CompoundView(tag["display"]); ok {
-		componentizeDisplay(c, display, hide)
+		componentizeDisplay(c, display, id, hide)
 		if len(display) == 0 {
 			delete(tag, "display")
 		}
@@ -125,15 +94,30 @@ func componentizeTag(entries nbt.Compound, id string) {
 			c["minecraft:attribute_modifiers"] = comp
 		}
 	}
+	componentizeBlockPredicates(c, tag, "CanDestroy", "minecraft:can_break", hide&hideCanDestroy != 0)
+	componentizeBlockPredicates(c, tag, "CanPlaceOn", "minecraft:can_place_on", hide&hideCanPlace != 0)
+	if trim, ok := take("Trim"); ok {
+		if t, isMap := nbt.CompoundView(trim); isMap && hide&hideUpgrades != 0 {
+			t["show_in_tooltip"] = nbt.Byte(0)
+		}
+		c["minecraft:trim"] = trim
+	}
 	if hide&hideAdditional != 0 {
 		c["minecraft:hide_additional_tooltip"] = nbt.Compound{}
 	}
+	componentizeItemKind(c, tag, id)
 	if len(tag) > 0 {
 		c["minecraft:custom_data"] = tag
 	}
 	if len(c) > 0 {
 		entries["components"] = c
 	}
+}
+
+func takeKey(tag nbt.Compound, key string) (nbt.Tag, bool) {
+	v, ok := tag[key]
+	delete(tag, key)
+	return v, ok
 }
 
 func componentizeEnchantments(c, tag nbt.Compound, key, component string, hideInTooltip bool) {
@@ -168,7 +152,7 @@ func componentizeEnchantments(c, tag nbt.Compound, key, component string, hideIn
 	}
 }
 
-func componentizeDisplay(c, display nbt.Compound, hide int) {
+func componentizeDisplay(c, display nbt.Compound, id string, hide int) {
 	if name, ok := display["Name"]; ok && strictJSON(name) {
 		c["minecraft:custom_name"] = name
 	}
@@ -195,6 +179,10 @@ func componentizeDisplay(c, display nbt.Compound, hide int) {
 	if loc, ok := display["LocName"].(nbt.String); ok {
 		b, _ := json.Marshal(map[string]string{"translate": string(loc)})
 		c["minecraft:item_name"] = nbt.String(b)
+	}
+	if mc, ok := display["MapColor"]; ok && id == "minecraft:filled_map" {
+		c["minecraft:map_color"] = mc
+		delete(display, "MapColor")
 	}
 	for _, k := range []string{"Name", "Lore", "color", "LocName"} {
 		delete(display, k)
