@@ -180,12 +180,15 @@ var registryNameAllowed = map[string]nameAllowance{
 }
 
 var registryBlockNameAllowed = map[string]nameAllowance{
-	"registry/blockitems.go: set literal of block names":        {count: 2, issue: 6380},
-	"registry/fences.go: case on a block name":                  {count: 1, issue: 6380},
-	"registry/recipes.go: case on a block name":                 {count: 3, issue: 6380},
-	"internal/server/hive.go: set literal of block names":       {count: 1, boundary: "stored entity kinds"},
-	"internal/server/world/template.go: case on a block name":   {count: 1, boundary: "stored block entity kinds"},
-	"internal/server/world/tree_decor.go: case on a block name": {count: 4, boundary: "configured feature kinds"},
+	"registry/blockitems.go: set literal of block names":               {count: 2, issue: 6380},
+	"registry/fences.go: case on a block name":                         {count: 1, issue: 6380},
+	"registry/recipes.go: case on a block name":                        {count: 3, issue: 6380},
+	"internal/server/hive.go: set literal of block names":              {count: 1, boundary: "stored entity kinds"},
+	"internal/server/world/template.go: case on a block name":          {count: 1, boundary: "stored block entity kinds"},
+	"internal/server/world/chunkfix.go: case on a block name":          {count: 2, boundary: "stored block entity ids"},
+	"internal/server/world/chunkfix115.go: set literal of block names": {count: 1, boundary: "stored 1.15 block names"},
+	"internal/server/world/chunkfix115.go: case on a block name":       {count: 1, boundary: "stored block entity ids"},
+	"internal/server/world/tree_decor.go: case on a block name":        {count: 4, boundary: "configured feature kinds"},
 }
 
 var registryItemNameAllowed = map[string]nameAllowance{
