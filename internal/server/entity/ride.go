@@ -62,6 +62,7 @@ func Ride(vehicle, passenger *Mob) {
 		return
 	}
 	passenger.Vehicle = vehicle
+	passenger.Carrier = uuid.Nil
 	passenger.StartRiding()
 	vehicle.Passengers = append(vehicle.Passengers, passenger)
 	x, y, z := riderSeat(vehicle, passenger)
@@ -175,6 +176,17 @@ func (m *Mob) RootVehicle() *Mob {
 		return m.Vehicle.RootVehicle()
 	}
 	return m
+}
+
+// sameRideChain reports whether two bodies share a root vehicle, a mob or the
+// boat or minecart both sit in.
+// vanilla: Entity.isPassengerOfSameVehicle
+func sameRideChain(a, b *Mob) bool {
+	ra, rb := a.RootVehicle(), b.RootVehicle()
+	if ra == rb {
+		return true
+	}
+	return ra.RidesVehicle && rb.RidesVehicle && ra.Carrier != uuid.Nil && ra.Carrier == rb.Carrier
 }
 
 // KnownSpeed is the position change of this mob's root vehicle over its last

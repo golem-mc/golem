@@ -94,6 +94,7 @@ func (fx *boatEffects) apply(s *Server) {
 			}
 			fx.news[newsIndex].event(rules.GameEventEntityMount, seat.bx, seat.by, seat.bz, rules.GameEventContext{Mob: seat.ent.uuid})
 			seat.ent.vehicle = seat.boat
+			seat.ent.mob.Carrier = seat.boat.uuid
 			seat.ent.mob.StartRiding()
 			// A leashed mob boards free of its lead: Mob.startRiding
 			// drops it where the body stood, before the seat takes it,

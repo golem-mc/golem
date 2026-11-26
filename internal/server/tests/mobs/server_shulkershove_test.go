@@ -102,6 +102,10 @@ func TestAnOpeningShellDoesNotShoveItsOwnVehicle(t *testing.T) {
 			}
 			srv.RunLine(`summon shulker 0.5 100 0.5 {NoAI:1b,Tags:[shell],attributes:[{id:"minecraft:scale",base:0.75d}]}`)
 			srv.RunLine(`ride @e[tag=shell,limit=1] mount @e[type=` + carrier + `,limit=1]`)
+			if carrier != "pig" {
+				srv.RunLine(`summon cow 0.5 100 0.5 {NoAI:1b,Tags:[sibling]}`)
+				srv.RunLine(`ride @e[tag=sibling,limit=1] mount @e[type=` + carrier + `,limit=1]`)
+			}
 			servertest.RunTicks(t, srv, 1)
 			shell := srv.MobIDsOfKind("minecraft:shulker")[0]
 			srv.RunLine(`data merge entity @e[tag=shell,limit=1] {AttachFace:4b}`)
@@ -126,11 +130,22 @@ func TestAnOpeningShellDoesNotShoveItsOwnVehicle(t *testing.T) {
 			srv.RunLine(fmt.Sprintf(`summon ravager %g %g %g {NoAI:1b,NoGravity:1b}`, sx+1.2, fy, sz))
 			free := srv.MobIDsOfKind("minecraft:ravager")[0]
 			beforeCarrier := carrierX()
+			var sib int32
+			var sibX, sibY, sibZ float64
+			if carrier != "pig" {
+				sib = srv.MobIDsOfKind("minecraft:cow")[0]
+				sibX, sibY, sibZ, _ = srv.MobPos(sib)
+			}
 			beforeFree, _, _, _ := srv.MobPos(free)
 			srv.RunLine(`data merge entity @e[tag=shell,limit=1] {Peek:100b}`)
 			servertest.RunTicks(t, srv, 1)
 			if got := carrierX(); got != beforeCarrier {
 				t.Errorf("%s x = %v after the shell opened, want %v", carrier, got, beforeCarrier)
+			}
+			if carrier != "pig" {
+				if x, y, z, _ := srv.MobPos(sib); x != sibX || y != sibY || z != sibZ {
+					t.Errorf("seatmate at %v %v %v after the shell opened, want %v %v %v", x, y, z, sibX, sibY, sibZ)
+				}
 			}
 			if got, _, _, _ := srv.MobPos(free); got <= beforeFree {
 				t.Errorf("free ravager x = %v after the shell opened, want above %v (shell y %v)", got, beforeFree, sy)

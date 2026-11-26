@@ -1603,6 +1603,9 @@ type Mob struct {
 	// body up again, 60 on leaving a vehicle; not saved.
 	// vanilla: Entity.boardingCooldown, Entity.removePassenger
 	BoardingCooldown int32
+	// Carrier is the UUID of the boat or minecart the body is seated in. It is
+	// meaningful only while RidesVehicle is set and Vehicle is nil.
+	Carrier uuid.UUID
 	// Vehicle is the mob this body rides, nil when walking or seated in a boat
 	// (boats are not mobs), so a seat has one holder. Guarded by the mob lock.
 	Vehicle *Mob

@@ -1729,6 +1729,7 @@ func (s *Server) mobTookOverBoat(old, next *mobEntity) (*boatEntity, []int32) {
 	}
 	s.mobsMu.Lock()
 	next.vehicle = it
+	next.mob.Carrier = it.uuid
 	next.mob.StartRiding()
 	s.mobsMu.Unlock()
 	s.gameEvent(it.w, rules.GameEventEntityDismount, bx, by, bz, rules.GameEventContext{Mob: old.uuid})

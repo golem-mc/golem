@@ -223,6 +223,7 @@ func (s *Server) seatMobOnBoat(ent *mobEntity, it *boatEntity, sendEvent bool) b
 		oldNews = &n
 	}
 	ent.vehicle = it
+	m.Carrier = it.uuid
 	m.StartRiding()
 	// A leashed mob mounts free of its lead, as Mob.startRiding drops it.
 	if holder := m.RemoveLeash(); holder != 0 {

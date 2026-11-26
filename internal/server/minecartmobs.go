@@ -91,6 +91,7 @@ func (s *Server) seatMobOnMinecart(ent *mobEntity, it *minecartEntity, force, se
 	s.mobsMu.Lock()
 	m := ent.mob
 	ent.cart = it
+	m.Carrier = it.uuid
 	m.StartRiding()
 	// A leashed mob mounts free of its lead, as Mob.startRiding drops it.
 	if holder := m.RemoveLeash(); holder != 0 {
