@@ -138,6 +138,54 @@ func TestPackMultishotFiresFiveArrows(t *testing.T) {
 	}
 }
 
+// vanilla: CrossbowItem.tryLoadProjectiles, ProjectileWeaponItem.useAmmo
+func TestPackCrossbowSpendsAmmoCost(t *testing.T) {
+	cfg := servertest.BowTestConfig()
+	cfg.LevelName = valueEffectPack(t, "heavy_draw", `{"minecraft:ammo_use":[{"effect":{"type":"minecraft:set","value":2}}]}`)
+	const name = "Archer"
+	srv, c, _ := servertest.JoinAs(t, cfg, name)
+	servertest.HoldTicks(t, srv)
+	c.MoveTo(.5, 64, .5, -90, 0)
+	c.Settle()
+	crossbow := servertest.EnchantedStack(t, "minecraft:crossbow", "minecraft:heavy_draw", 1)
+	const backupSlot = player.HotbarSlot + 1
+	srv.GiveSlot(name, backupSlot, servertest.ItemStack(t, "minecraft:arrow", 10))
+
+	for _, tc := range []struct {
+		name                      string
+		arrows, remaining, loaded int32
+	}{
+		{"surplus", 3, 1, 2},
+		{"exact", 2, 0, 2},
+		{"insufficient", 1, 1, 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			srv.GiveSlot(name, player.HotbarSlot, crossbow)
+			srv.GiveSlot(name, player.OffHandSlot, servertest.ItemStack(t, "minecraft:arrow", tc.arrows))
+			servertest.DrawBow(c, -90, 0)
+			c.Settle()
+			servertest.RunTicks(t, srv, 26)
+			servertest.ReleaseBow(c)
+			c.Settle()
+
+			if got := srv.InventorySlot(name, player.OffHandSlot).Count; got != tc.remaining {
+				t.Errorf("off hand has %d arrows after charging with %d, want %d", got, tc.arrows, tc.remaining)
+			}
+			if got := srv.InventorySlot(name, backupSlot).Count; got != 10 {
+				t.Errorf("backup stack has %d arrows, want 10", got)
+			}
+			drawn := srv.InventorySlot(name, player.HotbarSlot).ChargedProjectiles()
+			if tc.loaded == 0 {
+				if len(drawn) != 0 {
+					t.Errorf("the crossbow loaded %d projectiles with insufficient ammo", len(drawn))
+				}
+			} else if len(drawn) != 1 || registry.Item(drawn[0].ItemID) != registry.ItemArrow || drawn[0].Count != tc.loaded {
+				t.Errorf("the crossbow loaded %+v, want one projectile stack of %d arrows", drawn, tc.loaded)
+			}
+		})
+	}
+}
+
 // vanilla: TridentItem.releaseUsing, ItemStack.hurtWithoutBreaking
 func TestPackTridentReleaseAmplifiedWearNeverBreaks(t *testing.T) {
 	for _, strength := range []int{-2, 0} {
