@@ -139,6 +139,35 @@ func TestMultishotFiresThreeArrowsForOne(t *testing.T) {
 	}
 }
 
+// vanilla: Projectile.applyOnProjectileSpawned, AbstractArrow.onHitEntity
+func TestCrossbowArrowIgnitesItsTargetWithFlame(t *testing.T) {
+	t.Parallel()
+	crossbow := servertest.ItemStack(t, "minecraft:crossbow", 1)
+	arrow := servertest.ItemStack(t, "minecraft:arrow", 1)
+	for _, tc := range []struct {
+		name           string
+		crossbow, ammo protocol.ItemStack
+		burns          bool
+	}{
+		{"plain", crossbow, arrow, false},
+		{"flame ammo", crossbow, servertest.EnchantedStack(t, "minecraft:arrow", "minecraft:flame", 1), true},
+		{"flame crossbow", servertest.EnchantedStack(t, "minecraft:crossbow", "minecraft:flame", 1), arrow, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			srv, c := loadCrossbowInMode(t, "survival", tc.crossbow, tc.ammo)
+			golem := srv.SpawnMob("minecraft:iron_golem", 3.5, 64, 0.5)
+			servertest.DrawBow(c, -90, 0)
+			servertest.UntilTicks(t, srv, 5, "the arrow hurts the golem", func() bool {
+				health, ok := srv.MobHealth(golem)
+				return ok && health < 100
+			})
+			if ticks := srv.MobFireTicks(golem); (ticks > 0) != tc.burns {
+				t.Errorf("the golem has %d fire ticks after the hit, want burning = %t", ticks, tc.burns)
+			}
+		})
+	}
+}
+
 // pierceTargets fires a loaded crossbow along three iron golems standing in a
 // line and returns three golems' health once the arrow is spent.
 func pierceTargets(t *testing.T, crossbow protocol.ItemStack) (first, second, third float64) {
