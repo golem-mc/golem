@@ -40,6 +40,9 @@ func (l *launcher) queryModule(ctx context.Context, q string) (string, error) {
 }
 
 func (l *launcher) askModule(ctx context.Context, q string) (string, error) {
+	if v, ok, err := l.githubHead(ctx, q); ok {
+		return v, err
+	}
 	gobin, err := l.goCommand(ctx)
 	if err != nil {
 		return "", err

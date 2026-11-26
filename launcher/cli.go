@@ -1048,21 +1048,39 @@ func (c *cli) update(ctx context.Context, server bool, names []string) error {
 		}
 	}
 	ch := cfg.updateChannel()
+	// One round of lookups: the plugins are asked at once, and a dev update
+	// starts each moved module's download as its commit is known.
+	if ch == devChannel {
+		c.l.prefetchCtx = ctx
+	}
+	latests := make([]string, len(st.plugins))
+	errs := make([]error, len(st.plugins))
+	var srvLatest string
+	var srvErr error
 	err = c.l.step("finding the latest versions", func() error {
+		var wg sync.WaitGroup
 		if server && st.srvDir == "" {
-			latest, err := c.l.latestOf(ctx, serverModule, ch, false)
-			if err != nil {
-				return err
+			wg.Go(func() { srvLatest, srvErr = c.l.latestOf(ctx, serverModule, ch, false) })
+		}
+		for i, p := range st.plugins {
+			if pick[i] && p.Dir == "" {
+				wg.Go(func() { latests[i], errs[i] = c.l.latestOf(ctx, p.Path, ch, false) })
 			}
-			if newer(cfg.Server, latest) {
-				cfg.Server = latest
+		}
+		wg.Wait()
+		if server && st.srvDir == "" {
+			if srvErr != nil {
+				return srvErr
+			}
+			if newer(cfg.Server, srvLatest) {
+				cfg.Server = srvLatest
 			}
 		}
 		for i, p := range st.plugins {
 			if !pick[i] || p.Dir != "" {
 				continue
 			}
-			latest, err := c.l.latestOf(ctx, p.Path, ch, false)
+			latest, err := latests[i], errs[i]
 			if err != nil {
 				return err
 			}

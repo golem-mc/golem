@@ -52,6 +52,16 @@ type launcher struct {
 	// toolchainMu serialises toolchain's download: concurrent queries share
 	// its zip and unpack directory.
 	toolchainMu sync.Mutex
+	// headsMu guards github-heads.json and headCalls; zips holds the module
+	// downloads a dev update started, and prefetchZips asks for them.
+	headsMu     sync.Mutex
+	headCalls   map[string]*headCall
+	zips        sync.WaitGroup
+	prefetchCtx context.Context
+	// modCacheOnce finds go's module cache directory once.
+	modCacheOnce sync.Once
+	modCacheDir  string
+	modCacheErr  error
 }
 
 // testLauncher, when set, adjusts every new launcher; tests give it a fake
@@ -165,7 +175,7 @@ func (l *launcher) resolve(ctx context.Context, workDir string, cfg config, srvD
 	if err != nil {
 		return nil, err
 	}
-	g := &goRun{ctx: ctx, bin: gobin, toolchain: "local"}
+	g := &goRun{ctx: ctx, bin: gobin, toolchain: "local", noSumDB: cfg.updateChannel() == devChannel && githubHeads}
 
 	// The server's go.mod names the toolchain every later step runs.
 	// A local checkout is built as it is, as v0.0.0 (a replace has no
@@ -173,6 +183,7 @@ func (l *launcher) resolve(ctx context.Context, workDir string, cfg config, srvD
 	srv := modInfo{Version: "v0.0.0", GoMod: filepath.Join(srvDir, "go.mod")}
 	if srvDir == "" {
 		err := l.step("downloading golem "+cfg.Server, func() (err error) {
+			l.waitZips()
 			srv, err = g.download(serverModule + "@" + cfg.Server)
 			return err
 		})
@@ -207,6 +218,12 @@ func (l *launcher) resolve(ctx context.Context, workDir string, cfg config, srvD
 				edit = append(edit, "-replace="+p.Module+"="+p.ModDir, "-require="+p.Module+"@v0.0.0")
 			}
 		} else {
+			if g.noSumDB {
+				// A require names the module, so go does not ask the proxy
+				// which shorter path provides the package.
+				edit = append(edit, "-require="+githubModule(p.Path)+"@"+p.Version)
+				continue
+			}
 			get = append(get, p.Path+"@"+p.Version)
 		}
 	}
@@ -215,6 +232,7 @@ func (l *launcher) resolve(ctx context.Context, workDir string, cfg config, srvD
 		resolving = "resolving " + plural(len(plugins), "plugin")
 	}
 	err = l.step(resolving, func() error {
+		l.waitZips()
 		if _, err := g.run(edit...); err != nil {
 			return err
 		}
@@ -445,6 +463,9 @@ type goRun struct {
 	ctx       context.Context
 	bin, dir  string
 	toolchain string
+	// noSumDB exempts golem-mc's modules from the checksum database, which
+	// stalls on every new commit; the dev channel sets it.
+	noSumDB bool
 }
 
 // env is the caller's environment with the settings the build depends on
@@ -463,6 +484,9 @@ func (g *goRun) env() []string {
 		"GOARCH":      runtime.GOARCH,
 		"GOROOT":      "",
 		"GOPRIVATE":   os.Getenv("GOPRIVATE"),
+	}
+	if g.noSumDB {
+		fixed["GONOSUMDB"] = strings.Trim(os.Getenv("GONOSUMDB")+","+githubOrg+"/*", ",")
 	}
 	if serverPrivate {
 		fixed["GOPRIVATE"] = strings.Trim(fixed["GOPRIVATE"]+","+serverModule, ",")
