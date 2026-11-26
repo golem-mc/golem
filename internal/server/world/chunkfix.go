@@ -120,17 +120,20 @@ func fixOldBlockEntity(entry nbt.CompoundTag, version int32) {
 	if version < storedItemVersion {
 		upgradeLegacyStacks(entry, version)
 	}
-	switch string(id) {
-	case "minecraft:suspicious_sand":
-		if version < brushableBlockVersion {
-			tag["id"] = nbt.String("minecraft:brushable_block")
-		}
-	case "minecraft:sign", "minecraft:hanging_sign":
+	kind, _ := BlockEntityKindByName(string(id))
+	switch {
+	case string(id) == suspiciousSandID && version < brushableBlockVersion:
+		tag["id"] = nbt.String(KindBrushable.Name())
+	case IsSignKind(kind):
 		fixSignText(tag, version)
-	case "minecraft:decorated_pot":
+	case kind == KindDecoratedPot:
 		fixPotSherds(tag, version)
 	}
 }
+
+// suspiciousSandID is the block entity id KindBrushable had before
+// brushableBlockVersion.
+const suspiciousSandID = "minecraft:suspicious_sand"
 
 // signTextFields are the pre-3439 fields the front and back text replace.
 var signTextFields = []string{"Text1", "Text2", "Text3", "Text4", "FilteredText1", "FilteredText2", "FilteredText3", "FilteredText4", "Color", "GlowingText"}
