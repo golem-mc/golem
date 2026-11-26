@@ -55,8 +55,7 @@ func signFront(t *testing.T, tag nbt.Compound) (messages []string, color string,
 	}
 	lines, _ := nbt.Get[nbt.List](front, "messages")
 	for _, line := range lines.Items {
-		text, _ := line.(nbt.String)
-		messages = append(messages, string(text))
+		messages = append(messages, fmt.Sprint(nbt.ListElement(line)))
 	}
 	c, _ := nbt.Get[nbt.String](front, "color")
 	g, _ := nbt.Get[nbt.Byte](front, "has_glowing_text")
@@ -100,8 +99,8 @@ func TestAVanilla1_18_2WorldLoadsItsChunks(t *testing.T) {
 			t.Fatalf("%s: no sign block entity", run)
 		}
 		messages, color, glowing := signFront(t, sign)
-		// The lines stay JSON, as 1.20.2 kept them; the game unflattens them later.
-		want := []string{`{"text":"Hello"}`, `{"color":"red","text":"golem"}`, `{"text":""}`, `{"text":""}`}
+		// The lines are text components in memory; the file keeps them JSON.
+		want := []string{"Hello", "map[color:red text:golem]", "", ""}
 		if !slices.Equal(messages, want) {
 			t.Errorf("%s: front messages = %q, want %q", run, messages, want)
 		}
