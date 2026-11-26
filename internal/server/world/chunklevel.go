@@ -9,9 +9,11 @@ import (
 )
 
 // levelChunkFloor is the oldest DataVersion of a chunk in the pre-1.18 layout
-// (a Level wrapper) that unwrapLevelChunk reads: 1.16.5. Older chunks need
-// the bit storage alignment and the 1.16 renames, which are not ported.
-const levelChunkFloor = 2586
+// (a Level wrapper) that unwrapLevelChunk reads: 1.16. No block or block
+// entity fix lies between it and 1.16.5 (2586); 1.15.2 and older chunks need
+// the bit storage alignment and the 1.16 snapshot fixes, which are not ported.
+// vanilla: DataFixers.addFixers (v2527 BitStorageAlignFix)
+const levelChunkFloor = 2566
 
 // Data versions of the block and item renames a 1.16.5 chunk gets that a
 // 1.17 chunk is already past.
