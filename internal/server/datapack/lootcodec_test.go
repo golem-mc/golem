@@ -368,7 +368,7 @@ func TestDecodePredicateLevelAndValueChecks(t *testing.T) {
 		}
 	}
 	for in, want := range map[string]string{
-		`{"type":"minecraft:environment_attribute_check","attribute":"minecraft:gameplay/can_start_raid","value":true}`: "environment attribute minecraft:gameplay/can_start_raid is not supported by this server",
+		`{"type":"minecraft:environment_attribute_check","attribute":"minecraft:gameplay/can_start_raid","value":true}`: "unsupported: environment attribute minecraft:gameplay/can_start_raid is not supported by this server",
 		`{"type":"minecraft:entity_scores","entity":"nobody","scores":{}}`:                                              "Unknown entity target: nobody",
 		`{"type":"minecraft:int_value_check","value":{"type":"minecraft:nope"},"test":1}`:                               "Failed to parse either. First: Not a number; Second: Unknown registry key in ResourceKey[minecraft:root / minecraft:context_int_provider_type]: minecraft:nope",
 		`{"type":"minecraft:time_check","clock":"minecraft:overworld"}`:                                                 `No key value in MapLike[{clock:"minecraft:overworld",type:"minecraft:time_check"}]`,

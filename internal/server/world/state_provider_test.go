@@ -13,6 +13,38 @@ import (
 	"github.com/golem-mc/golem/registry"
 )
 
+func TestWorldRejectsLegacySimpleStateProvider(t *testing.T) {
+	_, err := NewStateProviderPicker(parseJSON(`{"type":"minecraft:simple_state_provider","state":{"id":"minecraft:sand"}}`), 0)
+	if err == nil || !strings.Contains(err.Error(), "unhandled state provider \"simple_state_provider\"") {
+		t.Fatalf("provider compile error = %v, want the unknown provider type", err)
+	}
+}
+
+func TestStateProviderCompilerRejectsRetiredIDs(t *testing.T) {
+	for _, id := range []string{
+		"weighted_state_provider", "noise_provider", "noise_threshold_provider",
+		"dual_noise_provider", "rotated_block_provider", "randomized_int_state_provider", "rule_based_state_provider",
+	} {
+		t.Run(id, func(t *testing.T) {
+			raw := jobj{"type": "minecraft:" + id, "state": jobj{"id": "minecraft:stone"}}
+			for _, compile := range []func(any){
+				func(v any) { compileState(v) },
+				func(v any) { compileOptState(v) },
+			} {
+				func() {
+					defer func() {
+						r := recover()
+						if msg, ok := r.(unported); !ok || !strings.Contains(string(msg), "unhandled state provider") || !strings.Contains(string(msg), id) {
+							t.Errorf("compiler recovered %v, want an unhandled provider error for %s", r, id)
+						}
+					}()
+					compile(raw)
+				}()
+			}
+		})
+	}
+}
+
 func TestStateProviderGolden(t *testing.T) {
 	t.Parallel()
 	f, err := os.Open("testdata/state_provider_golden.txt")

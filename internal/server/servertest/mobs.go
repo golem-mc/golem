@@ -1129,6 +1129,8 @@ type SpawnedMob struct {
 	Carried        int32
 	HasCarried     bool
 	SpeedAttribute float64
+	// Attributes is the pairing's Update Attributes, by attribute ID.
+	Attributes map[int32]AttrEntry
 	// The farm animal's variant and sound variant IDs, -1 where the
 	// metadata left them at their defaults, and the custom name.
 	Variant, SoundVariant int32
@@ -1149,6 +1151,7 @@ type SpawnedMob struct {
 	MobFlags    uint8
 	// BaseFlags is the shared flags byte at index 0, told only when set.
 	BaseFlags uint8
+	NoGravity bool
 	// Pose is the pose at index 6, told only when not standing or when it
 	// went back to standing.
 	Pose int32
@@ -1231,6 +1234,7 @@ func (c *Client) ExpectMobSpawn(wantType int32) SpawnedMob {
 		c.T.Fatalf("attributes %v lack movement_speed", entries)
 	}
 	m.SpeedAttribute = speed.Base
+	m.Attributes = entries
 	if len(speed.Modifiers) != 0 {
 		c.T.Errorf("movement_speed modifiers = %v, want none", speed.Modifiers)
 	}
@@ -1513,6 +1517,11 @@ func (c *Client) ReadMobMetadataInto(mob *SpawnedMob, data []byte) {
 		switch index {
 		case protocol.MetadataIndexSilent:
 			meta.ReadBool()
+		case protocol.MetadataIndexNoGravity:
+			if fieldType != protocol.MetadataBoolean {
+				c.T.Fatalf("no gravity field type = %d, want %d (a boolean)", fieldType, protocol.MetadataBoolean)
+			}
+			mob.NoGravity = meta.ReadBool()
 		case protocol.MetadataIndexCustomName:
 			if fieldType != protocol.MetadataOptionalText {
 				c.T.Fatalf("custom name field type = %d, want %d (an optional text)", fieldType, protocol.MetadataOptionalText)

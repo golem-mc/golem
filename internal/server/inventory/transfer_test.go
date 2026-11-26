@@ -89,6 +89,65 @@ func BenchmarkAddOneToOccupiedHopper(b *testing.B) {
 	}
 }
 
+func TestHopperEjectIntoCrafter(t *testing.T) {
+	stone := item(t, "minecraft:stone", 2)
+	named := stone
+	named.CustomName = &protocol.Text{Text: "Polished"}
+	capped := stone
+	capped.SetMaxStackSize(2)
+	dirt := item(t, "minecraft:dirt", 32)
+	for _, tc := range []struct {
+		name      string
+		incoming  protocol.ItemStack
+		fill      protocol.ItemStack
+		slots     map[int]protocol.ItemStack
+		disabled  map[int]bool
+		wantSlot  int
+		intoEmpty bool
+	}{
+		{name: "skip disabled empty slot", incoming: stone, disabled: map[int]bool{0: true}, wantSlot: 1, intoEmpty: true},
+		{name: "merge matching components", incoming: named, fill: dirt, slots: map[int]protocol.ItemStack{0: stone, 8: named}, wantSlot: 8},
+		{name: "reject different components", incoming: named, fill: dirt, slots: map[int]protocol.ItemStack{8: stone}, wantSlot: -1},
+		{name: "reject at custom stack limit", incoming: capped, fill: dirt, slots: map[int]protocol.ItemStack{8: capped}, wantSlot: -1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			hopper := &testBlock{kind: KindHopper, slots: []protocol.ItemStack{tc.incoming}}
+			crafter := &disabledBlock{
+				kind: KindCrafter, slots: make([]protocol.ItemStack, 9),
+				off: tc.disabled,
+			}
+			for i := range crafter.slots {
+				crafter.Put(i, tc.fill)
+			}
+			for i, stack := range tc.slots {
+				crafter.Put(i, stack)
+			}
+			want := slices.Clone(crafter.slots)
+			wantSourceCount := tc.incoming.Count
+			wantMoved := tc.wantSlot >= 0
+			if wantMoved {
+				count := want[tc.wantSlot].Count + 1
+				want[tc.wantSlot] = tc.incoming
+				want[tc.wantSlot].Count = count
+				wantSourceCount--
+			}
+
+			moved, intoEmpty := Eject(hopper, crafter, protocol.FaceTop)
+			if moved != wantMoved || intoEmpty != tc.intoEmpty {
+				t.Errorf("Eject = (%v, %v), want (%v, %v)", moved, intoEmpty, wantMoved, tc.intoEmpty)
+			}
+			if got := hopper.Slot(0); got.Count != wantSourceCount || !got.Same(tc.incoming) {
+				t.Errorf("hopper slot = %v, want %d of %v", got, wantSourceCount, tc.incoming)
+			}
+			for i, stack := range want {
+				if got := crafter.Slot(i); got.Count != stack.Count || !got.Same(stack) {
+					t.Errorf("crafter slot %d = %v, want %v", i, got, stack)
+				}
+			}
+		})
+	}
+}
+
 func TestFurnaceFacesAndShulkerRefusal(t *testing.T) {
 	furnace := &testBlock{kind: KindFurnace, slots: make([]protocol.ItemStack, 3)}
 	if left, _ := AddItem(furnace, item(t, "minecraft:stone", 1), protocol.FaceNorth, true); left.Empty() {
@@ -223,4 +282,46 @@ func BenchmarkEjectIntoADoubleChest(b *testing.B) {
 		chest.Put(53, roomy)
 		hopper.slots[0] = full
 	}
+}
+
+type countingGate struct{ calls int }
+
+func (g *countingGate) Check(one protocol.ItemStack) (protocol.ItemStack, bool) {
+	g.calls++
+	return one, true
+}
+
+func TestEjectFromTheOnlyOccupiedSlotIntoAFullPair(t *testing.T) {
+	t.Parallel()
+	build := func() (*testBlock, *testBlock, Block, *testBlock) {
+		full := item(t, "minecraft:stone", 64)
+		first := &testBlock{kind: KindChest, slots: slices.Repeat([]protocol.ItemStack{full}, 27)}
+		second := &testBlock{kind: KindChest, slots: slices.Repeat([]protocol.ItemStack{full}, 27)}
+		hopper := &testBlock{kind: KindHopper, slots: make([]protocol.ItemStack, 5)}
+		hopper.slots[2] = full
+		return first, second, Compound{First: first, Second: second}, hopper
+	}
+	t.Run("no room", func(t *testing.T) {
+		first, second, chest, hopper := build()
+		moved, intoEmpty := Eject(hopper, chest, protocol.FaceBottom)
+		if moved || intoEmpty || hopper.slots[2].Count != 64 || first.slots[0].Count != 64 || second.slots[26].Count != 64 {
+			t.Fatalf("moved=%v intoEmpty=%v hopper=%d", moved, intoEmpty, hopper.slots[2].Count)
+		}
+	})
+	t.Run("component capacity in the last slot", func(t *testing.T) {
+		_, second, chest, hopper := build()
+		second.slots[26].SetMaxStackSize(65)
+		hopper.slots[2].SetMaxStackSize(65)
+		moved, intoEmpty := Eject(hopper, chest, protocol.FaceBottom)
+		if !moved || intoEmpty || hopper.slots[2].Count != 63 || second.slots[26].Count != 65 {
+			t.Fatalf("moved=%v intoEmpty=%v hopper=%d last=%d", moved, intoEmpty, hopper.slots[2].Count, second.slots[26].Count)
+		}
+	})
+	t.Run("gate not asked about a full destination", func(t *testing.T) {
+		_, _, chest, hopper := build()
+		gate := &countingGate{}
+		if moved, _ := EjectGated(hopper, chest, protocol.FaceBottom, gate); moved || gate.calls != 0 {
+			t.Fatalf("moved=%v gate calls=%d", moved, gate.calls)
+		}
+	})
 }

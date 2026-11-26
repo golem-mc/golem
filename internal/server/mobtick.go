@@ -20,6 +20,14 @@ import (
 // herd stepped under the mob lock alone, collecting effects; then the
 // effects applied.
 func (s *Server) tickMobs() {
+	// A frozen game step shares the tracking cadence with the loop ticks
+	// around it. Track before physics so its new pose first reaches the
+	// next scheduled gate, as on vanilla's chunk pass.
+	// vanilla: ServerLevel.tick, ChunkMap.tick
+	trackedBeforeStep := s.tickRate.Frozen()
+	if trackedBeforeStep {
+		s.tickMobTracking(s.trackingWatchers())
+	}
 	// Loot pickup goes before the advance, so the sweep's equipment diff tells
 	// watchers what was picked up.
 	s.tickRaiderBanners()
@@ -62,7 +70,7 @@ func (s *Server) tickMobs() {
 		dim.navChangesMu.Lock()
 		t.navChanges, dim.navChanges = dim.navChanges, dim.navSpare[:0]
 		dim.navChangesMu.Unlock()
-		t.step(&fx, in)
+		t.step(&fx, in, trackedBeforeStep)
 		dim.navSpare = t.navChanges[:0]
 	}
 	s.unlockTick(&s.mobsMu)
@@ -451,7 +459,7 @@ type mobDimTick struct {
 }
 
 // step runs the dimension's phases in order.
-func (t *mobDimTick) step(fx *mobEffects, in *mobTickInputs) {
+func (t *mobDimTick) step(fx *mobEffects, in *mobTickInputs, trackedBeforeStep bool) {
 	t.leaveUnloadedChunks(fx, in)
 	t.wakeLoadedChunks(fx, in)
 	t.markDormant(in)
@@ -469,7 +477,7 @@ func (t *mobDimTick) step(fx *mobEffects, in *mobTickInputs) {
 	clear(events)
 	t.h.events = events[:0]
 	t.noteMoves(fx)
-	t.scheduleMovement(fx, in)
+	t.scheduleMovement(fx, in, trackedBeforeStep)
 	t.countCorpses(fx, dyingCount)
 }
 
@@ -835,7 +843,7 @@ func (t *mobDimTick) advance(fx *mobEffects, in *mobTickInputs) (events []entity
 			m.CreakingOrphaned(creakingOrphaned(w, ent))
 		}
 	}
-	ew := t.dim.colliders[mobCollisions].reset(w, t.hulls[w], h.herd)
+	ew := t.dim.colliders[mobCollisions].reset(w, t.hulls[w], h.herd, true)
 	h.herd.BlocksChanged(ew, t.navChanges, &h.paths)
 	var crowd *entity.PushCrowd
 	if len(t.dim.vehicles.Bodies) > 0 {
@@ -845,7 +853,7 @@ func (t *mobDimTick) advance(fx *mobEffects, in *mobTickInputs) (events []entity
 	if s.targetListened() {
 		prevTargets = h.targetsOf()
 	}
-	events = h.herd.TickInto(h.events, ew, in.players[w], in.holders[w], crowd, in.stands[w], &h.paths)
+	events = h.herd.TickInto(h.events, ew, in.players[w], in.holders[w], crowd, in.stands[w], corpseMobs(h.dying), &h.paths)
 	if prevTargets != nil {
 		s.askTargetChanges(h, prevTargets)
 	}
@@ -865,10 +873,16 @@ func (t *mobDimTick) advance(fx *mobEffects, in *mobTickInputs) (events []entity
 		for _, op := range m.TakeBedOps() {
 			fx.bedOps = append(fx.bedOps, mobBedOp{w: w, op: op})
 		}
-		// LodestoneTrackerOf reads only Raw on the two hands and four worn slots.
+		// LodestoneTrackerOf only reads Raw components.
 		if len(m.MainHand.Raw) > 0 || len(m.OffHand.Raw) > 0 ||
-			len(m.Worn[0].Raw) > 0 || len(m.Worn[1].Raw) > 0 || len(m.Worn[2].Raw) > 0 || len(m.Worn[3].Raw) > 0 {
-			tickMobCompasses(m, w, t.dim.name)
+			len(m.Worn[0].Raw) > 0 || len(m.Worn[1].Raw) > 0 || len(m.Worn[2].Raw) > 0 || len(m.Worn[3].Raw) > 0 ||
+			len(m.Body.Raw) > 0 || len(m.Horse.Saddle.Raw) > 0 || len(m.Antenna.Raw) > 0 {
+			probe := &t.dim.compassProbe
+			*probe = lodestoneProbe{w: w, misses: probe.misses[:0]}
+			tickMobCompasses(m, probe, t.dim.name)
+			if len(probe.misses) > 0 {
+				fx.lodestoneMobs = append(fx.lodestoneMobs, lodestoneMob{h: h, w: w, dim: t.dim.name, m: m, misses: slices.Clone(probe.misses)})
+			}
 		}
 		if cloud := takeInk(m); cloud != nil {
 			fx.inks = append(fx.inks, mobInk{w: w, kind: m.Type, cloud: cloud})
@@ -898,7 +912,7 @@ func (t *mobDimTick) advance(fx *mobEffects, in *mobTickInputs) (events []entity
 
 // scheduleMovement updates who sees each mob and queues its metadata,
 // attribute, equipment and movement packets.
-func (t *mobDimTick) scheduleMovement(fx *mobEffects, in *mobTickInputs) {
+func (t *mobDimTick) scheduleMovement(fx *mobEffects, in *mobTickInputs, trackedBeforeStep bool) {
 	h, w := t.h, t.w
 	clients, players := in.inWorld[w], in.players[w]
 	broadcastPct := int(t.s.entityBroadcastRange.Load())
@@ -914,12 +928,17 @@ func (t *mobDimTick) scheduleMovement(fx *mobEffects, in *mobTickInputs) {
 		if ent == nil {
 			continue
 		}
+		if touch, ok := pufferTouchOf(w, m, ent); ok {
+			fx.pufferTouches = append(fx.pufferTouches, touch)
+		}
 		body := mobTracker.body(ent)
 		body.broadcastPct, body.broadcastRead = broadcastPct, true
-		motion := mobMovement{seated: ent.seated()}
-		mt := body.t.ride(body.t.stepDue(m.UpdateInterval(), m.Impulse), motion.seated)
-		mt.teleported = ent.teleported
-		m.Impulse = false
+		var motion mobMovement
+		var mt moveTick
+		if !trackedBeforeStep {
+			motion.seated = ent.seated()
+			mt = ent.movementTick(motion.seated)
+		}
 		// Equipment is read once and shared by every viewer.
 		equippedOnce := false
 		// The metadata state is read once too, on the first viewer in range.
@@ -975,21 +994,18 @@ func (t *mobDimTick) scheduleMovement(fx *mobEffects, in *mobTickInputs) {
 				}
 				if was.own.wornGen != ent.equipGen {
 					equipped := &ent.equipSeen
-					used := equipmentChanged(&was.own.worn, equipped)
+					used := equipmentChanged(was.own.worn[:], equipped[:])
 					was.own.worn = *equipped
 					was.own.wornGen = ent.equipGen
 					if len(used) > 0 {
 						fx.sends = append(fx.sends, mobSend{c: c, w: w, id: protocol.IDPlayEntityEquipment,
-							data: equipmentEntriesPayload(m.ID, equipped, used)})
+							data: equipmentEntriesPayload(m.ID, equipped[:], used)})
 					}
 				}
 			}
 			if seen && mt.gate {
 				motion.move(&body, was, c, mt, &fx.sends)
 			}
-		}
-		if mt.gate {
-			ent.teleported = false
 		}
 	}
 }
@@ -1096,6 +1112,15 @@ func (s *Server) teamCollisionRules() map[string]entity.CollisionRule {
 	out := make(map[string]entity.CollisionRule, len(rules))
 	for name, r := range rules {
 		out[name] = entity.CollisionRule(r)
+	}
+	return out
+}
+
+// corpseMobs is the bodies of the dimension's dying mobs.
+func corpseMobs(dying []dyingMob) []*entity.Mob {
+	var out []*entity.Mob
+	for _, d := range dying {
+		out = append(out, d.ent.mob)
 	}
 	return out
 }

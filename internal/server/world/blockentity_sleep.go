@@ -3,6 +3,17 @@ package world
 // Sleeping reports whether the entity's tick slot currently does no work.
 func (b *BlockEntity) Sleeping() bool { return b.ticker.Load()&1 != 0 }
 
+// StateWritten is Wake for a block state write over the entity's cell. A
+// campfire's cooking check is dropped at its next tick, as vanilla builds a
+// new one with the replacement ticker. It may run under the world lock.
+// vanilla: LevelChunk.updateBlockEntityTicker, CampfireBlock.getTicker
+func (b *BlockEntity) StateWritten() {
+	if b.Kind == KindCampfire {
+		b.cookReset.Store(true)
+	}
+	b.Wake()
+}
+
 // Wake restores the ticker without changing its position in the world's list.
 // It may run under the world lock, without the entity lock.
 func (b *BlockEntity) Wake() {

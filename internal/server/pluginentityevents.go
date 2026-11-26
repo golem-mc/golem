@@ -44,14 +44,21 @@ func (s *Server) pluginSource(w *world.World, damageType registry.DamageType, ca
 		return nil
 	}
 	if !cause.posOnly {
+		x := cause.exploder
 		src.Causing = handle(cause.entityID)
-		if cause.directID != 0 {
+		switch {
+		case cause.directUUID != uuid.Nil && x != nil && x.id == cause.directUUID:
+			// The captured identity binds to the live body, or stays a removed handle.
+			src.Direct = x.handle()
+		case cause.directUUID != uuid.Nil:
+			src.Direct = pluginEntity{id: cause.directUUID}
+		case cause.directID != 0:
 			src.Direct = handle(cause.directID - 1)
-		} else {
+		default:
 			src.Direct = src.Causing
 		}
 		// A creeper or a primed TNT is gone before its blast hurts.
-		if x := cause.exploder; x != nil {
+		if x != nil {
 			if src.Direct == nil {
 				src.Direct = x.handle()
 			}

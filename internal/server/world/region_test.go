@@ -667,3 +667,52 @@ func TestWorldKeepsChunksItCannotUpgrade(t *testing.T) {
 		})
 	}
 }
+
+func TestOldDataVersionChunkIsNotGeneratedOver(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	pos := ChunkPos{X: 1, Z: 2}
+	rx, rz := regionCoords(pos)
+	path := regionFilePath(DimensionDir(dir, DimensionName), rx, rz)
+	encoded, err := nbt.Encode("", nbt.Compound{
+		"DataVersion": nbt.Int(chunkDataVersionFloor - 1),
+		"Status":      nbt.String("minecraft:full"),
+		"xPos":        nbt.Int(pos.X),
+		"zPos":        nbt.Int(pos.Z),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	rf, err := openRegion(path, defaultSaveFormat)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := rf.writeChunk(pos, encoded); err != nil {
+		t.Fatal(err)
+	}
+	rf.close()
+	want, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	w, _ := NewWorld(dir, NewFlatGenerator())
+	w.Acquire(pos)
+	if got := w.BlockAt(pos.X*16, 1, pos.Z*16); got != 0 {
+		t.Errorf("block at the flat ground = %d, want air", got)
+	}
+	if !w.oldVersionLogged.Load() {
+		t.Error("no warning for the unsupported version")
+	}
+	w.Save()
+	w.Release(pos)
+	w.FlushSaves()
+	w.Close()
+	got, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(got, want) {
+		t.Error("the region file changed")
+	}
+}

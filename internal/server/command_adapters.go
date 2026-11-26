@@ -153,7 +153,7 @@ func (c *client) playerSaveState(vehicle nbt.Compound, pearls []nbt.Tag) *nbt.Or
 	if st := c.abilities.Load(); st != nil {
 		extra.speeds = st
 	}
-	return orderedPlayerState(c.saved, c.player, c.flying.Load(), c.dimension().name, c.xpSeed.Load(), c.spawnPoint.Load(), vehicle, pearls, c.recipeBook.Load(), c.portalCooldown.Load(), c.deathTicks.Load(), extra)
+	return orderedPlayerState(c.saved, c.player, c.flying.Load(), c.dimension().name, c.xpSeed.Load(), c.spawnPoint.Load(), vehicle, pearls, c.recipeBook.Load(), c.portalCooldown.Load(), extra)
 }
 
 // ChatArgument is empty outside a signed command invocation.

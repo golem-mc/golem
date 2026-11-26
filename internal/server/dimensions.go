@@ -43,7 +43,11 @@ type dimension struct {
 	// genSpec is the terrain a plugin world was asked for, kept for its
 	// plugin_world.dat.
 	genSpec world.PluginGenSpec
-	physics *world.Physics
+	// folder is the world folder a plugin world was opened over, and folderDim
+	// the dimension of it that the world stores; empty for a world under the
+	// server's own folder.
+	folder, folderDim string
+	physics           *world.Physics
 	// listCounter numbers the players as they join this dimension's player
 	// list, a player who crosses in appended. It is the order a world-limited
 	// selector resolves in.
@@ -99,6 +103,9 @@ type dimension struct {
 	chestOpen func(x, y, z int32) bool
 	// golemChests is what a copper golem's transport reaches, guarded by mobsMu.
 	golemChests golemChests
+	// compassProbe is the mob pass's lodestone scratch, guarded by mobsMu and
+	// reused across mobs and ticks.
+	compassProbe lodestoneProbe
 	// drawTrades queues requests under mobsMu without retaining a tick collector.
 	drawTrades func(*entity.Mob)
 	tradeDraws []mobTradeDraw

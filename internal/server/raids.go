@@ -136,6 +136,19 @@ func (l raidLevel) Difficulty() uint8 { return l.dim.w.Difficulty() }
 
 func (l raidLevel) ChunkLoaded(x, z int) bool { return l.dim.w.ChunkLoadedAt(int32(x), int32(z)) }
 
+// EntityTicking keeps a wave inside the simulation distance: the send
+// view's neighbor ring loads chunks where raiders would stand still.
+// vanilla: ServerLevel.isPositionEntityTicking
+func (l raidLevel) EntityTicking(x, z int) bool {
+	w := l.dim.w
+	pos := world.ChunkPos{X: int32(x >> 4), Z: int32(z >> 4)}
+	if !w.ChunkLoaded(pos) {
+		return false
+	}
+	g := l.s.raidTickGate()
+	return entityTicksIn(w, g.centres[w], g.reach, pos)
+}
+
 func (l raidLevel) IsVillage(x, y, z int) bool { return l.dim.isVillage(x, y, z) }
 
 // isVillage is true within one section of an occupied village POI.
@@ -148,10 +161,14 @@ func (d *dimension) isVillage(x, y, z int) bool {
 // vanilla: Heightmap.Types.WORLD_SURFACE
 func (l raidLevel) SurfaceY(x, z int) int { return int(l.dim.w.SurfaceHeight(int32(x), int32(z))) + 1 }
 
-// CanSpawnAt checks wave placement and every chunk within ten blocks.
+// CanSpawnAt checks wave placement, every chunk within ten blocks and that
+// the block entity-ticks.
 // vanilla: Raid.findRandomSpawnPos, LevelReader.hasChunksAt
 func (l raidLevel) CanSpawnAt(x, y, z int) bool {
 	w := l.dim.w
+	if !l.EntityTicking(x, z) {
+		return false
+	}
 	for cx := (x - 10) >> 4; cx <= (x+10)>>4; cx++ {
 		for cz := (z - 10) >> 4; cz <= (z+10)>>4; cz++ {
 			if !w.ChunkLoaded(world.ChunkPos{X: int32(cx), Z: int32(cz)}) {
@@ -348,6 +365,26 @@ func (s *Server) saveRaids() {
 	}
 }
 
+// raidGateSnapshot is the entity gate shared by the cached position check and
+// every wave candidate of one raid tick; guarded by raidsMu.
+type raidGateSnapshot struct {
+	clients []*client // nil outside a raid tick
+	gate    entityGate
+	built   bool
+}
+
+// raidTickGate returns the raid tick's entity gate, building it on first use.
+func (s *Server) raidTickGate() entityGate {
+	if s.raidGate.clients == nil {
+		return s.newEntityGate()
+	}
+	if !s.raidGate.built {
+		s.raidGate.gate = s.newEntityGateOf(s.raidGate.clients)
+		s.raidGate.built = true
+	}
+	return s.raidGate.gate
+}
+
 // tickRaids advances the omens, the raids and the raiders looking for one.
 // vanilla: ServerLevel.tick (raids.tick), BadOmenMobEffect, RaidOmenMobEffect
 func (s *Server) tickRaids() {
@@ -371,6 +408,10 @@ func (s *Server) tickRaidsLocked() {
 	for _, c := range clients {
 		s.tickOmens(c)
 	}
+	// The gate snapshot is built on the first wave-position check of the
+	// tick; a tick that reaches none builds none.
+	s.raidGate = raidGateSnapshot{clients: clients}
+	defer func() { s.raidGate = raidGateSnapshot{} }()
 	for _, dim := range s.allDims() {
 		if dim.raids != nil {
 			dim.raids.Tick(dim.w.BoolRule(world.RuleRaids))

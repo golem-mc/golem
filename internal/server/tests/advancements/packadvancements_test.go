@@ -590,6 +590,8 @@ func TestPackEntityKilledPlayerTestsEntityType(t *testing.T) {
 // TestPackEntityHurtPlayerTestsSourceEntityAndType: an entity_hurt_player
 // criterion fires for a zombie's hit when its damage.source_entity is a
 // zombie, not when it is a skeleton or when the damage must be a projectile.
+// A burning arrow a skeleton shot afterwards fires the direct arrow and source
+// skeleton criteria, with the arrow's fire flag and flight speed, and neither reversed pair.
 // vanilla: EntityHurtPlayerTrigger.TriggerInstance.matches, DamagePredicate.matches
 func TestPackEntityHurtPlayerTestsSourceEntityAndType(t *testing.T) {
 	cfg, data := packConfig(t)
@@ -597,17 +599,94 @@ func TestPackEntityHurtPlayerTestsSourceEntityAndType(t *testing.T) {
 	packCriterion(t, dir, "zombie", "entity_hurt_player", `{"damage":{"source_entity":{"minecraft:entity_type":"minecraft:zombie"}}}`)
 	packCriterion(t, dir, "skeleton", "entity_hurt_player", `{"damage":{"source_entity":{"minecraft:entity_type":"minecraft:skeleton"}}}`)
 	packCriterion(t, dir, "shot", "entity_hurt_player", `{"damage":{"type":{"tags":[{"id":"minecraft:is_projectile","expected":true}]}}}`)
+	for _, key := range []string{"direct_entity", "source_entity"} {
+		for _, kind := range []string{"zombie", "skeleton"} {
+			packCriterion(t, dir, key+"_"+kind, "entity_hurt_player",
+				`{"damage":{"type":{"`+key+`":{"minecraft:entity_type":"minecraft:`+kind+`"}}}}`)
+		}
+	}
+	for name, damage := range map[string]string{
+		"shot_direct_arrow":      `"direct_entity":{"minecraft:entity_type":"minecraft:arrow"}`,
+		"shot_source_skeleton":   `"source_entity":{"minecraft:entity_type":"minecraft:skeleton"}`,
+		"shot_direct_skeleton":   `"direct_entity":{"minecraft:entity_type":"minecraft:skeleton"}`,
+		"shot_source_arrow":      `"source_entity":{"minecraft:entity_type":"minecraft:arrow"}`,
+		"shot_direct_burning":    `"direct_entity":{"minecraft:entity_type":"minecraft:arrow","minecraft:flags":{"is_on_fire":true}}`,
+		"shot_direct_unlit":      `"direct_entity":{"minecraft:entity_type":"minecraft:arrow","minecraft:flags":{"is_on_fire":false}}`,
+		"shot_direct_moving":     `"direct_entity":{"minecraft:entity_type":"minecraft:arrow","minecraft:movement":{"speed":{"min":1}}}`,
+		"shot_direct_stationary": `"direct_entity":{"minecraft:entity_type":"minecraft:arrow","minecraft:movement":{"speed":{"max":0}}}`,
+	} {
+		packCriterion(t, dir, name, "entity_hurt_player", `{"damage":{"type":{`+damage+`}}}`)
+	}
 	srv, c := joinOp(t, cfg, "Packer")
 	c.MoveToGround(0.5, 64, 0.5, true)
 	c.Settle()
+	servertest.HoldTicks(t, srv)
 	id := srv.SpawnMob("minecraft:zombie", 0.5, 64, 1.0)
 	srv.SetMobTargetPlayer(id, "Packer")
 	servertest.UntilTicks(t, srv, 400, "the zombie's hit", func() bool { return srv.AdvancementObtained("Packer", "pk:zombie", "c") })
+	for _, key := range []string{"direct_entity", "source_entity"} {
+		if !srv.AdvancementObtained("Packer", "pk:"+key+"_zombie", "c") {
+			t.Errorf("a zombie's hit did not fire the damage.type.%s zombie criterion", key)
+		}
+		if srv.AdvancementObtained("Packer", "pk:"+key+"_skeleton", "c") {
+			t.Errorf("a zombie's hit fired the damage.type.%s skeleton criterion", key)
+		}
+	}
 	if srv.AdvancementObtained("Packer", "pk:skeleton", "c") {
 		t.Error("a zombie's hit fired the skeleton source_entity criterion")
 	}
 	if srv.AdvancementObtained("Packer", "pk:shot", "c") {
 		t.Error("a zombie's melee hit fired the is_projectile criterion")
+	}
+
+	srv.KillMob(id)
+	skeleton := srv.SpawnMob("minecraft:skeleton", 8.5, 64, 0.5)
+	shaft := srv.ShootMobArrowFrom(skeleton, 3.5, 65.2, 0.5, -3, 0, 0)
+	if shaft == 0 {
+		t.Fatal("the skeleton's arrow never flew")
+	}
+	srv.IgniteArrow(shaft, 100)
+	servertest.RunTicks(t, srv, 8)
+	for name, want := range map[string]bool{
+		"shot_direct_arrow": true, "shot_source_skeleton": true, "shot_direct_burning": true, "shot_direct_moving": true,
+		"shot_direct_skeleton": false, "shot_source_arrow": false, "shot_direct_unlit": false, "shot_direct_stationary": false,
+	} {
+		if got := srv.AdvancementObtained("Packer", "pk:"+name, "c"); got != want {
+			t.Errorf("a skeleton's burning arrow: %s obtained = %v, want %v", name, got, want)
+		}
+	}
+}
+
+func TestPackOwnerlessProjectileIsItsOwnDamageSource(t *testing.T) {
+	for _, shot := range []struct {
+		kind  string
+		shoot func(*server.Server, float64, float64, float64, float64, float64, float64) int32
+	}{
+		{"arrow", (*server.Server).ShootArrow},
+		{"trident", (*server.Server).ShootTrident},
+	} {
+		t.Run(shot.kind, func(t *testing.T) {
+			cfg, data := packConfig(t)
+			dir := filepath.Join(data, "pk", "advancement")
+			projectile := `{"minecraft:entity_type":"minecraft:` + shot.kind + `"}`
+			packCriterion(t, dir, "source", "entity_hurt_player", `{"damage":{"type":{"source_entity":`+projectile+`}}}`)
+			packCriterion(t, dir, "direct", "entity_hurt_player", `{"damage":{"type":{"direct_entity":`+projectile+`,"is_direct":true}}}`)
+			packCriterion(t, dir, "indirect", "entity_hurt_player", `{"damage":{"type":{"direct_entity":`+projectile+`,"is_direct":false}}}`)
+
+			srv, c := joinOp(t, cfg, "Packer")
+			c.MoveToGround(0.5, 64, 0.5, true)
+			c.Settle()
+			servertest.HoldTicks(t, srv)
+			if id := shot.shoot(srv, 3.5, 65.2, 0.5, -3, 0, 0); id == 0 {
+				t.Fatal("the ownerless projectile never flew")
+			}
+			servertest.RunTicks(t, srv, 8)
+			for name, want := range map[string]bool{"source": true, "direct": true, "indirect": false} {
+				if got := srv.AdvancementObtained("Packer", "pk:"+name, "c"); got != want {
+					t.Errorf("%s obtained = %v, want %v", name, got, want)
+				}
+			}
+		})
 	}
 }
 
@@ -938,4 +1017,53 @@ func TestPackHurtEntityFiresOnAPlayerLitTNTBlastOfTheEnderDragon(t *testing.T) {
 	srv.SpawnMob("minecraft:ender_dragon", 20.5, 64, 4.5)
 	srv.SpawnPlayerTNT("Packer", 20.5, 64, 4.5, 1)
 	servertest.UntilTicks(t, srv, 5, "the player-lit blast's hurt of the dragon", func() bool { return srv.AdvancementObtained("Packer", "pk:dragon", "c") })
+}
+
+// TestPackKilledEntityByFangsIsIndirectMagic: a player's fangs that kill a mob
+// fire a player_killed_entity criterion for indirect magic with the fangs as
+// the direct entity, not one for the player's own attack.
+// vanilla: EvokerFangs.dealDamageTo, KilledTrigger.TriggerInstance.matches, DamageSourcePredicate.matches
+func TestPackKilledEntityByFangsIsIndirectMagic(t *testing.T) {
+	cfg, data := packConfig(t)
+	// A one-member tag: bypasses_armor would also hold plain magic.
+	writePackFile(t, filepath.Join(data, "pk", "tags", "damage_type", "indirect_magic.json"), `{"values":["minecraft:indirect_magic"]}`)
+	dir := filepath.Join(data, "pk", "advancement")
+	packCriterion(t, dir, "fangs", "player_killed_entity",
+		`{"killing_blow":{"tags":[{"id":"#pk:indirect_magic","expected":true}],"direct_entity":{"minecraft:entity_type":"minecraft:evoker_fangs"}}}`)
+	packCriterion(t, dir, "melee", "player_killed_entity", `{"killing_blow":{"direct_entity":{"minecraft:entity_type":"minecraft:player"}}}`)
+	srv, c := joinOp(t, cfg, "Packer")
+	c.MoveToGround(0.5, 64, 0.5, true)
+	c.Settle()
+	servertest.HoldTicks(t, srv)
+	id := srv.SpawnMob("minecraft:husk", 3.5, 64, 0.5)
+	srv.SetMobNoAI(id)
+	srv.SetMobHealth(id, 4)
+	owner := nbt.Stringify(nbt.Compound{"Owner": nbt.UUIDToIntArray(protocol.OfflineUUID("Packer"))})
+	srv.RunLine("summon minecraft:evoker_fangs 3.5 64 0.5 " + owner)
+	servertest.UntilTicks(t, srv, 9, "the fangs' kill", func() bool { return srv.AdvancementObtained("Packer", "pk:fangs", "c") })
+	if srv.AdvancementObtained("Packer", "pk:melee", "c") {
+		t.Error("a fang's kill fired the direct-attack criterion")
+	}
+}
+
+// TestPackKilledPlayerByFangsHasFangsDirect: a player's fangs that kill another
+// player fire the criterion naming the fangs as the direct entity.
+// vanilla: EvokerFangs.dealDamageTo, DamageSourcePredicate.matches
+func TestPackKilledPlayerByFangsHasFangsDirect(t *testing.T) {
+	cfg, data := packConfig(t)
+	dir := filepath.Join(data, "pk", "advancement")
+	packCriterion(t, dir, "fangs", "player_killed_entity",
+		`{"killing_blow":{"tags":[{"id":"minecraft:bypasses_armor","expected":true}],"direct_entity":{"minecraft:entity_type":"minecraft:evoker_fangs"}}}`)
+	srv, c := joinOp(t, cfg, "Packer")
+	foe := servertest.DialServer(t, srv).Join("Foe")
+	c.MoveToGround(0.5, 64, 0.5, true)
+	c.Settle()
+	servertest.HoldTicks(t, srv)
+	foe.MoveTo(3.5, 64, 0.5, 0, 0)
+	foe.SettleKeeping()
+	srv.SetPlayerGameMode("Foe", protocol.GameModeSurvival)
+	srv.SetHealth("Foe", 4)
+	owner := nbt.Stringify(nbt.Compound{"Owner": nbt.UUIDToIntArray(protocol.OfflineUUID("Packer"))})
+	srv.RunLine("summon minecraft:evoker_fangs 3.5 64 0.5 " + owner)
+	servertest.UntilTicks(t, srv, 9, "the fangs' kill of a player", func() bool { return srv.AdvancementObtained("Packer", "pk:fangs", "c") })
 }

@@ -321,14 +321,20 @@ func (m *Mob) lootPickupEligible() bool {
 		(m.Type != TypeSulfurCube || !m.IsBaby() && !m.NoAI && m.sulfur.pickupTimer <= 0)
 }
 
-func (mobs Mobs) lootGrid(items []LootItem, grid *BoxGrid) *BoxGrid {
+// PrepareLootGrid indexes a snapshot shared by sensing and ordinary pickup.
+// A nil result directs both passes to scan the snapshot.
+func (mobs Mobs) PrepareLootGrid(items []LootItem, grid *BoxGrid, mobGriefing bool) *BoxGrid {
+	return mobs.lootGrid(items, grid, true, mobGriefing)
+}
+
+func (mobs Mobs) lootGrid(items []LootItem, grid *BoxGrid, sense, pickUp bool) *BoxGrid {
 	const minPickers, minItems = 8, 32
 	if len(mobs) < minPickers || len(items) < minItems {
 		return nil
 	}
 	eligible := 0
 	for _, m := range mobs {
-		if m.lootPickupEligible() {
+		if pickUp && m.lootPickupEligible() || sense && m.wantedItemScanDue(pickUp) {
 			eligible++
 			if eligible == minPickers {
 				break
@@ -359,7 +365,11 @@ func (mobs Mobs) TakeLoot(items []LootItem) []LootTake {
 
 // TakeLootWithGrid decides pickups using the caller's reusable spatial index.
 func (mobs Mobs) TakeLootWithGrid(items []LootItem, grid *BoxGrid) []LootTake {
-	grid = mobs.lootGrid(items, grid)
+	return mobs.TakeLootWithPreparedGrid(items, mobs.lootGrid(items, grid, false, true))
+}
+
+// TakeLootWithPreparedGrid decides pickups from the indexed snapshot or scans it if grid is nil.
+func (mobs Mobs) TakeLootWithPreparedGrid(items []LootItem, grid *BoxGrid) []LootTake {
 	var takes []LootTake
 	for _, m := range mobs {
 		if !m.lootPickupEligible() {
@@ -443,12 +453,16 @@ func (m *Mob) LootSlotStack(slot string) (stack protocol.ItemStack, ok bool) {
 // and component updates. The caller holds the same lock as the mob's state.
 func (m *Mob) EquipmentRevision() uint64 { return m.equipmentRevision }
 
-// EquipmentSlot reads a Set Equipment slot: hands, feet through head, then body.
+// EquipmentSlot reads a Set Equipment slot in wire order.
 func (m *Mob) EquipmentSlot(slot int) protocol.ItemStack {
-	if slot == 6 {
+	switch slot {
+	case protocol.EquipBody:
 		return m.Body
+	case protocol.EquipSaddle:
+		return m.SaddleSlot()
+	default:
+		return m.slotStack(slot)
 	}
-	return m.slotStack(slot)
 }
 
 // SetEquipment replaces a Set Equipment slot and invalidates its tracking snapshot.
@@ -459,8 +473,14 @@ func (m *Mob) SetEquipment(slot int, stack protocol.ItemStack) {
 		m.MainHand = stack
 	case protocol.EquipOffHand:
 		m.OffHand = stack
-	case 6:
+	case protocol.EquipBody:
 		m.Body = stack
+	case protocol.EquipSaddle:
+		if m.Type == TypeCopperGolem {
+			m.Antenna = stack
+		} else {
+			m.Horse.Saddle = stack
+		}
 	default:
 		m.Worn[slot-protocol.EquipFeet] = stack
 	}

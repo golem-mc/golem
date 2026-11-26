@@ -1,6 +1,8 @@
 package server
 
 import (
+	"errors"
+	"fmt"
 	"log/slog"
 	"strings"
 
@@ -17,6 +19,12 @@ import (
 // without pack entries leaves it alone.
 // vanilla: WorldLoader.load, RegistryDataLoader.WORLD_REGISTRIES
 func loadPackRegistries(dirs []string, skip func(file string, err error)) error {
+	// Decoded before anything is applied: an enchantment vanilla rejects fails
+	// the load with no pack registry entry published.
+	enchantments, err := loadPackEnchantments(dirs, skip)
+	if err != nil {
+		return err
+	}
 	packs := map[string]map[string]nbt.Tag{}
 	for _, reg := range registry.Synchronized {
 		entries, err := datapack.LoadRegistryEntries(dirs, strings.TrimPrefix(reg.Name, "minecraft:"), skip)
@@ -47,6 +55,7 @@ func loadPackRegistries(dirs []string, skip func(file string, err error)) error 
 		slog.Warn("Data pack " + pack + " has world generation files, which are not loaded")
 	}
 	if len(packs) == 0 {
+		registry.ApplyPackEnchantments(enchantments)
 		return nil
 	}
 	for _, problem := range registry.ApplyPackRegistries(packs) {
@@ -55,7 +64,8 @@ func loadPackRegistries(dirs []string, skip func(file string, err error)) error 
 	if err := loadPackBiomes(dirs, skip); err != nil {
 		return err
 	}
-	return loadPackEnchantments(dirs, skip)
+	registry.ApplyPackEnchantments(enchantments)
+	return nil
 }
 
 // loadPackJigsaw hands the packs' structure, structure set, template pool and
@@ -115,17 +125,17 @@ func loadPackBiomes(dirs []string, skip func(file string, err error)) error {
 
 // loadPackEnchantments decodes the packs' enchantment files into the
 // definitions the rules read, over the built-in ones. What the tree cannot
-// represent is left out with a Warn naming the enchantment; a file that fails
-// the required fields keeps the built-in definition, if any.
+// represent is left out with a Warn naming the enchantment. A file vanilla's
+// codec rejects fails world loading, naming it.
 // vanilla: Enchantment.DIRECT_CODEC
-func loadPackEnchantments(dirs []string, skip func(file string, err error)) error {
+func loadPackEnchantments(dirs []string, skip func(file string, err error)) (map[string]registry.EnchantmentDef, error) {
 	files, err := datapack.LoadResources(dirs, "enchantment", skip)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	predicates, err := datapack.LoadResources(dirs, "predicate", skip)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	predicate := func(name string) ([]byte, bool) {
 		data, ok := predicates[name]
@@ -135,16 +145,18 @@ func loadPackEnchantments(dirs []string, skip func(file string, err error)) erro
 	for name, data := range files {
 		def, dropped, err := datapack.DecodeEnchantmentWith(name, data, predicate)
 		if err != nil {
-			skip(name, err)
-			continue
+			if errors.Is(err, datapack.ErrUnsupported) {
+				skip(name, err)
+				continue
+			}
+			return nil, fmt.Errorf("enchantment %s: %w", name, err)
 		}
 		for _, d := range dropped {
 			slog.Warn("Enchantment " + name + " does not support " + d)
 		}
 		defs[name] = def
 	}
-	registry.ApplyPackEnchantments(defs)
-	return nil
+	return defs, nil
 }
 
 // loadPackDamageTypes layers the packs' damage types over the built-in table

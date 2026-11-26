@@ -10,6 +10,7 @@ import (
 	"github.com/golem-mc/golem/internal/server"
 	"github.com/golem-mc/golem/internal/server/player"
 	"github.com/golem-mc/golem/internal/server/world"
+	"github.com/golem-mc/golem/nbt"
 	"github.com/golem-mc/golem/registry"
 )
 
@@ -574,6 +575,45 @@ func TestTheEndsExitPortalShowsTheCreditsFirst(t *testing.T) {
 	if back.X != 0.5 || back.Y != 64 || back.Z != 0.5 {
 		t.Errorf("the credits' respawn = (%v, %v, %v), want the world spawn (0.5, 64, 0.5)",
 			back.X, back.Y, back.Z)
+	}
+}
+
+// TestTheCreditsRespawnStartsADeathCounter: the credits' new body keeps the
+// old one's health but counts its own DeathTime from zero.
+// vanilla: ServerPlayer.restoreFrom, LivingEntity.deathTime
+func TestTheCreditsRespawnStartsADeathCounter(t *testing.T) {
+	t.Parallel()
+	cfg := servertest.CrossingTestConfig(t)
+	cfg.LevelName = t.TempDir()
+	saved := servertest.PlayerFile(cfg.LevelName, "Ender")
+	servertest.WritePlayerFile(t, saved, nbt.Compound{
+		"DataVersion": nbt.Int(4800),
+		"Health":      nbt.Float(12),
+		"DeathTime":   nbt.Short(15),
+	})
+	srv, c := servertest.Join(t, cfg, "Ender")
+
+	arrival := servertest.EnterTheEndByItsPortal(t, srv, c, "Ender")
+	servertest.WaitFor(t, srv, 200, func() bool {
+		return srv.BlockInDimension(world.EndName, arrival.X, arrival.Y, arrival.Z) == 0
+	})
+	if !srv.SetBlockInDimension(world.EndName, arrival.X, arrival.Y, arrival.Z, srv.EndPortalState()) {
+		t.Fatal("placing the end's own end portal failed")
+	}
+	servertest.ExpectEndCredits(t, c, srv)
+	c.PerformRespawn()
+	servertest.WaitFor(t, srv, 200, func() bool {
+		return srv.PlayerDimension("Ender") == world.DimensionName
+	})
+	c.Disconnect()
+
+	root := servertest.ReadPlayerFile(t, saved)
+	// Natural regeneration may have healed a little, never to a fresh 20.
+	if got, _ := nbt.Get[nbt.Float](root, "Health"); got < 12 || got >= 20 {
+		t.Errorf("Health = %v, want the 12 the credits carry over", got)
+	}
+	if got, ok := nbt.Get[nbt.Short](root, "DeathTime"); !ok || got != 0 {
+		t.Errorf("DeathTime = %v, %v; want 0, true", got, ok)
 	}
 }
 

@@ -111,8 +111,8 @@ public final class ClientCtlAgent {
             case "state" -> onRenderThread(() -> ClientCtl.state(mc, range(query)));
             case "chat" -> onRenderThread(() -> ClientCtl.chat(mc, text(parsed)));
             case "input" -> onRenderThread(() -> ClientCtl.input(mc, parsed));
-            case "use" -> onRenderThread(() -> ClientCtl.use(mc));
-            case "attack" -> onRenderThread(() -> ClientCtl.attack(mc));
+            case "use" -> hold(mc, parsed, false, () -> ClientCtl.use(mc));
+            case "attack" -> hold(mc, parsed, true, () -> ClientCtl.attack(mc));
             case "slot" -> onRenderThread(() -> ClientCtl.selectSlot(mc, (int) (double) number(parsed, "slot")));
             case "drop" -> onRenderThread(() -> ClientCtl.drop(mc, bool(parsed, "all")));
             case "click" -> onRenderThread(() -> ClientCtl.click(mc,
@@ -125,6 +125,47 @@ public final class ClientCtlAgent {
             case "screenshot" -> screenshot(mc, text(parsed));
             default -> throw new NotFound();
         };
+    }
+
+    /**
+     * use/attack with a "ticks" holds the key down that many client ticks
+     * (negative: until a later "release" or ticks 0) and answers once it has
+     * been released; without one, it is the single click.
+     */
+    private static Map<String, Object> hold(Minecraft mc, Map<String, Object> body, boolean attack,
+            Supplier<Map<String, Object>> click) throws Exception {
+        boolean release = body.containsKey("release") && bool(body, "release");
+        if (!release && !body.containsKey("ticks")) {
+            return onRenderThread(click);
+        }
+        int ticks = release ? 0 : (int) number(body, "ticks");
+        if (ticks == 0) {
+            return onRenderThread(() -> ClientCtl.releaseKey(mc, attack));
+        }
+        int start = onRenderThread(() -> ClientCtl.pressKey(mc, attack));
+        if (ticks < 0) {
+            return Map.of("ok", true, "held", true);
+        }
+        try {
+            awaitTicks(mc, start, ticks);
+        } catch (Throwable t) {
+            onRenderThread(() -> ClientCtl.releaseKey(mc, attack));
+            throw t;
+        }
+        Map<String, Object> out = onRenderThread(() -> ClientCtl.releaseKey(mc, attack));
+        // One more tick for the release to run, so a fired bow is in the world.
+        awaitTicks(mc, onRenderThread(() -> ClientCtl.tickCount(mc)), 2);
+        return out;
+    }
+
+    private static void awaitTicks(Minecraft mc, int start, int ticks) throws Exception {
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10) + TimeUnit.MILLISECONDS.toNanos(100L * ticks);
+        while (onRenderThread(() -> ClientCtl.tickCount(mc)) - start < ticks) {
+            if (System.nanoTime() > deadline) {
+                throw new TimeoutException("the client did not tick " + ticks + " times");
+            }
+            Thread.sleep(5);
+        }
     }
 
     private static Map<String, Object> screenshot(Minecraft mc, String path) throws Exception {

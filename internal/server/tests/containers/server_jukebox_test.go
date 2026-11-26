@@ -154,14 +154,32 @@ func TestAJukeboxComparatorReadsTheStoredDisc(t *testing.T) {
 	})
 }
 
+// sensorFrequency reads the frequency of the last vibration the sensor at
+// (x, y, z) heard.
+func sensorFrequency(t *testing.T, srv *server.Server, x, y, z int32) int32 {
+	t.Helper()
+	tag, _ := srv.BlockEntityTagAt(x, y, z)
+	got, _ := nbt.IntField(tag, "last_vibration_frequency")
+	return got
+}
+
+// waitSensorHeard ticks until the sensor goes active.
+func waitSensorHeard(t *testing.T, srv *server.Server, x, y, z int32, what string) {
+	t.Helper()
+	servertest.UntilTicks(t, srv, 20, what, func() bool {
+		return registry.StateValue(srv.BlockAt(x, y, z), registry.PropSculkSensorPhase) == "active"
+	})
+}
+
 // TestAHopperFeedsAJukebox checks that a hopper above a jukebox pushes a disc
-// into it, which starts the song.
+// into it, which starts the song and is heard as a frequency-11 vibration.
 func TestAHopperFeedsAJukebox(t *testing.T) {
 	t.Parallel()
 	srv, w := servertest.OpenWindowedOps(t, servertest.BlockTestConfig())
 
 	servertest.Setblock(t, w.Client, 4, 63, 0, "minecraft:jukebox")
 	placeAHopperOnTheGround(t, srv, w, 4, 64, 0)
+	servertest.Setblock(t, w.Client, 6, 63, 0, "minecraft:sculk_sensor")
 	srv.StopTick()
 
 	if !srv.SetInventoryAt(4, 64, 0, 0, servertest.ItemStack(t, "minecraft:music_disc_cat", 1)) {
@@ -176,6 +194,92 @@ func TestAHopperFeedsAJukebox(t *testing.T) {
 	}
 	if x, y, z, _ := awaitJukeboxEvent(t, w, protocol.WorldEventJukeboxPlay); x != 4 || y != 63 || z != 0 {
 		t.Errorf("the fed song's play event = (%d,%d,%d), want (4,63,0)", x, y, z)
+	}
+	servertest.HoldTicks(t, srv)
+	waitSensorHeard(t, srv, 6, 63, 0, "the sensor to hear the hopper push")
+	if got := sensorFrequency(t, srv, 6, 63, 0); got != 11 {
+		t.Errorf("the push gave frequency %d, want 11", got)
+	}
+}
+
+// TestAHopperTakesAJukeboxDisc checks that a hopper below a jukebox pulls the
+// disc out, which is heard as a frequency-11 vibration.
+// vanilla: HopperBlockEntity.suckInItems
+func TestAHopperTakesAJukeboxDisc(t *testing.T) {
+	t.Parallel()
+	srv, w := servertest.OpenWindowedOps(t, servertest.BlockTestConfig())
+
+	servertest.Setblock(t, w.Client, 4, 65, 0, "minecraft:jukebox")
+	placeAHopperOnTheGround(t, srv, w, 4, 64, 0)
+	servertest.Setblock(t, w.Client, 6, 63, 0, "minecraft:sculk_sensor")
+	srv.StopTick()
+
+	srv.SetBlock(4, 65, 0, servertest.MustState(t, "minecraft:jukebox", map[string]string{"has_record": "true"}))
+	if !srv.SetInventoryAt(4, 65, 0, 0, servertest.ItemStack(t, "minecraft:music_disc_cat", 1)) {
+		t.Fatal("the jukebox has no block entity to fill")
+	}
+	servertest.TickBlockEntitiesByHand(srv, 1)
+	servertest.HoldTicks(t, srv)
+	waitSensorHeard(t, srv, 6, 63, 0, "the sensor to hear the hopper pull")
+	if got := srv.InventoryAt(4, 64, 0); len(got) == 0 || got[0].Empty() {
+		t.Fatalf("the hopper holds %+v, want the cat disc", got)
+	}
+	if _, props := servertest.StatePropsOf(t, srv, 4, 65, 0); props["has_record"] != "false" {
+		t.Errorf("the emptied jukebox = %v, want has_record=false", props)
+	}
+	if got := sensorFrequency(t, srv, 6, 63, 0); got != 11 {
+		t.Errorf("the pull gave frequency %d, want 11", got)
+	}
+}
+
+func TestSetblockJukeboxPlaybackTagLocksHopperBeforeFirstPull(t *testing.T) {
+	t.Parallel()
+	srv, c := servertest.Join(t, servertest.BlockTestConfig(), "Tester", servertest.OpsListing(t, "Tester"))
+	servertest.HoldTicks(t, srv)
+	servertest.Setblock(t, c, 4, 64, 0, "minecraft:hopper[facing=down]")
+	servertest.Setblock(t, c, 4, 65, 0, `minecraft:jukebox[has_record=true]{RecordItem:{id:"minecraft:music_disc_cat",count:1}}`)
+	if _, props := servertest.StatePropsOf(t, srv, 4, 64, 0); props["enabled"] != "true" {
+		t.Fatalf("hopper below a silent jukebox = %v, want enabled=true", props)
+	}
+
+	servertest.Setblock(t, c, 4, 65, 0, servertest.JukeboxCommand("cat", 0))
+	if _, props := servertest.StatePropsOf(t, srv, 4, 64, 0); props["enabled"] != "false" {
+		t.Errorf("hopper after the playback tag and before stepping = %v, want enabled=false", props)
+	}
+	servertest.RunTicks(t, srv, 12)
+	disc := servertest.ItemStack(t, "minecraft:music_disc_cat", 1)
+	if got := srv.InventoryAt(4, 65, 0); len(got) != 1 || !got[0].Equal(disc) {
+		t.Errorf("jukebox after 12 ticks holds %+v, want the cat disc", got)
+	}
+	for i, stack := range srv.InventoryAt(4, 64, 0) {
+		if !stack.Empty() {
+			t.Errorf("hopper slot %d holds %+v, want it empty", i, stack)
+		}
+	}
+}
+
+func TestSetblockJukeboxRecordTagWakesComparatorThroughStone(t *testing.T) {
+	t.Parallel()
+	srv, c := servertest.Join(t, servertest.BlockTestConfig(), "Tester", servertest.OpsListing(t, "Tester"))
+	servertest.HoldTicks(t, srv)
+	servertest.Setblock(t, c, 4, 64, 0, "minecraft:stone")
+	servertest.Setblock(t, c, 4, 65, 1, "minecraft:stone")
+	servertest.Setblock(t, c, 4, 65, 2, `minecraft:jukebox[has_record=true]{RecordItem:{id:"minecraft:music_disc_cat",count:1}}`)
+	servertest.Setblock(t, c, 4, 65, 0, "minecraft:comparator[facing=south]")
+	output := func() nbt.Int {
+		tag, _ := srv.BlockEntityTagAt(4, 65, 0)
+		out, _ := nbt.Get[nbt.Int](tag, "OutputSignal")
+		return out
+	}
+	servertest.RunTicks(t, srv, 4)
+	if got := output(); got != 2 {
+		t.Fatalf("comparator reading cat through stone = %d, want 2", got)
+	}
+
+	servertest.Setblock(t, c, 4, 65, 2, `minecraft:jukebox[has_record=true]{RecordItem:{id:"minecraft:music_disc_13",count:1}}`)
+	servertest.RunTicks(t, srv, 4)
+	if got := output(); got != 1 {
+		t.Errorf("comparator after the disc changes to 13 = %d, want 1", got)
 	}
 }
 
@@ -235,5 +339,96 @@ func TestBreakingAJukeboxDropsItsDisc(t *testing.T) {
 	w.ExpectDrop(servertest.ItemStack(t, "minecraft:music_disc_cat", 1))
 	if _, ok := srv.BlockEntityKindAt(4, 64, 0); ok {
 		t.Error("the broken jukebox still has a block entity")
+	}
+}
+
+// TestAPlayingJukeboxPlacedWithATagLocksTheHopperBelow places a jukebox whose
+// tag already has a song running above a hopper: the tag loads before the
+// neighbour wake, so the hopper reads the 15 and stays disabled with the disc
+// above it. A stopped record leaves the hopper enabled to pull it.
+func TestAPlayingJukeboxPlacedWithATagLocksTheHopperBelow(t *testing.T) {
+	t.Parallel()
+	cfg := servertest.BlockTestConfig()
+	cfg.ViewDistance, cfg.SimulationDistance = config.MinDistance, config.MinDistance
+	srv, c := servertest.Join(t, cfg, "Testificate", servertest.OpsListing(t, "Testificate"))
+	servertest.HoldTicks(t, srv)
+
+	for _, tc := range []struct {
+		name      string
+		x         int32
+		ticks     int64
+		enabled   string
+		inHopper  bool
+		hasRecord string
+	}{{"playing", 3, 0, "false", false, "true"}, {"stopped", 8, 99999, "true", true, "false"}} {
+		servertest.Setblock(t, c, tc.x, 64, 0, "minecraft:hopper[facing=down]")
+		servertest.Setblock(t, c, tc.x, 65, 0, servertest.JukeboxCommand("cat", tc.ticks))
+		if _, props := servertest.StatePropsOf(t, srv, tc.x, 64, 0); props["enabled"] != tc.enabled {
+			t.Errorf("%s: hopper = %v, want enabled=%s", tc.name, props, tc.enabled)
+		}
+		servertest.RunTicks(t, srv, 1)
+		if got := srv.BlockEntityStack(tc.x, 64, 0, 0).Count > 0; got != tc.inHopper {
+			t.Errorf("%s: disc in hopper = %v, want %v", tc.name, got, tc.inHopper)
+		}
+		if _, props := servertest.StatePropsOf(t, srv, tc.x, 65, 0); props["has_record"] != tc.hasRecord {
+			t.Errorf("%s: jukebox = %v, want has_record=%s", tc.name, props, tc.hasRecord)
+		}
+	}
+}
+
+// TestStrictSetblockLoadsTheBlockEntityTag places a chest with items in strict
+// mode, which skips the neighbour wake but still loads the tag.
+func TestStrictSetblockLoadsTheBlockEntityTag(t *testing.T) {
+	t.Parallel()
+	cfg := servertest.BlockTestConfig()
+	cfg.ViewDistance, cfg.SimulationDistance = config.MinDistance, config.MinDistance
+	srv, c := servertest.Join(t, cfg, "Testificate", servertest.OpsListing(t, "Testificate"))
+	servertest.HoldTicks(t, srv)
+
+	servertest.Setblock(t, c, 3, 64, 0, `minecraft:chest{Items:[{Slot:0b,id:"minecraft:diamond",count:1}]} strict`)
+	if got := srv.BlockEntityStack(3, 64, 0, 0); got.Count != 1 || registry.Item(got.ItemID) != registry.ItemDiamond {
+		t.Errorf("slot 0 = %+v, want a diamond", got)
+	}
+}
+
+func TestSetblockTagSurvivesReplacingAMovingPiston(t *testing.T) {
+	t.Parallel()
+	cfg := servertest.BlockTestConfig()
+	cfg.ViewDistance, cfg.SimulationDistance = config.MinDistance, config.MinDistance
+	srv, c := servertest.Join(t, cfg, "Testificate", servertest.OpsListing(t, "Testificate"))
+	servertest.HoldTicks(t, srv)
+
+	servertest.Setblock(t, c, 3, 64, 0, `minecraft:moving_piston[facing=east]`)
+	servertest.Setblock(t, c, 3, 64, 0, `minecraft:chest{Items:[{Slot:0b,id:"minecraft:diamond",count:1}]}`)
+	if got := srv.BlockEntityStack(3, 64, 0, 0); got.Count != 1 || registry.Item(got.ItemID) != registry.ItemDiamond {
+		t.Errorf("slot 0 = %+v, want a diamond", got)
+	}
+}
+
+// TestReplacingAPoweredLeverWithAPlayingJukeboxKeepsTheHopperLocked replaces
+// the powered lever locking a hopper with a jukebox whose song is running: the
+// lever's removal reactions run after the tag loads, so the hopper never
+// unlocks and an observer watching it does not pulse.
+func TestReplacingAPoweredLeverWithAPlayingJukeboxKeepsTheHopperLocked(t *testing.T) {
+	t.Parallel()
+	cfg := servertest.BlockTestConfig()
+	cfg.ViewDistance, cfg.SimulationDistance = config.MinDistance, config.MinDistance
+	srv, c := servertest.Join(t, cfg, "Testificate", servertest.OpsListing(t, "Testificate"))
+	servertest.HoldTicks(t, srv)
+
+	servertest.Setblock(t, c, 2, 65, 0, "minecraft:stone")
+	servertest.Setblock(t, c, 3, 64, 0, "minecraft:hopper[facing=down]")
+	servertest.Setblock(t, c, 3, 65, 0, "minecraft:lever[face=wall,facing=east,powered=true]")
+	servertest.Setblock(t, c, 4, 64, 0, "minecraft:observer[facing=west] strict")
+	if _, props := servertest.StatePropsOf(t, srv, 3, 64, 0); props["enabled"] != "false" {
+		t.Fatalf("hopper before replacement = %v, want enabled=false", props)
+	}
+	servertest.Setblock(t, c, 3, 65, 0, servertest.JukeboxCommand("cat", 0))
+	servertest.RunTicks(t, srv, 2)
+	if _, props := servertest.StatePropsOf(t, srv, 4, 64, 0); props["powered"] != "false" {
+		t.Errorf("observer = %v, want unpowered: the hopper unlocked and relocked", props)
+	}
+	if _, props := servertest.StatePropsOf(t, srv, 3, 64, 0); props["enabled"] != "false" {
+		t.Errorf("hopper = %v, want enabled=false", props)
 	}
 }

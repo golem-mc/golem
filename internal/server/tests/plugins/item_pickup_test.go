@@ -1,6 +1,7 @@
 package plugins_test
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/golem-mc/golem/internal/protocol"
@@ -51,6 +52,14 @@ func TestItemPickupTriesAnotherPlayerInTheSameTick(t *testing.T) {
 				for slot := 9; slot <= player.OffHandSlot; slot++ {
 					srv.GiveSlot(name, slot, filler)
 				}
+			}
+			// Seven bystanders make nine clients, more than the pickup pass walks
+			// directly, so the first lookup goes through the index.
+			for i := range 7 {
+				c := servertest.DialServer(t, srv)
+				c.JoinAs(fmt.Sprintf("Extra%d", i))
+				c.MoveToGround(0.5+float64(i), 64, 8.5, true)
+				c.Settle()
 			}
 
 			servertest.HoldTicks(t, srv)

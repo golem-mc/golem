@@ -61,6 +61,7 @@ const (
 	piglinWalkRange  = 9
 	piglinReachTicks = 200
 	piglinScanRange  = 32
+	piglinScanHeight = 16
 	piglinScanTicks  = 20
 	// piglinZombifyAfter is the ticks in a dimension that is not piglin_safe
 	// after which the conversion runs; it needs more than this many.
@@ -134,6 +135,8 @@ func (m *Mob) piglinIdle() bool {
 	b := &m.barter
 	return m.TargetID == 0 && b.admiring == 0 && b.retreat == 0 && b.celebrate == 0 && b.ride == 0
 }
+
+var piglinKinds = mobKindsMatching(piglinKind)
 
 func piglinKind(t MobType) bool { return t == TypePiglin || t == TypePiglinBrute }
 
@@ -275,23 +278,38 @@ func (m *Mob) startWalkAdmire() {
 	}
 }
 
-// SenseWantedItems is NearestItemSensor for piglins and villagers: every twenty ticks each
-// finds the nearest item it would pick up, within 32 blocks and 16 vertically,
-// that it has line of sight to.
-// vanilla: NearestItemSensor.doTick
+func (m *Mob) canSenseWantedItem() bool {
+	if m.Type == TypeAllay {
+		// vanilla: Allay.wantsToPickUp holds regardless of the pickup cooldown
+		return m.Alive() && m.AllayHolding()
+	}
+	return (m.Type == TypePiglin || m.Type == TypeVillager) && m.Alive() && m.CanPickUpLoot
+}
+
+func (m *Mob) wantedItemScanDue(mobGriefing bool) bool {
+	if m.Type == TypeSulfurCube {
+		return m.canSearchSulfurItems()
+	}
+	return mobGriefing && m.barter.scanIn <= 1 && m.canSenseWantedItem()
+}
+
+// SenseWantedItems scans the loot snapshot for wanted items.
 func (mobs Mobs) SenseWantedItems(w World, items []LootItem) {
+	mobs.SenseWantedItemsWithGrid(w, items, nil, w.MobGriefing())
+}
+
+// SenseWantedItemsWithGrid updates wanted items using the prepared loot grid when present.
+// vanilla: NearestItemSensor.doTick
+func (mobs Mobs) SenseWantedItemsWithGrid(w World, items []LootItem, grid *BoxGrid, mobGriefing bool) {
 	for _, m := range mobs {
 		if m.Type == TypeSulfurCube {
-			m.senseSulfurItems(items)
+			m.senseSulfurItems(items, grid)
 			continue
 		}
-		if m.Type == TypeAllay {
-			// vanilla: Allay.wantsToPickUp holds regardless of the pickup cooldown
-			if !w.MobGriefing() || !m.Alive() || !m.AllayHolding() {
+		if !mobGriefing || !m.canSenseWantedItem() {
+			if m.Type == TypeAllay {
 				m.barter.hasWanted = false
-				continue
 			}
-		} else if !w.MobGriefing() || m.Type != TypePiglin && m.Type != TypeVillager || !m.Alive() || !m.CanPickUpLoot {
 			continue
 		}
 		b := &m.barter
@@ -302,19 +320,38 @@ func (mobs Mobs) SenseWantedItems(w World, items []LootItem) {
 		b.hasWanted = false
 		staged := stagedSlots{main: m.MainHand, off: m.OffHand, worn: m.Worn}
 		best := float64(piglinScanRange * piglinScanRange)
-		for _, it := range items {
-			dx, dy, dz := it.X-m.X, it.Y-m.Y, it.Z-m.Z
-			if it.Stack.Empty() || dx > 32 || dx < -32 || dy > 16 || dy < -16 || dz > 32 || dz < -32 {
-				continue
+		searchBox := func() AABB {
+			return m.mobBox().inflate(piglinScanRange, piglinScanHeight, piglinScanRange)
+		}
+		var box AABB
+		boxReady := false
+		consider := func(it *LootItem) {
+			if it.Stack.Empty() {
+				return
 			}
-			d := dx*dx + dy*dy + dz*dz
-			if d >= best || !rayClear(w, m.X, m.Y+m.eyeHeight(), m.Z, it.X, it.Y+itemEyeHeight, it.Z) {
-				continue
+			d := Dist2(m.X, m.Y, m.Z, it.X, it.Y, it.Z)
+			if d >= best {
+				return
+			}
+			// The direct scan needs a box only once a drop is within the distance limit.
+			if !boxReady {
+				box, boxReady = searchBox(), true
+			}
+			if !box.Crosses(it.box()) || !rayClear(w, m.X, m.Y+m.eyeHeight(), m.Z, it.X, it.Y+itemEyeHeight, it.Z) {
+				return
 			}
 			if _, _, ok := staged.take(m, it.Stack); ok {
-				best, b.wanted, b.hasWanted = d, it, true
+				best, b.wanted, b.hasWanted = d, *it, true
 			}
 		}
+		if grid == nil {
+			for i := range items {
+				consider(&items[i])
+			}
+			continue
+		}
+		box, boxReady = searchBox(), true
+		grid.Query(box, func(i int32) { consider(&items[i]) })
 	}
 }
 

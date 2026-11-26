@@ -794,22 +794,27 @@ func TestChunkNBTKeepsUnmodelledRootTags(t *testing.T) {
 // stamp of the version writing it — level.dat's rule.
 func TestChunkNBTKeepsTheClaimedDataVersion(t *testing.T) {
 	t.Parallel()
-	// 1.20.4, whose items were the last to carry Count and tag; the chest
-	// keeps the stack unread and rides it through.
-	oldItems := nbt.List{Elem: nbt.TypeCompound, Items: []nbt.Tag{
-		nbt.Compound{
-			"Slot":  nbt.Byte(2),
-			"id":    nbt.String("minecraft:diamond"),
-			"Count": nbt.Byte(5),
-		},
-	}}
+	// 1.20.4's items were the last to carry Count; a chunk claiming it has the
+	// stack upgraded, and a later claim rides it through as read. Each call
+	// builds its own list, since decoding rewrites it in place.
+	items := func(countKey string, count nbt.Tag) nbt.List {
+		return nbt.List{Elem: nbt.TypeCompound, Items: []nbt.Tag{
+			nbt.Compound{
+				"Slot":   nbt.Byte(2),
+				"id":     nbt.String("minecraft:diamond"),
+				countKey: count,
+			},
+		}}
+	}
+	oldItems := func() nbt.List { return items("Count", nbt.Byte(5)) }
+	upgradedItems := items("count", nbt.Int(5))
 	chunkRoot := func(claim nbt.Tag) nbt.Compound {
 		root := vanillaChunkWith(nbt.Compound{
 			"id":    nbt.String(KindChest.Name()),
 			"x":     nbt.Int(0),
 			"y":     nbt.Int(worldMinY),
 			"z":     nbt.Int(0),
-			"Items": oldItems,
+			"Items": oldItems(),
 		})
 		if claim != nil {
 			root["DataVersion"] = claim
@@ -820,14 +825,15 @@ func TestChunkNBTKeepsTheClaimedDataVersion(t *testing.T) {
 	}
 
 	for _, tc := range []struct {
-		name  string
-		claim nbt.Tag
-		want  int32
+		name      string
+		claim     nbt.Tag
+		want      int32
+		wantItems nbt.List
 	}{
-		{"a chunk without a claim, which a generated chunk is", nil, dataVersion},
-		{"a 1.20.4 chunk", nbt.Int(3700), 3700},
-		{"a current chunk", nbt.Int(dataVersion), dataVersion},
-		{"a chunk of a newer version", nbt.Int(5000), 5000},
+		{"a chunk without a claim, which a generated chunk is", nil, dataVersion, oldItems()},
+		{"a 1.20.4 chunk", nbt.Int(3700), 3700, upgradedItems},
+		{"a current chunk", nbt.Int(dataVersion), dataVersion, oldItems()},
+		{"a chunk of a newer version", nbt.Int(5000), 5000, oldItems()},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			loaded, err := decodeChunkNBT(chunkRoot(tc.claim))
@@ -841,8 +847,17 @@ func TestChunkNBTKeepsTheClaimedDataVersion(t *testing.T) {
 			if version, ok := nbt.Get[nbt.Int](saved, "DataVersion"); !ok || int32(version) != tc.want {
 				t.Errorf("saved DataVersion = %v, %v; want %v", version, ok, tc.want)
 			}
-			if items, ok := nbt.Get[nbt.List](savedBlockEntity(t, saved, 0), "Items"); !ok || !reflect.DeepEqual(items, oldItems) {
-				t.Errorf("saved chest Items =\n%v\nwant\n%v", items, oldItems)
+			entries := func(l nbt.List) []nbt.Compound {
+				var out []nbt.Compound
+				for _, item := range l.Items {
+					if c, ok := item.(nbt.CompoundTag); ok {
+						out = append(out, c.Entries())
+					}
+				}
+				return out
+			}
+			if items, ok := nbt.Get[nbt.List](savedBlockEntity(t, saved, 0), "Items"); !ok || !reflect.DeepEqual(entries(items), entries(tc.wantItems)) {
+				t.Errorf("saved chest Items =\n%v\nwant\n%v", entries(items), entries(tc.wantItems))
 			}
 
 			// The claim outlives further saves of the same chunk.
@@ -906,7 +921,8 @@ func TestLoadChunkStoredAtWrongPositionIsRelocated(t *testing.T) {
 }
 
 func sectionTallies(s *section) [8]int {
-	return [8]int{s.ticking, s.emitting, s.listening, s.rods, s.catalysts, s.eggs, int(s.touches.Load()), s.colliding}
+	return [8]int{s.ticking, s.emitting, len(s.sculkCells(vibrationListenerCell)), s.rods,
+		len(s.sculkCells(sculkCatalystCell)), s.eggs, int(s.touches.Load()), s.colliding}
 }
 
 func checkSectionTallies(t *testing.T, s *section) {

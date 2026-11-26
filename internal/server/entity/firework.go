@@ -88,6 +88,9 @@ type Firework struct {
 	Life     int
 	Lifetime int
 
+	// FireTicks is remainingFireTicks; a rocket burns visibly while it is positive.
+	FireTicks int
+
 	OwnerID    int32
 	AttachedTo int32
 	Explosions int
@@ -170,6 +173,9 @@ func (f *Firework) Step(w World, owner *ArrowTarget, carrier *FireworkCarrier, t
 	}
 	// vanilla: FireworkRocketEntity.tick calls super.tick before moving.
 	splash := f.waterEntry.step(w, f.Box(), f.VX, f.VY, f.VZ)
+	if f.FireTicks > 0 {
+		f.FireTicks--
+	}
 	events := f.step(w, owner, carrier, targets)
 	if splash != nil {
 		events = append([]FireworkEvent{{Kind: FireworkSplashed, X: splash.X, Y: splash.Y, Z: splash.Z,
@@ -198,37 +204,15 @@ func (f *Firework) step(w World, owner *ArrowTarget, carrier *FireworkCarrier, t
 		}
 	}
 
-	switch {
-	case carrier != nil:
-		// The boost rocket rides half a block out at the carrier's yaw + 80 (the
-		// arm's side), moving with it.
-		// vanilla: Entity.getHandHoldingItemAngle
-		hx, _, hz := lookVector(carrier.Yaw+80, 0)
-		f.SetPos(carrier.X+hx*0.5, carrier.Y, carrier.Z+hz*0.5)
-		f.VX, f.VY, f.VZ = carrier.VX, carrier.VY, carrier.VZ
-	case f.AttachedTo != 0:
-		// A boost rocket whose carrier is gone waits where it last was, bursting
-		// only when its life ends.
-	case f.ShotAtAngle:
-	default:
-		// Acceleration and rise: horizontals times 1.15 unless the last move's
-		// collision stopped them, vertical +0.04.
-		accel := fireworkSideAccel
-		if f.hitWall {
-			accel = fireworkSideHold
-		}
-		f.VX *= accel
-		f.VZ *= accel
-		f.VY += fireworkRise
+	x, y, z, vx, vy, vz := f.flight(carrier)
+	if carrier != nil {
+		f.SetPos(x, y, z)
 	}
+	f.VX, f.VY, f.VZ = vx, vy, vz
 
 	if carrier != nil || f.AttachedTo == 0 {
-		// Clip the flight against blocks first; a block face ends it. A free
-		// rocket moves through the box's collision, stopped short where it cannot
-		// pass but keeping its motion for next tick (vanilla's move-then-restore);
-		// a riding one only reads the line. Entering a body bursts any rocket at
-		// its position; a block face bursts only one with stars, and a starless
-		// one pushes on against the wall until its life ends.
+		// The hit ray stops at the first block, while the box moves and slides
+		// using the full velocity. A riding rocket only casts the ray.
 		clip := clipProjectileFlight(w, f.X, f.Y, f.Z, f.VX, f.VY, f.VZ)
 		blockHit := clip.ok
 		fromX, fromY, fromZ := f.X, f.Y, f.Z
@@ -239,8 +223,7 @@ func (f *Firework) step(w World, owner *ArrowTarget, carrier *FireworkCarrier, t
 				HitX: toX, HitY: toY, HitZ: toZ, State: clip.state, Border: clip.border}
 		}
 		if f.AttachedTo == 0 {
-			f.move(w, toX, toY, toZ)
-			toX, toY, toZ = f.X, f.Y, f.Z
+			f.move(w)
 		}
 		if hit, ok := sweepFireworkTargets(f, targets, owner, thrownHitMargin(f.Life+1), fromX, fromY, fromZ, toX, toY, toZ); ok {
 			if deflectsProjectile(&hit.Target, false) {
@@ -291,78 +274,44 @@ func (f *Firework) endTick() []FireworkEvent {
 	return nil
 }
 
-// move moves the rocket toward the destination as far as blocks allow, one
-// axis at a time in vanilla's Y, X, Z order, clamping stopped axes (on the
-// floor, under the ceiling, against a wall, which sets hitWall). The
-// velocity is left unchanged, as setDeltaMovement(movement) after the move.
-func (f *Firework) move(w World, x, y, z float64) {
+// move clips the rocket's leading faces so it can leave shapes it spawns
+// overlapping. It keeps the velocity for the next tick.
+// vanilla: FireworkRocketEntity.tick, Entity.collideWithShapes
+func (f *Firework) move(w World) {
 	f.hitWall = false
-	for _, axis := range [...]int{1, 0, 2} {
-		var dx, dy, dz float64
-		switch axis {
-		case 0:
-			dx = x - f.X
-		case 1:
-			dy = y - f.Y
-		case 2:
-			dz = z - f.Z
-		}
-		if dx == 0 && dy == 0 && dz == 0 {
-			continue
-		}
-		nx, ny, nz := f.X+dx, f.Y+dy, f.Z+dz
-		if !f.blocked(w, nx, ny, nz) {
-			f.SetPos(nx, ny, nz)
-			continue
-		}
-		switch axis {
-		case 1:
-			if dy < 0 {
-				f.Y = math.Floor(ny) + 1
-			} else {
-				// Under the block above: the box's top rests against its floor.
-				f.Y = math.Floor(ny+FireworkHeight) - FireworkHeight
-			}
-		default:
-			f.hitWall = true
+	dx, dy, dz := f.VX, f.VY, f.VZ
+	if dx == 0 && dy == 0 && dz == 0 {
+		return
+	}
+	box := f.Box()
+	cells := gatherMoveCells(w, box, dx, dy, dz, 0)
+	defer cells.release()
+	walls := borderWalls(w, box, dx, dz)
+	// A gathered sweep with no candidates needs no per-axis clips.
+	if cells.scratch != nil && len(cells.cells) == 0 && len(walls) == 0 {
+		if _, hasBodies := w.(BodyWorld); !hasBodies {
+			f.SetPos(f.X+dx, f.Y+dy, f.Z+dz)
+			return
 		}
 	}
+	ctx := collideCtx{moveCells: &cells, borders: true, walls: walls}
+	box, _, _ = clipMove(w, ctx, box, axisY, dy)
+	box, _, blockedX, blockedZ := collideHorizontal(w, ctx, box, dx, dz)
+	x, z := box.centerXZ()
+	f.SetPos(x, box.minY, z)
+	f.hitWall = blockedX || blockedZ
 }
 
-// blocked reports whether the quarter-block box with its bottom at the
-// position is inside a collision shape.
-func (f *Firework) blocked(w World, x, y, z float64) bool {
-	cells := func(from, span float64) (int32, int32) {
-		return int32(math.Floor(from + 1e-9)), int32(math.Floor(from + span - 1e-9))
-	}
-	x0, x1 := cells(x-FireworkHalfWidth, FireworkHalfWidth*2)
-	y0, y1 := cells(y, FireworkHeight)
-	z0, z1 := cells(z-FireworkHalfWidth, FireworkHalfWidth*2)
-	for cy := y0; cy <= y1; cy++ {
-		for cx := x0; cx <= x1; cx++ {
-			for cz := z0; cz <= z1; cz++ {
-				if blockExtent(w.BlockAt(cx, cy, cz)) > 0 {
-					return true
-				}
-			}
-		}
-	}
-	return false
-}
-
-// sweepFireworkTargets reports the hit on the first body whose box (grown by the
-// age's margin) the segment from the tick's start to the moved position
-// enters. A segment starting inside a box or on its surface (hit distance 0)
-// is skipped: the projectile path's
-// AABB.clip needs a crossing, its contains branch existing only for camera
-// picks. The shooter and its vehicle group are skipped while the flight is
-// among them (canHitEntity).
+// sweepFireworkTargets reports the nearest entry into a target's box.
+// vanilla: ProjectileUtil.getEntityHitResult
 func sweepFireworkTargets(f *Firework, targets []ArrowTarget, owner *ArrowTarget, margin, fromX, fromY, fromZ, toX, toY, toZ float64) (FireworkEvent, bool) {
 	dx, dy, dz := toX-fromX, toY-fromY, toZ-fromZ
 	ownerVehicle := int32(0)
 	if owner != nil {
 		ownerVehicle = owner.RootVehicle
 	}
+	bestT := math.Inf(1)
+	var best *ArrowTarget
 	for i := range targets {
 		target := &targets[i]
 		if target.Unhittable {
@@ -377,25 +326,59 @@ func sweepFireworkTargets(f *Firework, targets []ArrowTarget, owner *ArrowTarget
 			continue
 		}
 		if enter, _, ok := world.SegmentAABB(fromX, fromY, fromZ, dx, dy, dz,
-			minX, minY, minZ, maxX, maxY, maxZ); ok && enter > 0 {
-			return FireworkEvent{Kind: FireworkHitTarget, Target: *target, X: fromX + dx*enter, Y: fromY + dy*enter, Z: fromZ + dz*enter}, true
+			minX, minY, minZ, maxX, maxY, maxZ); ok && enter > 0 && enter < bestT {
+			best, bestT = target, enter
 		}
 	}
-	return FireworkEvent{}, false
+	if best == nil {
+		return FireworkEvent{}, false
+	}
+	return FireworkEvent{Kind: FireworkHitTarget, Target: *best, X: fromX + dx*bestT, Y: fromY + dy*bestT, Z: fromZ + dz*bestT}, true
 }
 
-// ownerBox is the rocket's box grown along the flight and by a block each
-// way, for Projectile.isOutsideOwnerCollisionRange.
-func (f *Firework) ownerBox() ArrowTarget {
-	grow := FireworkHalfWidth + 1
-	return ArrowTarget{
-		MinX: math.Min(f.X, f.X+f.VX) - grow,
-		MinY: math.Min(f.Y, f.Y+f.VY) - 1,
-		MinZ: math.Min(f.Z, f.Z+f.VZ) - grow,
-		MaxX: math.Max(f.X, f.X+f.VX) + grow,
-		MaxY: math.Max(f.Y, f.Y+f.VY) + FireworkHeight + 1,
-		MaxZ: math.Max(f.Z, f.Z+f.VZ) + grow,
+func (f *Firework) flight(carrier *FireworkCarrier) (x, y, z, vx, vy, vz float64) {
+	if carrier != nil {
+		// vanilla: Entity.getHandHoldingItemAngle
+		hx, _, hz := lookVector(carrier.Yaw+80, 0)
+		return carrier.X + hx*0.5, carrier.Y, carrier.Z + hz*0.5, carrier.VX, carrier.VY, carrier.VZ
 	}
+	vx, vy, vz = f.VX, f.VY, f.VZ
+	if f.AttachedTo == 0 && !f.ShotAtAngle {
+		accel := fireworkSideAccel
+		if f.hitWall {
+			accel = fireworkSideHold
+		}
+		vx, vy, vz = vx*accel, vy+fireworkRise, vz*accel
+	}
+	return f.X, f.Y, f.Z, vx, vy, vz
+}
+
+// MoveBox covers the flight and, until clear of the owner, its pre-move exclusion check.
+// vanilla: ProjectileUtil.getHitResult, Projectile.isOutsideOwnerCollisionRange
+func (f *Firework) MoveBox(carrier *FireworkCarrier) AABB {
+	box := fireworkMoveBox(f.flight(carrier))
+	if !f.leftOwner && f.OwnerID != 0 && f.OwnerID != f.AttachedTo {
+		old := fireworkMoveBox(f.X, f.Y, f.Z, f.VX, f.VY, f.VZ)
+		box = AABB{
+			min(box.minX, old.minX), min(box.minY, old.minY), min(box.minZ, old.minZ),
+			max(box.maxX, old.maxX), max(box.maxY, old.maxY), max(box.maxZ, old.maxZ),
+		}
+	}
+	return box
+}
+
+func fireworkMoveBox(x, y, z, vx, vy, vz float64) AABB {
+	const margin = 1.0 // vanilla: ProjectileUtil.getHitResult
+	const grow = FireworkHalfWidth + margin
+	return AABB{
+		min(x, x+vx) - grow, min(y, y+vy) - margin, min(z, z+vz) - grow,
+		max(x, x+vx) + grow, max(y, y+vy) + FireworkHeight + margin, max(z, z+vz) + grow,
+	}
+}
+
+func (f *Firework) ownerBox() ArrowTarget {
+	b := fireworkMoveBox(f.X, f.Y, f.Z, f.VX, f.VY, f.VZ)
+	return ArrowTarget{MinX: b.minX, MinY: b.minY, MinZ: b.minZ, MaxX: b.maxX, MaxY: b.maxY, MaxZ: b.maxZ}
 }
 
 // pointWithin reports whether the point is strictly inside the box: a start

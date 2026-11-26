@@ -15,35 +15,6 @@ func (a *Attributes) Save(loaded *nbt.List) *nbt.List { return a.SaveExcept(load
 // SaveExcept is Save leaving out the attributes in skip, whose saved entries
 // another writer owns; a loaded entry for one is kept as it was.
 func (a *Attributes) SaveExcept(loaded *nbt.List, skip map[string]bool) *nbt.List {
-	return a.save(loaded, skip, false, true)
-}
-
-// SavePlayer saves every instantiated player attribute, including defaults.
-// vanilla: AttributeMap.pack
-func (a *Attributes) SavePlayer(loaded *nbt.List) *nbt.List {
-	a.init()
-	items := make([]nbt.Tag, 0, len(a.playerOrder))
-	for _, id := range packedPlayerAttributeOrder(a.playerOrder) {
-		items = append(items, packInstance(a.instances[id]))
-	}
-	if loaded != nil {
-		// Keep entries this server could not load for worlds shared with other versions.
-		for _, item := range loaded.Items {
-			if attr, ok := savedAttribute(item); !ok || a.instances[attr.ID] == nil {
-				items = append(items, item)
-			}
-		}
-	}
-	return &nbt.List{Elem: nbt.TypeCompound, Items: items}
-}
-
-// SaveInstances packs mob and armor-stand instances, including defaults.
-// A synthetic instance is included if loaded from disk or withSynthetic is set.
-func (a *Attributes) SaveInstances(loaded *nbt.List, withSynthetic bool) *nbt.List {
-	return a.save(loaded, nil, true, withSynthetic)
-}
-
-func (a *Attributes) save(loaded *nbt.List, skip map[string]bool, includeDefaults, withSynthetic bool) *nbt.List {
 	a.init()
 	var items []nbt.Tag
 	var listed attributeSet
@@ -55,16 +26,19 @@ func (a *Attributes) save(loaded *nbt.List, skip map[string]bool, includeDefault
 				items = append(items, packInstance(a.instances[attr.ID]))
 				continue
 			}
+			if ok && a.supplier != nil && !a.Has(registry.AttributeID(attr.ID)) {
+				continue // vanilla: AttributeMap.load skips what the supplier lacks
+			}
 			items = append(items, item)
 		}
 	}
 	for _, in := range a.snapshot(func(in *AttributeInstance) bool { return !listed.has(registry.AttributeID(in.Attribute.ID)) }) {
-		if skip[in.Attribute.Name] || !withSynthetic && a.synthetic.has(registry.AttributeID(in.Attribute.ID)) {
+		if skip[in.Attribute.Name] {
 			continue
 		}
 		tag := packInstance(&in)
 		_, hasMods := tag.Entries()["modifiers"]
-		if !includeDefaults && in.Base == a.bases[in.Attribute.ID] && !hasMods {
+		if in.Base == a.bases[in.Attribute.ID] && !hasMods {
 			continue
 		}
 		items = append(items, tag)
@@ -73,6 +47,66 @@ func (a *Attributes) save(loaded *nbt.List, skip map[string]bool, includeDefault
 		return nil
 	}
 	return &nbt.List{Elem: nbt.TypeCompound, Items: items}
+}
+
+// SavePlayer saves every instantiated player attribute, including defaults.
+func (a *Attributes) SavePlayer(loaded *nbt.List) *nbt.List {
+	list := a.pack(loaded, true)
+	return &list
+}
+
+// SaveInstances packs mob and armor-stand instances, including defaults.
+// A synthetic instance is included if loaded from disk or withSynthetic is set.
+// It is nil for nothing to save, and an empty list when every loaded entry was
+// dropped, which must replace the loaded list.
+func (a *Attributes) SaveInstances(loaded *nbt.List, withSynthetic bool) *nbt.List {
+	list := a.pack(loaded, withSynthetic)
+	if len(list.Items) == 0 {
+		if loaded != nil && len(loaded.Items) > 0 {
+			return &nbt.List{Elem: nbt.TypeEnd}
+		}
+		return nil
+	}
+	return &list
+}
+
+// vanilla: AttributeMap.pack
+func (a *Attributes) pack(loaded *nbt.List, withSynthetic bool) nbt.List {
+	a.init()
+	order := a.insertionOrder[:a.instanceCount]
+	if a.synthetic != 0 {
+		var inserted [registry.NumAttributes]uint8
+		order = inserted[:0]
+		for _, id := range a.insertionOrder[:a.instanceCount] {
+			if !a.synthetic.has(registry.AttributeID(id)) {
+				order = append(order, id)
+			}
+		}
+		if withSynthetic {
+			// Native instances and loaded data precede first-tick defaults.
+			for _, id := range a.insertionOrder[:a.instanceCount] {
+				if a.synthetic.has(registry.AttributeID(id)) {
+					order = append(order, id)
+				}
+			}
+		}
+	}
+	items := make([]nbt.Tag, 0, len(order))
+	var packed attributeSet
+	for _, id := range packedAttributeOrder(order) {
+		items = append(items, packInstance(a.instances[id]))
+		packed |= 1 << id
+	}
+	if loaded != nil {
+		for _, item := range loaded.Items {
+			attr, ok := savedAttribute(item)
+			if ok && (packed.has(registry.AttributeID(attr.ID)) || a.supplier != nil && !a.Has(registry.AttributeID(attr.ID))) {
+				continue // vanilla: AttributeMap.load skips what the supplier lacks
+			}
+			items = append(items, item)
+		}
+	}
+	return nbt.List{Elem: nbt.TypeCompound, Items: items}
 }
 
 func savedAttribute(item nbt.Tag) (registry.Attribute, bool) {

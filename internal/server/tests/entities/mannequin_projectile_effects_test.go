@@ -96,7 +96,7 @@ func TestMannequinPotionInstants(t *testing.T) {
 					c.ChatCommand(`summon splash_potion 3.5 65 3.5 {Motion:[0d,-1d,0d],Item:{id:"minecraft:splash_potion",count:1,components:{"minecraft:potion_contents":{custom_effects:[` + tc.effects + `]}}}}`)
 				}
 				c.Settle()
-				servertest.RunTicks(t, srv, source.ticks)
+				servertest.RunTicks(t, srv, source.ticks+1) // the delta follows the landing tick
 				want := tc.full
 				if source.half {
 					want = tc.half

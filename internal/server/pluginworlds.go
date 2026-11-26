@@ -83,7 +83,26 @@ func (h *pluginHost) CreateWorld(opts plugin.WorldOptions) (plugin.World, error)
 		return nil, err
 	}
 
-	meta, existed := world.ReadPluginMeta(s.levelDir, name)
+	root, folderDim := s.levelDir, name
+	if opts.Folder != "" {
+		root, folderDim = opts.Folder, world.FolderDimensionName(typeName)
+		for _, other := range s.allDims() {
+			if other.plugin && other.folder == root && other.folderDim == folderDim {
+				return nil, fmt.Errorf("folder %s is already loaded as world %s", root, other.name)
+			}
+		}
+		// vanilla: LevelStorageSource.createAccess upgrades an older layout in place.
+		if err := world.MigrateLayout(root); err != nil {
+			return nil, err
+		}
+	}
+	meta, existed := world.ReadPluginMeta(root, folderDim)
+	if !existed && opts.Folder != "" {
+		var err error
+		if meta, existed, err = world.ReadFolderMeta(opts.Folder); err != nil {
+			return nil, fmt.Errorf("reading %s: %w", opts.Folder, err)
+		}
+	}
 	seed := meta.Seed
 	if !existed {
 		if seed = opts.Seed; seed == 0 {
@@ -120,7 +139,13 @@ func (h *pluginHost) CreateWorld(opts plugin.WorldOptions) (plugin.World, error)
 			return nil, err
 		}
 	}
-	d := &dimension{name: name, typeID: typeID, gen: gen, plugin: true, genSpec: spec, w: world.NewCustomDimensionWorld(s.levelDir, name, shape, gen)}
+	d := &dimension{name: name, typeID: typeID, gen: gen, plugin: true, genSpec: spec}
+	if opts.Folder != "" {
+		d.folder, d.folderDim = root, folderDim
+		d.w = world.NewFolderDimensionWorld(s.levelDir, root, folderDim, name, shape, gen)
+	} else {
+		d.w = world.NewCustomDimensionWorld(s.levelDir, name, shape, gen)
+	}
 	d.w.UseOwnRules(s.world)
 	d.w.SetPluginGen(spec)
 	spawn := meta.Spawn
@@ -166,6 +191,9 @@ func initialPluginSpawn(plug plugin.Generator, gen world.Generator, handle plugi
 // the level directory.
 func (h *pluginHost) WorldFolder(key plugin.Key) string {
 	name := key.String()
+	if d := h.srv.findDimension(name); d != nil && d.folder != "" {
+		return d.folder
+	}
 	if name == world.DimensionName {
 		return h.srv.levelDir
 	}

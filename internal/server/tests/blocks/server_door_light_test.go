@@ -25,7 +25,7 @@ func TestAClosedDoorPassesLightIntoTheRoomBehindIt(t *testing.T) {
 	t.Parallel()
 	srv, connect := servertest.Start(t, servertest.BlockTestConfig())
 	c := connect().Join("Builder")
-	edge := servertest.JoinAtViewEdge(t, connect, "Edge")
+	edge := servertest.JoinAtViewEdge(t, srv, connect, "Edge")
 	srv.StopTick()
 
 	stone, _ := registry.FindState("minecraft:stone", nil)

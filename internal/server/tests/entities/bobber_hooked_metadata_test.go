@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/golem-mc/golem/internal/protocol"
+	"github.com/golem-mc/golem/internal/server"
 	"github.com/golem-mc/golem/internal/server/servertest"
 )
 
@@ -146,4 +147,70 @@ func latecomerMetadata(r *servertest.MetadataRecorder, connect func() *servertes
 		r.Record(name, id, packets)
 	}
 	late.Disconnect()
+}
+
+// The targets share an entry plane on the far side of the chunk border.
+func TestFishingHookBreaksAnEqualHitByEntityID(t *testing.T) {
+	t.Parallel()
+	srv, c, _ := servertest.JoinAs(t, servertest.BowTestConfig(), "Angler", servertest.OpsListing(t, "Angler"),
+		func(srv *server.Server) { servertest.FreezeUntilHeld(t, srv) })
+	srv.GiveSlot("Angler", 36, protocol.ItemStack{ItemID: servertest.MustItem("minecraft:fishing_rod"), Count: 1})
+	servertest.HoldTicks(t, srv)
+	r := servertest.NewMetadataRecorder(t, srv, c)
+	c.MoveTo(13.9, 64, 0.5, -90, 0)
+	r.Read(1)
+
+	fall := r.Run("summon minecraft:falling_block 16.74 65.2 0.5 {BlockState:{Name:\"minecraft:sand\"},Time:1,NoGravity:1b}")
+	fallID := servertest.SpawnedID(fall, protocol.EntityTypeFallingBlock)
+	tnt := r.Run("summon minecraft:tnt 16.74 65.2 0.5 {fuse:1200s,NoGravity:1b}")
+	tntID := servertest.SpawnedID(tnt, protocol.EntityTypeTnt)
+	if fallID == 0 || tntID <= fallID {
+		t.Fatalf("falling block and TNT had IDs %d and %d", fallID, tntID)
+	}
+
+	hookID := castHook(t, r, -90, 0)
+	awaitBobberMetadata(t, r, "take", hookID, 10)
+	if v, told := hookedField(t, r.Got["take"][0]); !told || v != fallID+1 {
+		t.Fatalf("hook named %d (told %v), want the earlier body's ID plus one, %d", v, told, fallID+1)
+	}
+}
+
+func TestFishingHookFollowsAnItemAcrossChunks(t *testing.T) {
+	t.Parallel()
+	srv, c, _ := servertest.JoinAs(t, servertest.BowTestConfig(), "Angler", servertest.OpsListing(t, "Angler"),
+		func(srv *server.Server) { servertest.FreezeUntilHeld(t, srv) })
+	srv.GiveSlot("Angler", 36, protocol.ItemStack{ItemID: servertest.MustItem("minecraft:fishing_rod"), Count: 1})
+	servertest.HoldTicks(t, srv)
+	r := servertest.NewMetadataRecorder(t, srv, c)
+	c.MoveTo(13.9, 64, 0.5, -90, 0)
+	r.Read(1)
+
+	drop := r.Run("summon minecraft:item 16.375 65.55 0.5 {Item:{id:\"minecraft:stick\",count:1},NoGravity:1b,PickupDelay:32767s}")
+	itemID := servertest.SpawnedID(drop, protocol.EntityTypeItem)
+	if itemID == 0 {
+		t.Fatal("no loose item spawned")
+	}
+
+	hookID := castHook(t, r, -90, 0)
+	awaitBobberMetadata(t, r, "take", hookID, 10)
+	if v, told := hookedField(t, r.Got["take"][0]); !told || v != itemID+1 {
+		t.Fatalf("hook named %d (told %v), want the item's ID plus one, %d", v, told, itemID+1)
+	}
+
+	c.ChatCommand("tp @e[type=minecraft:item,limit=1] 32.5 65.55 0.5")
+	if !c.ReadTicks(srv, 12, func(id int32, payload []byte) bool {
+		if id != protocol.IDPlayTeleportEntity {
+			return false
+		}
+		p := servertest.ParseEntityPositionSync(payload)
+		return p.ID == hookID && p.X == 32.5 && p.Z == 0.5
+	}) {
+		t.Fatal("hook did not follow the item to the new chunk")
+	}
+
+	servertest.UseHeld(c, -90, 0)
+	r.Read(2)
+	if damage := srv.InventorySlot("Angler", 36).Damage; damage != 3 {
+		t.Errorf("rod wore %d durability, want three for reeling a loose item", damage)
+	}
 }

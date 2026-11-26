@@ -64,11 +64,6 @@ func HopperBlockedBy(state uint16, fullCell bool) bool {
 	return fullCell && !doesNotBlockHoppers[registry.BlockOf(state)]
 }
 
-// HopperEnabled reads the enabled property, false under a redstone signal.
-func HopperEnabled(w *World, x, y, z int32) bool {
-	return registry.StateEnabled(w.BlockAt(x, y, z))
-}
-
 var containerMouthBlocks = registry.BlocksOf(func(b registry.Block) bool {
 	switch b.Type() {
 	case registry.BlockTypeDecoratedPot, registry.BlockTypeShelf,

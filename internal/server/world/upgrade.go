@@ -142,8 +142,8 @@ func stampVersion(root nbt.Compound) error {
 // upgradeEntityRecord moves a chunk's stored entities to the current shape.
 func upgradeEntityRecord(root nbt.Compound, _ bool) error {
 	version, _ := nbt.Get[nbt.Int](root, "DataVersion")
-	if version != 0 && version < chunkDataVersionFloor {
-		return fmt.Errorf("data version %d is below %d", version, chunkDataVersionFloor)
+	if version != 0 && version < entityDataVersionFloor {
+		return fmt.Errorf("data version %d is below %d", version, entityDataVersionFloor)
 	}
 	if entities, ok := nbt.Get[nbt.List](root, "Entities"); ok && version != 0 && version < equipmentFormatVersion {
 		for _, e := range entities.Items {
@@ -181,9 +181,14 @@ func upgradeChunkRecord(root nbt.Compound, erase bool) error {
 			delete(sec, "SkyLight")
 		}
 	}
-	if be, ok := nbt.Get[nbt.List](root, "block_entities"); ok && version != 0 && version < furnaceBurnTimeVersion {
+	if be, ok := nbt.Get[nbt.List](root, "block_entities"); ok && version != 0 {
 		for _, entry := range be.Items {
-			if c, ok := entry.(nbt.CompoundTag); ok {
+			c, ok := entry.(nbt.CompoundTag)
+			if !ok {
+				continue
+			}
+			fixOldBlockEntity(c, int32(version))
+			if version < furnaceBurnTimeVersion {
 				fixFurnaceBurnTime(c)
 			}
 		}

@@ -52,7 +52,7 @@ func ocelotGoals(m *Mob) []Goal {
 	return []Goal{
 		newFloatGoal(m),
 		&mobTargetGoal{m: m, priority: ocelotPriorityHunt, victim: TypeChicken, unsighted: true},
-		&mobTargetGoal{m: m, priority: ocelotPriorityHunt, unsighted: true, matches: isBabyTurtleAshore},
+		&mobTargetGoal{m: m, priority: ocelotPriorityHunt, unsighted: true, kinds: babyTurtleKinds, matches: isBabyTurtleAshore},
 		&temptGoal{m: m, priority: ocelotPriorityTempt, canScare: true, scareOff: func() bool { return m.Trusting }},
 		newFelineAvoidGoal(m, ocelotPriorityAvoid, func() bool { return !m.Trusting }),
 		&leapAtTargetGoal{m: m, priority: ocelotPriorityLeap, yd: catLeapUp},

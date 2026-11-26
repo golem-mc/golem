@@ -25,11 +25,11 @@ func (s *Server) tickMinecartTracking() {
 			continue
 		}
 		body := minecartTracker.body(it)
-		// schedule only calls its callback off-period; consume the flag on
-		// interval ticks too, so it cannot force the following tick.
+		// Consume the flag on interval ticks too, so it cannot force the
+		// following tick.
 		synced := it.takeSync()
 		pending := it.cart.TakeBounce() || synced || it.teleported
-		mt := body.schedule(func() bool { return pending })
+		mt := body.schedule(pending)
 		now := minecartMetaOf(it)
 		for _, i := range body.watchers(near) {
 			watcher := watchers[i]

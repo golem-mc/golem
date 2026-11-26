@@ -17,6 +17,10 @@ type World interface {
 	// MinY and Height bound the buildable blocks: MinY to MinY+Height-1.
 	MinY() int
 	Height() int
+	// LogicalHeight answers the dimension type's logical_height: the highest
+	// Y, counted from MinY, that portals, chorus fruit and similar searches
+	// may reach (128 in the nether). Bukkit: World.getLogicalHeight
+	LogicalHeight() int
 	// SeaLevel answers the dimension's sea level Y: 63 in the overworld.
 	// Bukkit: World.getSeaLevel
 	SeaLevel() int

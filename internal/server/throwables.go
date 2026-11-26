@@ -445,7 +445,7 @@ func (s *Server) summonThrown(w *world.World, name string, x, y, z float64, tag 
 	if tagged == nil {
 		tagged = nbt.Compound{}
 	}
-	if item, carried := nbt.Get[nbt.Compound](tagged, "Item"); carried {
+	if item, carried := nbt.Get[nbt.Compound](tagged, "Item"); carried && kind != entity.ThrownLlamaSpit {
 		// The id is qualified the way a resource location parses, so an
 		// Item written without a namespace still names the item it meant.
 		if id, ok := nbt.Get[nbt.String](item, "id"); ok {
@@ -475,35 +475,37 @@ func (s *Server) summonThrown(w *world.World, name string, x, y, z float64, tag 
 }
 
 // savedThrownKind is the kind a chunk file keeps a thrown body of, by entity
-// id; false for an id that is no thrown kind.
-func savedThrownKind(id string) (entity.ThrownKind, bool) {
-	switch id {
-	case "minecraft:snowball":
+// type; false for a type that is no thrown kind.
+func savedThrownKind(typ int32) (entity.ThrownKind, bool) {
+	switch typ {
+	case protocol.EntityTypeSnowball:
 		return entity.ThrownSnowball, true
-	case "minecraft:egg":
+	case protocol.EntityTypeEgg:
 		return entity.ThrownEgg, true
-	case "minecraft:ender_pearl":
+	case protocol.EntityTypeEnderPearl:
 		return entity.ThrownEnderPearl, true
-	case "minecraft:splash_potion":
+	case protocol.EntityTypeSplashPotion:
 		return entity.ThrownSplashPotion, true
-	case "minecraft:lingering_potion":
+	case protocol.EntityTypeLingeringPotion:
 		return entity.ThrownLingeringPotion, true
-	case "minecraft:experience_bottle":
+	case protocol.EntityTypeExperienceBottle:
 		return entity.ThrownExperienceBottle, true
-	case "minecraft:breeze_wind_charge":
+	case protocol.EntityTypeBreezeWindCharge:
 		return entity.ThrownBreezeWindCharge, true
-	case "minecraft:wind_charge":
+	case protocol.EntityTypeWindCharge:
 		return entity.ThrownWindCharge, true
-	case "minecraft:small_fireball":
+	case protocol.EntityTypeSmallFireball:
 		return entity.ThrownSmallFireball, true
-	case "minecraft:fireball":
+	case protocol.EntityTypeFireball:
 		return entity.ThrownLargeFireball, true
-	case "minecraft:dragon_fireball":
+	case protocol.EntityTypeDragonFireball:
 		return entity.ThrownDragonFireball, true
-	case "minecraft:wither_skull":
+	case protocol.EntityTypeWitherSkull:
 		return entity.ThrownWitherSkull, true
-	case "minecraft:shulker_bullet":
+	case protocol.EntityTypeShulkerBullet:
 		return entity.ThrownShulkerBullet, true
+	case protocol.EntityTypeLlamaSpit:
+		return entity.ThrownLlamaSpit, true
 	}
 	return 0, false
 }
@@ -511,20 +513,15 @@ func savedThrownKind(id string) (entity.ThrownKind, bool) {
 // thrownIsSaved reports whether a thrown body is of a kind the chunk file
 // keeps.
 func thrownIsSaved(it *thrownEntity) bool {
-	_, ok := savedThrownKind(registry.EntityTypes[it.throwable.Kind.EntityType()])
+	_, ok := savedThrownKind(it.throwable.Kind.EntityType())
 	return ok
 }
 
-// thrownOfTag builds the thrown body a saved compound describes, or nil for
+// thrownOfTag builds the thrown body of the saved kind and id a compound describes, or nil for
 // one with no place, identity or stack. The owner's entity ID is resolved
 // when the wake registers it.
 // vanilla: ThrowableItemProjectile.readAdditionalSaveData
-func (s *Server) thrownOfTag(w *world.World, compound nbt.Compound) *thrownEntity {
-	id, _ := nbt.Get[nbt.String](compound, "id")
-	kind, ok := savedThrownKind(string(id))
-	if !ok {
-		return nil
-	}
+func (s *Server) thrownOfTag(w *world.World, kind entity.ThrownKind, id string, compound nbt.Compound) *thrownEntity {
 	x, y, z, ok := entityPositionOfTag(compound)
 	if !ok {
 		return nil
@@ -536,8 +533,8 @@ func (s *Server) thrownOfTag(w *world.World, compound nbt.Compound) *thrownEntit
 	// A missing or empty Item loads the type's default item.
 	// vanilla: ThrowableItemProjectile.getItem, getDefaultItem
 	stack, ok := storedItemStackOf(compound)
-	if !ok || stack.Empty() {
-		item, found := registry.ItemID(thrownDefaultItem(kind, string(id)))
+	if kind == entity.ThrownLlamaSpit || !ok || stack.Empty() {
+		item, found := registry.ItemID(thrownDefaultItem(kind, id))
 		if !found {
 			return nil
 		}
@@ -590,6 +587,11 @@ func (s *Server) thrownOfFields(w *world.World, kind entity.ThrownKind, stackOf 
 func (s *Server) registerThrown(it *thrownEntity) {
 	s.resolveBulletTarget(it)
 	thrownTracker.register(s, it)
+	s.thrownRegistered(it)
+}
+
+// thrownRegistered is what a shown thrown body needs after the tracker has it.
+func (s *Server) thrownRegistered(it *thrownEntity) {
 	// The ticket goes down at once: a pearl in a chunk nothing ticks would
 	// never step to place it.
 	if it.throwable.Kind == entity.ThrownEnderPearl {
@@ -671,10 +673,6 @@ type potionBreak struct {
 	// mobs are the mob tells the spray's effects turned, each the packets
 	// for its watchers.
 	mobs []splashMobTell
-
-	// splashed are the IDs of the mobs the spray reached, which a dodge may
-	// have teleported.
-	splashed []int32
 
 	// players are the players the spray reached, each with the instances
 	// their bodies are to be given.
@@ -853,7 +851,6 @@ func (s *Server) potionBreakOf(it *thrownEntity, dim *dimension, mobsByID map[in
 				continue
 			}
 			if m := mobsByID[target.EntityID]; m != nil {
-				shl.splashed = append(shl.splashed, m.ID)
 				m.Rehydrate()
 				owner := it.throwable.OwnerID
 				if landed, softened := m.HurtByWaterSplash(it.throwable.X, it.throwable.Z, owner,
@@ -909,7 +906,6 @@ func (s *Server) potionBreakOf(it *thrownEntity, dim *dimension, mobsByID map[in
 			continue
 		}
 		if m := mobsByID[hit.Target.EntityID]; m != nil {
-			shl.splashed = append(shl.splashed, m.ID)
 			if ent := dim.mobs.book[m]; deferred && ent != nil {
 				shl.pending = append(shl.pending, pendingSplash{mob: m.ID, id: ent.uuid, scale: hit.Scale, src: src})
 				continue
@@ -1077,10 +1073,13 @@ func thrownTeleportPayload(t *entity.Thrown) []byte {
 func (s *Server) killThrown(it *thrownEntity) {
 	s.arrowsMu.Lock()
 	it.throwable.Dead = true
+	held := it.held
 	s.arrowsMu.Unlock()
 	s.entityDestroyed(it.uuid)
-	s.broadcastWorld(it.w, protocol.IDPlayRemoveEntities,
-		removeEntitiesPayload([]int32{it.throwable.ID}))
+	if !held {
+		s.broadcastWorld(it.w, protocol.IDPlayRemoveEntities,
+			removeEntitiesPayload([]int32{it.throwable.ID}))
+	}
 }
 
 // teleportThrown moves a thrown body to the position given and stops it.

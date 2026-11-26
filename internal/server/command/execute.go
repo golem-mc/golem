@@ -192,6 +192,11 @@ func storeKind(execute *Node, kind string) *Node {
 	objective := redirectTo(execute, &Node{Type: NodeArgument, Name: "objective", Parser: ParserObjective})
 	targets := scoreHolderArg("targets", true)
 	targets.Children = []*Node{objective}
+	path := func() *Node {
+		node := pathArg("path")
+		node.Children = nbtStoreTypes(execute)
+		return node
+	}
 	return &Node{Type: NodeLiteral, Name: kind, Children: []*Node{
 		{Type: NodeLiteral, Name: "score", Children: []*Node{
 			targets,
@@ -207,18 +212,15 @@ func storeKind(execute *Node, kind string) *Node {
 			{Type: NodeArgument, Name: "target", Parser: ParserEntity,
 				Properties: func(b *protocol.Buffer) { b.PutU8(1) },
 				EntityArg:  &EntityArg{Single: true},
-				Children: []*Node{{Type: NodeArgument, Name: "path", Parser: ParserNbtPath,
-					Children: nbtStoreTypes(execute)}}},
+				Children:   []*Node{path()}},
 		}},
 		{Type: NodeLiteral, Name: "block", Children: []*Node{
 			{Type: NodeArgument, Name: "target", Parser: ParserBlockPos,
-				Children: []*Node{{Type: NodeArgument, Name: "path", Parser: ParserNbtPath,
-					Children: nbtStoreTypes(execute)}}},
+				Children: []*Node{path()}},
 		}},
 		{Type: NodeLiteral, Name: "storage", Children: []*Node{
 			{Type: NodeArgument, Name: "target", Parser: ParserResourceLoc,
-				Children: []*Node{{Type: NodeArgument, Name: "path", Parser: ParserNbtPath,
-					Children: nbtStoreTypes(execute)}}},
+				Children: []*Node{path()}},
 		}},
 	}}
 }
@@ -229,7 +231,8 @@ func nbtStoreTypes(execute *Node) []*Node {
 	// One shared scale argument stands behind every type word, the way the
 	// vanilla tree carries a single node six of its chains point at.
 	scale := redirectTo(execute, &Node{Type: NodeArgument, Name: "scale", Parser: ParserDouble,
-		Properties: func(b *protocol.Buffer) { b.PutU8(0) }})
+		Properties: func(b *protocol.Buffer) { b.PutU8(0) },
+		Check:      checkDoubleArg})
 	types := []string{"int", "float", "short", "long", "double", "byte"}
 	nodes := make([]*Node, len(types))
 	for i, name := range types {
@@ -297,11 +300,11 @@ func conditionalNode(execute *Node, name string, expected bool) *Node {
 			dataConditional(execute, "storage", &Node{Type: NodeArgument, Name: "source", Parser: ParserResourceLoc}),
 		}},
 		itemsConditional("items", func() *Node {
-			return itemSourceNode("slots", false, redirectTo(execute, &Node{
+			return itemSlotsNode("slots", false, redirectTo(execute, &Node{
 				Type: NodeArgument, Name: "item_predicate", Parser: ParserItemPred, Executable: true,
 			}))
 		}),
-		itemsConditional("slots", func() *Node { return redirectTo(execute, itemSourceNode("slots", true)) }),
+		itemsConditional("slots", func() *Node { return redirectTo(execute, itemSlotsNode("slots", true)) }),
 	}}
 }
 
@@ -1744,7 +1747,7 @@ func stepItemsConditional(src Source, ctxs []execContext, expected bool, rest []
 		slotsAt = 3 + span
 	}
 	sourceSpan := min(spanCount(tokens[at+slotsAt:], tokenText, true, false), len(tokens)-at-slotsAt)
-	source, perr := parseSlotSource(joinSelector(tokens[at+slotsAt : at+slotsAt+sourceSpan]).text)
+	source, _, perr := parseSlotSource(joinSelector(tokens[at+slotsAt : at+slotsAt+sourceSpan]).text)
 	test, predSpan := itemsConditionalTest(countSlots, tokens, at+slotsAt+sourceSpan)
 	arity := slotsAt + sourceSpan + predSpan
 	if !block {
@@ -1758,7 +1761,7 @@ func stepItemsConditional(src Source, ctxs []execContext, expected bool, rest []
 			}
 			count := 0
 			for _, entity := range found {
-				for _, stack := range slotSourceStacks(view, source, func(name string) []protocol.ItemStack { return entitySlotStacks(entity, name) }) {
+				for _, stack := range slotSourceStacks(view, source, func(name string) []rules.SlotAccess { return entitySlotAccess(entity, name) }) {
 					count += test(stack)
 				}
 			}
@@ -1787,15 +1790,8 @@ func stepItemsConditional(src Source, ctxs []execContext, expected bool, rest []
 			return condAnswer{}
 		}
 		count := 0
-		for _, stack := range slotSourceStacks(view, source, func(name string) []protocol.ItemStack {
-			slots, _ := itemSlots(name)
-			var stacks []protocol.ItemStack
-			for _, slot := range slots {
-				if int(slot) >= 0 && int(slot) < size {
-					stacks = append(stacks, view.ItemInContainerAt(x, y, z, int(slot)))
-				}
-			}
-			return stacks
+		for _, stack := range slotSourceStacks(view, source, func(name string) []rules.SlotAccess {
+			return blockSlotAccess(view, x, y, z, size, name)
 		}) {
 			count += test(stack)
 		}
@@ -1942,9 +1938,7 @@ func stepStore(src Source, ctxs []execContext, forked bool, rest []string, token
 				continue
 			}
 			target := dataTarget{src: view, kind: dataTargetBlock, x: x, y: y, z: z}
-			if next, ok = withNBTStore(next, ctx, target, rest, tokens, 6, pathSpan); !ok {
-				src.Debug("execute store path or scale did not parse", "args", rest[6:])
-			}
+			next = withNBTStore(next, ctx, target, rest, tokens, 6, pathSpan)
 		}
 		return next, 8 + pathSpan, nil
 	case "entity":
@@ -1967,9 +1961,7 @@ func stepStore(src Source, ctxs []execContext, forked bool, rest []string, token
 			if writer, ok := bodies[0].(DataWriter); ok {
 				target.writeEntity = writer.SetDataTag
 			}
-			if next, ok = withNBTStore(next, ctx, target, rest, tokens, 3+span, pathSpan); !ok {
-				src.Debug("execute store path or scale did not parse", "args", rest[3+span:])
-			}
+			next = withNBTStore(next, ctx, target, rest, tokens, 3+span, pathSpan)
 		}
 		return next, 5 + span + pathSpan, nil
 	default:
@@ -1984,28 +1976,25 @@ func stepStore(src Source, ctxs []execContext, forked bool, rest []string, token
 				continue
 			}
 			target := dataTarget{src: view, kind: dataTargetStorage, id: id}
-			if next, ok = withNBTStore(next, ctx, target, rest, tokens, 4, pathSpan); !ok {
-				src.Debug("execute store path or scale did not parse", "args", rest[4:])
-			}
+			next = withNBTStore(next, ctx, target, rest, tokens, 4, pathSpan)
 		}
 		return next, 6 + pathSpan, nil
 	}
 }
 
-// withNBTStore appends ctx to next carrying one more store, the NBT kind's
-// write into target: the path at rest[at:at+pathSpan], then the type word
-// and the scale. ok is false where those did not read, ctx then dropped.
-func withNBTStore(next []execContext, ctx execContext, target dataTarget, rest []string, tokens []Token, at, pathSpan int) ([]execContext, bool) {
+// withNBTStore attaches a write to target using the path, type and scale
+// already checked by the command tree.
+func withNBTStore(next []execContext, ctx execContext, target dataTarget, rest []string, tokens []Token, at, pathSpan int) []execContext {
 	if at+pathSpan+2 > len(rest) {
-		return next, false
+		return next
 	}
 	path, err := parseNBTPath(wordsInTokens(tokens, rest, at, pathSpan))
 	if err != nil {
-		return next, false
+		return next
 	}
 	scale, perr := readDoubleWord(rest[at+pathSpan+1])
 	if perr != nil {
-		return next, false
+		return next
 	}
 	typeWord := rest[at+pathSpan]
 	storeResult := rest[1] == "result"
@@ -2016,7 +2005,7 @@ func withNBTStore(next []execContext, ctx execContext, target dataTarget, rest [
 		target.storeData(path, scaledTag(typeWord, float64(value)*scale))
 		return nil
 	})
-	return append(next, ctx), true
+	return append(next, ctx)
 }
 
 // storeData sets tag at path in the target's compound and writes it back; an

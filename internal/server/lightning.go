@@ -529,11 +529,10 @@ func (s *Server) boltHurt(it *boltEffect) {
 }
 
 // convertStruck replaces a struck pig with a zombified piglin, or a struck
-// villager with a witch, as a SINGLE conversion that drops the old gear.
+// villager with a witch.
 // The alive check under the mob lock stops a mob that died since the bolt
 // from converting.
-// vanilla: Pig.thunderHit, ConversionParams.single(this, false, true);
-// Villager.thunderHit, ConversionParams.single(this, false, false)
+// vanilla: Pig.thunderHit, Villager.thunderHit
 func (s *Server) convertStruck(ent *mobEntity) {
 	into := entity.TypeWitch
 	if ent.mob.Type == entity.TypePig {
@@ -558,36 +557,24 @@ func (s *Server) convertStruck(ent *mobEntity) {
 	s.scoreboard.EntityRemoved(ent.uuid.String())
 
 	s.broadcastWorld(ent.w, protocol.IDPlayRemoveEntities, removeEntitiesPayload([]int32{ent.mob.ID}))
-	pig := ent.mob.Type == entity.TypePig
-	kind := entity.TypeWitch
-	if pig {
-		kind = entity.TypeZombifiedPiglin
-	}
+	pig := into == entity.TypeZombifiedPiglin
 	id := s.nextEntity()
-	m := entity.NewMob(kind, id, ent.mob.X, ent.mob.Y, ent.mob.Z, s.entitySeed(id))
-	m.ConvertedFrom(ent.mob)
-	for slot := range 6 {
-		m.SetEquipment(slot, protocol.ItemStack{})
-	}
-	m.ResetDropChances()
+	m := entity.NewMob(into, id, ent.mob.X, ent.mob.Y, ent.mob.Z, s.entitySeed(id))
+	converted := convertedEntity(ent, m, ent.w, conversionParams{keepLootPickup: pig})
+	converted.convertTeam = team
 	m.LeashHolderID = holder
 	if pig {
 		m.EquipPiglinHand()
 	} else {
-		// A witch is never a baby (Mob.setBaby is a no-op), and finalizeSpawn
-		// runs after the conversion, so its left-handed roll stands.
+		// A witch is never a baby (Mob.setBaby is a no-op).
 		m.SetMetadataBabyAge(0)
 		effective := s.effectiveDifficultyAt(ent.w, m.X, m.Z)
 		local := rules.NewLocalDifficulty(ent.w.Difficulty(), effective)
 		m.FinalizeSpawn(m.SpawnDice(), ent.w.Biome(rules.BlockOf(m.X), rules.BlockOf(m.Y), rules.BlockOf(m.Z)), nil, local)
-	}
-	converted := convertedEntity(ent, m, ent.w, pig)
-	converted.convertTeam = team
-	m.Persistence = true // convertedEntity copies the old mob's flag
-	if !pig {
 		// vanilla: Raider.finalizeSpawn, a witch not spawned NATURAL can join raids
 		converted.raider = &raiderRef{ent: converted, canJoin: true}
 	}
+	m.Persistence = true
 	s.addRiddenConversion(ent, converted)
 }
 

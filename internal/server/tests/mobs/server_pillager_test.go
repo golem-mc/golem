@@ -2,9 +2,12 @@ package mobs
 
 import (
 	"fmt"
+	"maps"
 	"math"
+	"strings"
 	"testing"
 
+	"github.com/golem-mc/golem/internal/config"
 	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/internal/server"
 	"github.com/golem-mc/golem/internal/server/rules"
@@ -226,5 +229,164 @@ func expectPillagerCrossbowArrow(t *testing.T, c *servertest.Client, srv *server
 	}
 	if a := arrows[0]; !a.CrossbowHit || a.PierceLevel != pierce {
 		t.Errorf("arrow crossbowHit=%v pierce=%d, want true and %d", a.CrossbowHit, a.PierceLevel, pierce)
+	}
+}
+
+// TestPillagerFiresHeldAmmo: a pillager loads the arrow or rocket in its off
+// hand, spending it, honours a preloaded crossbow's stack, and falls back to
+// an ordinary arrow with none.
+// vanilla: Monster.getProjectile, CrossbowItem.tryLoadProjectiles, createProjectile
+func TestPillagerFiresHeldAmmo(t *testing.T) {
+	t.Parallel()
+	const crossbow = `{id:"minecraft:crossbow",count:1`
+	for _, tc := range []struct {
+		name, mainhand, offhand string
+		loaded                  registry.Item
+		offCount                int32
+		effect                  string
+		shot                    int32 // spawn type of the first projectile
+		firework                bool
+		// pickups counts the shot arrows by pickup rule, when asserted.
+		pickups map[string]int
+		// broken is whether the volley leaves the crossbow broken.
+		broken bool
+		// burns is whether the hit leaves the villager alight.
+		burns bool
+	}{
+		{name: "spectral arrow", mainhand: crossbow + `}`, offhand: `{id:"minecraft:spectral_arrow",count:8}`,
+			loaded: registry.ItemSpectralArrow, offCount: 7, effect: "minecraft:glowing", shot: protocol.EntityTypeSpectralArrow},
+		{name: "preloaded tipped arrow",
+			mainhand: crossbow + `,components:{"minecraft:charged_projectiles":[{id:"minecraft:tipped_arrow",count:1,components:{"minecraft:potion_contents":{potion:"minecraft:poison"}}}]}}`,
+			loaded:   registry.ItemTippedArrow, effect: "minecraft:poison", shot: protocol.EntityTypeArrow},
+		{name: "preloaded rocket",
+			mainhand: crossbow + `,components:{"minecraft:charged_projectiles":[{id:"minecraft:firework_rocket",count:1}]}}`,
+			loaded:   registry.ItemFireworkRocket, firework: true, shot: protocol.EntityTypeFireworkRocket},
+		{name: "rocket in hand", mainhand: crossbow + `}`, offhand: `{id:"minecraft:firework_rocket",count:3}`,
+			loaded: registry.ItemFireworkRocket, offCount: 2, firework: true, shot: protocol.EntityTypeFireworkRocket},
+		{name: "no ammunition", mainhand: crossbow + `}`, loaded: registry.ItemArrow, shot: protocol.EntityTypeArrow},
+		// The loaded stack's own projectile_spawned effects apply, so a Flame arrow ignites.
+		{name: "flame ammunition", mainhand: crossbow + `}`,
+			offhand: `{id:"minecraft:spectral_arrow",count:2,components:{"minecraft:enchantments":{"minecraft:flame":1}}}`,
+			loaded:  registry.ItemSpectralArrow, offCount: 1, shot: protocol.EntityTypeSpectralArrow, burns: true},
+		// A rocket costs three durability, so a crossbow with three left breaks on it.
+		{name: "rocket breaks the crossbow",
+			mainhand: crossbow + `,components:{"minecraft:max_damage":10,"minecraft:damage":7,"minecraft:charged_projectiles":[{id:"minecraft:firework_rocket",count:1}]}}`,
+			loaded:   registry.ItemFireworkRocket, firework: true, shot: protocol.EntityTypeFireworkRocket, broken: true},
+		// Multishot pays for the first arrow only; the two side arrows are free copies.
+		{name: "multishot with one arrow",
+			mainhand: crossbow + `,components:{"minecraft:enchantments":{"minecraft:multishot":1}}}`, offhand: `{id:"minecraft:spectral_arrow",count:1}`,
+			loaded: registry.ItemSpectralArrow, shot: protocol.EntityTypeSpectralArrow,
+			pickups: map[string]int{"disallowed": 1, "creative": 2}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			cfg := servertest.HostileTestConfig()
+			cfg.GameMode = "creative"
+			cfg.ViewDistance, cfg.SimulationDistance = config.MinDistance, config.MinDistance
+			srv, c := servertest.Join(t, cfg, "Observer")
+			servertest.HoldTicks(t, srv)
+			srv.SetDifficulty(rules.DifficultyHard)
+			srv.RunLine(`summon minecraft:villager 2.5 64 0.5 {NoAI:1b,Health:100f,attributes:[{id:"minecraft:max_health",base:100.0d}]}`)
+			equip := `mainhand:` + tc.mainhand
+			if tc.offhand != "" {
+				equip += `,offhand:` + tc.offhand
+			}
+			srv.RunLine(fmt.Sprintf(`summon minecraft:pillager 6.5 64 0.5 {PersistenceRequired:1b,equipment:{%s},attributes:[{id:"minecraft:movement_speed",base:0.0d}]}`, equip))
+			var id, villager int32
+			if !c.ReadTicks(srv, 0, func(pid int32, data []byte) bool {
+				if pid != protocol.IDPlaySpawnEntity {
+					return false
+				}
+				entityID, kind := servertest.SpawnEntityHead(data)
+				switch kind {
+				case protocol.EntityTypeVillager:
+					villager = entityID
+				case protocol.EntityTypePillager:
+					id = entityID
+				}
+				return id != 0 && villager != 0
+			}) {
+				t.Fatal("the summoned villager and pillager did not both spawn")
+			}
+			if strings.Contains(tc.mainhand, "charged_projectiles") {
+				got := srv.MobHand(id).ChargedProjectiles()
+				if len(got) != 1 || registry.Item(got[0].ItemID) != tc.loaded {
+					t.Fatalf("preloaded crossbow = %v, want one %v", got, tc.loaded)
+				}
+			} else {
+				servertest.UntilTicks(t, srv, 120, "the pillager to load its crossbow", func() bool {
+					return len(srv.MobHand(id).ChargedProjectiles()) > 0
+				})
+				got := srv.MobHand(id).ChargedProjectiles()
+				if registry.Item(got[0].ItemID) != tc.loaded {
+					t.Errorf("loaded item %d, want %v", got[0].ItemID, tc.loaded)
+				}
+				if tc.offhand != "" {
+					if off := srv.MobOffHand(id); off.Count != tc.offCount {
+						t.Errorf("off-hand count = %d, want %d", off.Count, tc.offCount)
+					}
+				}
+			}
+			if !servertest.ASpawnOfWithinTicks(c, srv, 120, tc.shot) {
+				t.Fatalf("the pillager never shot a projectile of type %d", tc.shot)
+			}
+			if tc.broken && !srv.MobHand(id).Empty() {
+				t.Errorf("crossbow after the shot = %v, want broken", srv.MobHand(id))
+			}
+			if tc.firework && srv.FireworkCount() == 0 {
+				t.Error("no rocket in the world")
+			}
+			if tc.pickups != nil {
+				got := map[string]int{}
+				for _, a := range srv.ArrowsInDimension(world.DimensionName) {
+					got[a.Pickup]++
+				}
+				if !maps.Equal(got, tc.pickups) {
+					t.Errorf("arrow pickups = %v, want %v", got, tc.pickups)
+				}
+			}
+			if tc.burns {
+				servertest.UntilTicks(t, srv, 60, "the shot to set the villager alight", func() bool {
+					return srv.MobFireTicks(villager) > 0
+				})
+			}
+			if tc.effect == "" {
+				return
+			}
+			servertest.UntilTicks(t, srv, 60, "the shot to give the villager "+tc.effect, func() bool {
+				_, _, ok := srv.MobEffectOf(villager, tc.effect)
+				return ok
+			})
+		})
+	}
+}
+
+// TestAPillagersRocketFliesFromTheTickAfterItsShot: a mob's rocket is shown on
+// the tick it is shot, at age 0 and unlit; its first step, which lights it, is
+// the next tick's.
+// vanilla: EntityTickList.forEach, FireworkRocketEntity.tick
+func TestAPillagersRocketFliesFromTheTickAfterItsShot(t *testing.T) {
+	t.Parallel()
+	cfg := servertest.HostileTestConfig()
+	cfg.GameMode = "creative"
+	cfg.ViewDistance, cfg.SimulationDistance = config.MinDistance, config.MinDistance
+	srv, _ := servertest.Join(t, cfg, "Observer")
+	servertest.HoldTicks(t, srv)
+	srv.SetDifficulty(rules.DifficultyHard)
+	srv.RunLine(`summon minecraft:villager 2.5 64 0.5 {NoAI:1b}`)
+	srv.RunLine(`summon minecraft:pillager 6.5 64 0.5 {PersistenceRequired:1b,equipment:{mainhand:{id:"minecraft:crossbow",count:1,components:{"minecraft:charged_projectiles":[{id:"minecraft:firework_rocket",count:1,components:{"minecraft:enchantments":{"minecraft:flame":1}}}]}}},attributes:[{id:"minecraft:movement_speed",base:0.0d}]}`)
+	servertest.UntilTicks(t, srv, 120, "the pillager to shoot its rocket", func() bool { return srv.FireworkCount() > 0 })
+	if got := savedField(t, srv, "firework_rocket", "Life"); got != "0" {
+		t.Errorf("Life on the shot tick = %s, want 0", got)
+	}
+	if got := savedField(t, srv, "firework_rocket", "Fire"); got != "2000s" {
+		t.Errorf("Fire on the shot tick = %s, want 2000s", got)
+	}
+	servertest.RunTicks(t, srv, 1)
+	if got := savedField(t, srv, "firework_rocket", "Life"); got != "1" {
+		t.Errorf("Life one tick later = %s, want 1", got)
+	}
+	if got := savedField(t, srv, "firework_rocket", "Fire"); got != "1999s" {
+		t.Errorf("Fire one tick later = %s, want 1999s", got)
 	}
 }

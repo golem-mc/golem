@@ -4,6 +4,7 @@ import (
 	"slices"
 	"testing"
 
+	"github.com/golem-mc/golem/internal/server"
 	"github.com/golem-mc/golem/internal/server/effect"
 	"github.com/golem-mc/golem/internal/server/servertest"
 	"github.com/golem-mc/golem/nbt"
@@ -60,11 +61,11 @@ func TestMannequinEffectMetadataAndSavedState(t *testing.T) {
 	srv, c := joinMannequinOp(t, "EffectWatcher")
 	c.ChatCommand("summon mannequin 3.5 64 3.5 {immovable:1b}")
 	id := awaitMannequin(t, c, srv).id
-	given := c.Give("effect give @e[type=mannequin] poison 10 1", id)
+	given := giveMannequin(t, c, srv, "effect give @e[type=mannequin] poison 10 1", id)
 	if !slices.Equal(given.Particles[id], servertest.PoisonParticles) {
 		t.Fatalf("poison particles = %v", given.Particles[id])
 	}
-	servertest.RunTicks(t, srv, 100)
+	servertest.RunTicks(t, srv, 99)
 	saved := dataOfMannequin(t, c, srv, "active_effects")
 	tag, err := nbt.ParseSNBT("{active_effects:" + saved + "}")
 	if err != nil {
@@ -75,7 +76,7 @@ func TestMannequinEffectMetadataAndSavedState(t *testing.T) {
 	if active := effects.All(); len(active) != 1 || active[0].Duration != 100 || active[0].Amplifier != 1 {
 		t.Fatalf("saved poison = %s", saved)
 	}
-	cleared := c.Give("effect clear @e[type=mannequin] poison", id)
+	cleared := giveMannequin(t, c, srv, "effect clear @e[type=mannequin] poison", id)
 	if particles, ok := cleared.Particles[id]; !ok || len(particles) != 0 {
 		t.Fatalf("cleared particles = %v, sent %v", particles, ok)
 	}
@@ -85,4 +86,18 @@ func TestMannequinEffectMetadataAndSavedState(t *testing.T) {
 	if got := dataOfMannequin(t, c, srv, "Health"); got != "12.0f" {
 		t.Fatalf("reloaded poison left Health %s", got)
 	}
+}
+
+// giveMannequin is Client.Give with the tick that sends a mannequin's synched
+// delta after its movement.
+func giveMannequin(t *testing.T, c *servertest.Client, srv *server.Server, command string, id int32) *servertest.EffectsWitness {
+	t.Helper()
+	w := servertest.NewEffectsWitness()
+	w.Hears(id)
+	c.ChatCommand(command)
+	c.ReadTicks(srv, 1, func(pid int32, data []byte) bool {
+		w.Note(c, pid, data)
+		return false
+	})
+	return w
 }

@@ -281,7 +281,7 @@ func (c *client) spawnBowArrow(pos player.Position, bow, ammo protocol.ItemStack
 		vx, vy, vz, yaw, pitch,
 		power == 1.0, entity.ArrowBaseDamage,
 		pickup,
-		c.player.EntityID, c.player.UUID, bow, rules.ProjectileIgniteTicks(bow), ammo)
+		c.player.EntityID, c.player.UUID, bow, 0, ammo)
 }
 
 // consumeAmmo takes count from the selected stack if it can still pay.

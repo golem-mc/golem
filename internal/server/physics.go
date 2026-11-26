@@ -37,10 +37,22 @@ func (s *Server) blockPlaced(w *world.World, x, y, z int32, oldState uint16) {
 	s.afterBlockWake(w, x, y, z, oldState, changes, effects, primes)
 }
 
-// updateNeighboursOnBlockSet runs the wake a non-strict /setblock owes even
-// when nothing changed: neighbours of an unchanged cell still hear it. It
-// requests the neighbour update directly, as NotifyChanged would no-op on an
-// unchanged state, then runs blockChanged's tail.
+// blockPlacedHooks is blockPlaced's share a block write owns: the placement
+// hooks and the shape passes, before a block entity's tag loads.
+func (s *Server) blockPlacedHooks(w *world.World, x, y, z int32, oldState uint16) {
+	changes, effects, primes := s.physicsFor(w).NotifyPlacedHooks(x, y, z, oldState)
+	s.afterBlockWake(w, x, y, z, oldState, changes, effects, primes)
+}
+
+// blockPlacedWake is blockPlaced's explicit neighbour update, run after
+// blockPlacedHooks and the tag load.
+func (s *Server) blockPlacedWake(w *world.World, x, y, z int32, oldState uint16) {
+	changes, effects, primes := s.physicsFor(w).NotifyPlacedWake(x, y, z, oldState)
+	s.finishBlockWake(w, x, y, z, oldState, changes, effects, primes, false, false, false)
+}
+
+// updateNeighboursOnBlockSet wakes neighbours after a successful non-strict
+// /setblock that left the block state unchanged. NotifyChanged skips that case.
 // vanilla: ServerLevel.updateNeighboursOnBlockSet
 func (s *Server) updateNeighboursOnBlockSet(w *world.World, x, y, z int32, oldState uint16) {
 	changes, effects, primes := s.physicsFor(w).NotifyNeighbours(x, y, z, oldState)
@@ -168,6 +180,9 @@ func (s *Server) tellEffectFrom(w *world.World, user *client, e world.Effect) {
 		}
 		ctx.Affected = e.GameEventAffected
 		s.gameEvent(w, e.GameEvent, float64(e.X)+0.5, float64(e.Y)+0.5, float64(e.Z)+0.5, ctx)
+		if e.GameEvent == registry.GameEventNoteBlockPlay {
+			s.allaysHearNote(w, e.X, e.Y, e.Z) // vanilla: Allay.VibrationUser
+		}
 	}
 	if v := e.ListenerEvent; v != nil {
 		source := v.Player
@@ -206,9 +221,6 @@ func (s *Server) tellEffectFrom(w *world.World, user *client, e world.Effect) {
 		if e.BlockActionBlock == protocol.BlockBell && e.BlockAction == 1 {
 			s.villagersHearBell(w, e.X, e.Y, e.Z)
 			s.bellRung(w, e.X, e.Y, e.Z)
-		}
-		if e.BlockActionBlock == protocol.BlockNoteBlock {
-			s.allaysHearNote(w, e.X, e.Y, e.Z)
 		}
 		// vanilla: ServerLevel.runBlockEvents
 		var b protocol.Buffer
@@ -592,6 +604,11 @@ type bodyShove struct {
 	w *world.World
 	// mobs adds the mobs to a shove that is not block growth (a lid's).
 	mobs bool
+	// ownBoat and ownCart are the vehicle a shell rides, which is in its own
+	// root chain and so not shoved.
+	// vanilla: Entity.isPassengerOfSameVehicle
+	ownBoat *boatEntity
+	ownCart *minecartEntity
 }
 
 // shoveOnLids moves the bodies resting in each lid that opened this tick;
@@ -835,7 +852,7 @@ func (s *Server) collectFallingsToPush(w *world.World, sh bodyShove) []func() {
 // returning their teleports.
 func (s *Server) collectBoatsToPush(w *world.World, sh bodyShove) []func() {
 	return collectGrownLift(&s.boatsMu, &s.boats, sh,
-		func(it *boatEntity) bool { return it.boat.Dead || it.w != w },
+		func(it *boatEntity) bool { return it.boat.Dead || it.w != w || it == sh.ownBoat },
 		func(it *boatEntity) (minX, minY, minZ, maxX, maxY, maxZ float64) { return it.boat.BlastBox() },
 		func(it *boatEntity, sh bodyShove) func() {
 			to := player.Position{X: it.boat.X + sh.dx, Y: it.boat.Y + sh.dy, Z: it.boat.Z + sh.dz}
@@ -847,7 +864,7 @@ func (s *Server) collectBoatsToPush(w *world.World, sh bodyShove) []func() {
 // collectMinecartsToPush gathers carts under minecartsMu; their tick seats riders.
 func (s *Server) collectMinecartsToPush(w *world.World, sh bodyShove) []func() {
 	return collectGrownLift(&s.minecartsMu, &s.minecarts, sh,
-		func(it *minecartEntity) bool { return it.cart.Dead || it.w != w },
+		func(it *minecartEntity) bool { return it.cart.Dead || it.w != w || it == sh.ownCart },
 		func(it *minecartEntity) (minX, minY, minZ, maxX, maxY, maxZ float64) { return it.cart.BlastBox() },
 		func(it *minecartEntity, sh bodyShove) func() {
 			x, y, z := it.cart.X+sh.dx, it.cart.Y+sh.dy, it.cart.Z+sh.dz
@@ -1349,6 +1366,9 @@ const (
 	// writeNeighborShapes is the shape pass of a flag-2 write: the rules
 	// reshape and the engine's shape pass, no neighbour update.
 	writeNeighborShapes
+	// writePlacedHooks runs a placement's hooks and shape passes within the
+	// write and leaves the explicit neighbour update to the caller.
+	writePlacedHooks
 	commandBlockWrite = writeShape | writeEntity | writeLight | writeWake
 	strictBlockWrite  = writeEntity | writeLight
 )
@@ -1398,7 +1418,10 @@ func (s *Server) writeBlockWithUpdates(w *world.World, x, y, z int32, state uint
 		s.applyBlockUpdates(w, x, y, z, old, state, *updates)
 		return true
 	}
-	if policy&(writeWake|writeNeighborShapes) == writeNeighborShapes {
+	if policy&writePlacedHooks != 0 {
+		s.updateNeighborShapes(w, x, y, z)
+		s.blockPlacedHooks(w, x, y, z, old)
+	} else if policy&(writeWake|writeNeighborShapes) == writeNeighborShapes {
 		s.updateNeighborShapes(w, x, y, z)
 		s.physicsShapePass(w, x, y, z)
 	}

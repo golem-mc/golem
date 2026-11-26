@@ -58,8 +58,7 @@ type entitySnapshot struct {
 	dim           string
 	pos           player.Position
 	box           [6]float64
-	// tags are the scoreboard tags, copied with the snapshot so later /tag
-	// changes do not show through.
+	// tags are captured alongside the other selector fields.
 	tags []string
 }
 
@@ -118,6 +117,14 @@ func (e *entitySnapshot) Alive() bool { return e.alive }
 
 // Tags are the snapshot's scoreboard tags. vanilla: Entity.entityTags
 func (e *entitySnapshot) Tags() []string { return e.tags }
+
+// MatchesLiveTag tests the live set because a function reuses its @s snapshot
+// across commands. vanilla: EntitySelectorOptions.bootStrap
+func (e *entitySnapshot) MatchesLiveTag(filter command.TagFilter) bool {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return filter.Passes(e.liveTags.Len(), e.liveTags.Contains)
+}
 
 // AddTag adds a scoreboard tag to the live body. vanilla: Entity.addTag
 func (e *entitySnapshot) AddTag(tag string) bool {
@@ -587,7 +594,7 @@ func (e *entitySnapshot) ItemIn(slot command.ItemSlot) (protocol.ItemStack, bool
 		case command.ItemSlotBody:
 			return ref.mob.Body, true
 		case command.ItemSlotSaddle:
-			return ref.mob.Horse.Saddle, true
+			return ref.mob.EquipmentSlot(protocol.EquipSaddle), true
 		}
 	case *armorStandEntity:
 		e.srv.armorStandsMu.Lock()
@@ -655,9 +662,9 @@ func (e *entitySnapshot) SetItemIn(slot command.ItemSlot, stack protocol.ItemSta
 			return false
 		}
 		if slot == command.ItemSlotBody {
-			ref.mob.SetEquipment(6, stack)
+			ref.mob.SetEquipment(protocol.EquipBody, stack)
 		} else {
-			ref.mob.SetMetadataHorseSaddle(stack)
+			ref.mob.SetEquipment(protocol.EquipSaddle, stack)
 		}
 		return true
 	}
@@ -713,7 +720,7 @@ func (e *entitySnapshot) SetItemIn(slot command.ItemSlot, stack protocol.ItemSta
 		}
 		m.SyncEquipmentModifiers()
 		slots := mannequinEquipmentNow(m)
-		equipment := equipmentEntriesPayload(m.ID, &slots, []int{wire})
+		equipment := equipmentEntriesPayload(m.ID, slots[:], []int{wire})
 		watchers, w := trackedWatchers(ref.tracked), ref.w
 		e.srv.mannequinsMu.Unlock()
 		e.srv.tellWatchers(w, watchers, []outbound{{id: protocol.IDPlayEntityEquipment, data: equipment}})
@@ -865,10 +872,8 @@ func (e *entitySnapshot) changeLivingEffects(change func(effectBody) []effect.Ch
 	if ref, ok := e.ref.(*mannequinEntity); ok {
 		s.mannequinsMu.Lock()
 		changes := change(ref.mannequin)
-		packets := mannequinEffectPackets(ref)
-		watchers := trackedWatchers(ref.tracked)
+		syncMannequinEffects(ref)
 		s.mannequinsMu.Unlock()
-		s.tellWatchers(ref.w, watchers, packets)
 		return len(changes) > 0
 	}
 	ref, ok := e.ref.(*mobEntity)
@@ -912,11 +917,54 @@ func (e *entitySnapshot) Kill() {
 	e.srv.flushDestroyed()
 }
 
+// teleportTurn is the rotation transition move gives a mob and its riders.
+// A facing clause turns only the mount, after the teleport, so the
+// riders get a zero relative turn; only /teleport wraps its angles. A
+// coordinate-only /teleport has zero relative offsets, and a plugin's
+// rewritten destination has no relative axes, so both follow the flags.
+// vanilla: TeleportCommand.performTeleport, LookAt.perform
+func teleportTurn(move command.Move) entity.Turn {
+	if move.LookAt != nil {
+		return entity.Turn{RelYaw: true, RelPitch: true}
+	}
+	t := entity.Turn{Yaw: move.Pos.Yaw, Pitch: move.Pos.Pitch}
+	if !move.Command {
+		return t
+	}
+	// A relative axis turns by the wrapped offset, not to move.Pos, whose
+	// pitch is already clamped.
+	t.RelYaw, t.RelPitch = move.RelYaw, move.RelPitch
+	if t.RelYaw {
+		t.Yaw = move.Offset.Yaw
+	}
+	if t.RelPitch {
+		t.Pitch = move.Offset.Pitch
+	}
+	return t
+}
+
 // Teleport is Entity.teleportTo: an absolute Teleport Entity to the
 // entity's viewers, or teleportAcross for another dimension. A non-player
 // always gets its absolute destination, so a facing clause turns it here
 // rather than via the client-only Player Look At.
 func (e *entitySnapshot) Teleport(move command.Move, dim string, by string) {
+	if ref, ok := e.ref.(*mobEntity); ok && move.Command {
+		// The event reports where this target is and turns to now, which an
+		// earlier target in the command may have changed.
+		e.srv.mobsMu.Lock()
+		m := ref.mob
+		e.pos = player.Position{X: m.X, Y: m.Y, Z: m.Z, Yaw: m.Yaw, Pitch: m.Pitch}
+		e.srv.mobsMu.Unlock()
+		switch {
+		case move.LookAt != nil:
+			// The facing clause's angles stand.
+		case move.KeepRotation:
+			move.Pos.Yaw, move.Pos.Pitch = e.pos.Yaw, e.pos.Pitch
+		default:
+			move = move.AgainstAngles(e.pos.Yaw, e.pos.Pitch)
+		}
+	}
+	asked := move.Pos
 	move, dim, ok := e.srv.pluginTeleport(e, move, dim, by)
 	if !ok {
 		return
@@ -928,11 +976,11 @@ func (e *entitySnapshot) Teleport(move command.Move, dim string, by string) {
 	}
 	switch ref := e.ref.(type) {
 	case *mobEntity:
-		if move.Command {
-			e.srv.commandTeleportMob(ref, to, by)
-		} else {
-			e.srv.teleportMob(ref, to, to.Yaw, to.Pitch, by)
+		if move.LookAt != nil && (move.Pos.Yaw != asked.Yaw || move.Pos.Pitch != asked.Pitch) {
+			// A listener's angles replace a facing clause's.
+			move.LookAt = nil
 		}
+		e.srv.turnTeleportMob(ref, move, by)
 	case *itemEntity:
 		e.srv.teleportItem(ref, to, by)
 	case *arrowEntity:
@@ -1037,6 +1085,9 @@ func (e *entitySnapshot) teleportAcross(to *dimension, move command.Move) {
 		// the removal.
 		severed []seatNews
 	)
+	if s.relocateHeldAcross(e.ref, to, at) {
+		return
+	}
 	switch ref := e.ref.(type) {
 	case *mobEntity:
 		alive, from, oldID, register, severed = s.teleportMobAcross(ref, to, at, yaw, pitch)
@@ -1326,6 +1377,35 @@ func (e *entitySnapshot) teleportAcross(to *dimension, move command.Move) {
 	s.sendSeatNews(severed)
 }
 
+// relocateHeldAcross moves a projectile still held back from watchers into
+// the destination in place, to be published there if its events accept it.
+func (s *Server) relocateHeldAcross(ref any, to *dimension, at player.Position) bool {
+	yaw, pitch := at.Yaw, at.Pitch
+	switch ref := ref.(type) {
+	case *arrowEntity:
+		return arrowTracker.relocateHeld(s, ref, func() {
+			ref.w = to.w
+			ref.arrow.SetPos(at.X, at.Y, at.Z)
+			ref.arrow.VX, ref.arrow.VY, ref.arrow.VZ = 0, 0, 0
+			ref.arrow.Yaw, ref.arrow.Pitch = yaw, pitch
+		})
+	case *thrownEntity:
+		return thrownTracker.relocateHeld(s, ref, func() {
+			ref.w = to.w
+			ref.throwable.SetPos(at.X, at.Y, at.Z)
+			ref.throwable.VX, ref.throwable.VY, ref.throwable.VZ = 0, 0, 0
+		})
+	case *fireworkEntity:
+		return fireworkTracker.relocateHeld(s, ref, func() {
+			ref.w = to.w
+			ref.rocket.SetPos(at.X, at.Y, at.Z)
+			ref.rocket.VX, ref.rocket.VY, ref.rocket.VZ = 0, 0, 0
+			ref.rocket.Yaw, ref.rocket.Pitch = yaw, pitch
+		})
+	}
+	return false
+}
+
 // Entities reads each kind under its own lock, returning a non-nil pool.
 // Results follow entity ID order; limited queries snapshot non-players only
 // until enough entities pass Accept.
@@ -1337,7 +1417,9 @@ func (ws worldScope) Entities(filters command.EntityQuery) []command.Entity {
 func (ws worldScope) query(q entityQuery) []command.Entity {
 	s := ws.srv
 	if q.Box != nil && q.chunk == nil && q.UUID == nil {
-		q.area = smallChunkArea(q.Box)
+		if area, ok := smallChunkArea(q.Box); ok {
+			q.area = &area
+		}
 	}
 	// Bound maintenance is linear in the batch size; larger limits collect once.
 	if q.Limit > 0 && q.Limit <= 16 {
@@ -1491,6 +1573,7 @@ func snapshotAppender[E comparable, S any](s *Server, q *entityQuery, k *tracked
 			}
 			return out
 		}
+		// A held body is filed for UUID lookup only: spatial queries skip it.
 		list := k.list(s)
 		if len(*list) == 0 {
 			return out
@@ -1502,7 +1585,7 @@ func snapshotAppender[E comparable, S any](s *Server, q *entityQuery, k *tracked
 			if q.chunk != nil && !ix.Has(*q.chunk) {
 				return out
 			}
-			indexed = bodiesInChunks(ix, q)
+			indexed = func(yield func(E) bool) { bodiesInChunks(ix, q.chunk, q.area, yield) }
 		}
 		if q.candidates != nil {
 			q.kind = &entityQueryKind{mu: mu, snapshot: func(ref any, query *entityQuery) *entitySnapshot {
@@ -1521,7 +1604,7 @@ func snapshotAppender[E comparable, S any](s *Server, q *entityQuery, k *tracked
 				bodies = slices.Values(*list)
 			}
 			for body := range bodies {
-				if !q.skipCandidate(k.id(body)) {
+				if !k.track(body).held && !q.skipCandidate(k.id(body)) {
 					snap(s, body, q)
 				}
 			}
@@ -1531,6 +1614,9 @@ func snapshotAppender[E comparable, S any](s *Server, q *entityQuery, k *tracked
 			// Keep the slice captured by the iterator local to chunk queries.
 			found := out
 			for body := range indexed {
+				if k.track(body).held {
+					continue
+				}
 				if v := snap(s, body, q); v != nil {
 					found = append(found, v)
 				}
@@ -1593,11 +1679,12 @@ func (s *Server) appendMobSnapshots(out []command.Entity, q *entityQuery) []comm
 				appendMob(ent, dim.name)
 			}
 		} else if q.chunk != nil || q.area != nil {
-			for m := range bodiesInChunks(&dim.mobs.chunks, q) {
+			bodiesInChunks(&dim.mobs.chunks, q.chunk, q.area, func(m *entity.Mob) bool {
 				if ent := dim.mobs.record(m); ent != nil {
 					appendMob(ent, dim.name)
 				}
-			}
+				return true
+			})
 		} else {
 			for _, ent := range dim.mobs.book {
 				appendMob(ent, dim.name)
@@ -1620,7 +1707,7 @@ func (s *Server) appendMobSnapshots(out []command.Entity, q *entityQuery) []comm
 
 // snapshot checks shared availability, then collects an identity or builds the snapshot's base.
 func (s *Server) snapshot(q *entityQuery, tags nbt.StringSet, ref any, id int32, typ, plain string, identity uuid.UUID, dim string, pos player.Position, box [6]float64) *entitySnapshot {
-	if s.rejectsSnapshot(q.filters(), tags, typ, identity, dim, pos, box) {
+	if s.rejectsSnapshot(q.filters(), tags, ref, typ, identity, dim, pos, box) {
 		return nil
 	}
 	if q != nil && q.candidates != nil {
@@ -1633,15 +1720,18 @@ func (s *Server) snapshot(q *entityQuery, tags nbt.StringSet, ref any, id int32,
 	}
 }
 
-func (s *Server) rejectsSnapshot(q *command.EntityQuery, tags nbt.StringSet, typ string, identity uuid.UUID, dim string, pos player.Position, box [6]float64) bool {
+func (s *Server) rejectsSnapshot(q *command.EntityQuery, tags nbt.StringSet, ref any, typ string, identity uuid.UUID, dim string, pos player.Position, box [6]float64) bool {
 	if q.Rejects(typ, dim, box, identity) || rejectsEntityTags(q, tags) {
 		return true
 	}
 	// A body can arrive before its terrain is loaded. Only accessible sections
 	// enter the selector lookup; direct snapshots still serve summons and @s.
+	// A held projectile, which only a UUID lookup reaches, stays resolvable for
+	// the launch listeners' handles wherever one moved it.
 	// vanilla: PersistentEntitySectionManager.startTracking, Visibility.isAccessible
 	if q != nil && !s.dimensionByName(dim).w.ChunkLoaded(world.ChunkPos{X: world.ChunkOf(pos.X), Z: world.ChunkOf(pos.Z)}) {
-		return true
+		h, ok := ref.(interface{ heldBack() bool })
+		return !ok || !h.heldBack()
 	}
 	return false
 }
@@ -2067,7 +2157,7 @@ func (e *entitySnapshot) WithAttributes(fn func(a *player.Attributes)) {
 		e.srv.mannequinsMu.Lock()
 		defer e.srv.mannequinsMu.Unlock()
 		fn(ref.mannequin.Attributes)
-		ref.mannequin.Health = min(ref.mannequin.Health, ref.mannequin.HealthCap())
+		ref.mannequin.SetHealth(min(ref.mannequin.Health, ref.mannequin.HealthCap()))
 		return
 	}
 	ref, ok := e.ref.(*mobEntity)
@@ -2080,8 +2170,9 @@ func (e *entitySnapshot) WithAttributes(fn func(a *player.Attributes)) {
 	if m.Attributes() == nil {
 		m.SetAttributes(m.BuildAttributes(savedAttributes(ref.saved)))
 	}
-	fn(m.Attributes())
-	m.OnAttributeUpdated()
+	if m.EditAttributes(ref.w, fn) {
+		e.srv.herdOf(ref.w).pistonGrid.built = false
+	}
 }
 
 func (s *Server) teleportMobAcross(ref *mobEntity, to *dimension, at player.Position, yaw, pitch float32) (alive bool, from *world.World, oldID int32, register func(), severed []seatNews) {

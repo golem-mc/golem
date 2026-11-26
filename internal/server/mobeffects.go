@@ -15,8 +15,13 @@ import (
 // place in apply.
 type mobEffects struct {
 	// moves are the mobs that moved this tick while a plugin listens.
-	moves        []mobMove
-	dragonDeaths []dragonDeathEffect
+	moves []mobMove
+	// pufferTouches are the puffed pufferfish a player may touch, applied after the mob lock.
+	pufferTouches []pufferTouch
+	dragonDeaths  []dragonDeathEffect
+	// lodestoneMobs are mobs whose compass targets lie in saved chunks, read
+	// after the mob lock; the mob is ticked again with the answers.
+	lodestoneMobs []lodestoneMob
 	// gateways are the mobs found in an end gateway.
 	gateways []gatewayTouch
 	// raiderDeaths are raiders that died this tick, removed from their raids
@@ -250,6 +255,7 @@ func (fx *mobEffects) convert(cv mobConversion) {
 // reach clients, which the black-box tests read and vanilla fixes, so a new
 // kind goes where its packets belong, not at the end.
 func (fx *mobEffects) apply(s *Server, in *mobTickInputs) {
+	s.finishMobCompasses(fx.lodestoneMobs)
 	s.rollDeathLoot(fx.deaths)
 	applyEach(s, fx.gameEvents, func(s *Server, event mobGameEvent) {
 		s.gameEvent(event.w, event.event, event.x, event.y, event.z, event.context)
@@ -296,6 +302,7 @@ func (fx *mobEffects) apply(s *Server, in *mobTickInputs) {
 	applyEach(s, fx.xpDrops, (*Server).spawnMobXp)
 	applyEach(s, fx.dragonDeaths, (*Server).applyDragonDeath)
 	applyEach(s, fx.strikes, func(s *Server, strike mobStrike) { s.landingBlow(strike, in.inWorld[strike.w]) })
+	s.applyLivePufferTouches(fx.pufferTouches, in.inWorld)
 	applyEach(s, fx.contacts, func(s *Server, hurt mobContact) {
 		if c := in.clientByEntityID[hurt.victimID]; c != nil && c.theWorld() == hurt.w {
 			s.sulfurBurnPlayer(c, hurt)
