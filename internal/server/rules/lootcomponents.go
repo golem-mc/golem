@@ -313,11 +313,11 @@ func (r *lootRoller) modifyContents(k registry.LootModifyContents, s protocol.It
 		}
 	case "minecraft:bundle_contents":
 		if holds(protocol.DataComponentBundleContents) {
-			s.SetBundleContents(nonEmpty(each(s.BundleContents())))
+			setComponentContents(&s, k.Component, nonEmpty(each(s.BundleContents())), false)
 		}
 	case "minecraft:charged_projectiles":
 		if holds(protocol.DataComponentChargedProjectiles) {
-			s.SetChargedProjectiles(nonEmpty(each(s.ChargedProjectiles())))
+			setComponentContents(&s, k.Component, nonEmpty(each(s.ChargedProjectiles())), false)
 		}
 	}
 	return s
