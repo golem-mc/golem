@@ -32,8 +32,11 @@ type decorRegion struct {
 	g   *NetherGenerator
 	// minY and height are the dimension's lowest block and block height.
 	minY, height int32
-	center       *Chunk
-	chunks       map[ChunkPos]*shapedTerrain
+	// live, when set, is read instead of the terrain: a provider run outside
+	// worldgen sees the world's current blocks.
+	live   BlockReader
+	center *Chunk
+	chunks map[ChunkPos]*shapedTerrain
 	// near and protos cover the 5x5 around the centre, row by row from the
 	// north-west; a proto is set once a decoration reaches its chunk.
 	near   [decorRegionSpan * decorRegionSpan]*shapedTerrain
@@ -111,6 +114,9 @@ func (r *decorRegion) prefetch() {
 func (r *decorRegion) get(x, y, z int32) uint16 {
 	if y < r.minY || y >= r.minY+r.height {
 		return airState
+	}
+	if r.live != nil {
+		return r.live.BlockAt(x, y, z)
 	}
 	if i := r.slot(x, z); i >= 0 {
 		if p := r.protos[i]; p != nil {

@@ -187,36 +187,28 @@ func stateProvider(v any) (state uint16, raw any) {
 	if !ok || o["type"] == nil || stateProviderType(o) == "minecraft:simple" {
 		return simpleState(v), nil
 	}
-	if kind := unsupportedReplaceProvider(v); kind != "" {
-		fail("a block state provider of type %s", kind)
-	}
+	checkReplaceProvider(v)
 	return 0, plainJSON(v)
 }
 
-// unsupportedReplaceProvider identifies a provider the picker cannot run without a world.
-func unsupportedReplaceProvider(v any) string {
+// checkReplaceProvider decodes the providers nested in v, so a retired or
+// malformed one fails the load.
+func checkReplaceProvider(v any) {
 	o, ok := v.(obj)
 	if !ok || o["type"] == nil {
-		return ""
+		return
 	}
-	kind := stateProviderType(o)
-	switch kind {
-	case "minecraft:simple", "minecraft:weighted", "minecraft:noise", "minecraft:noise_threshold", "minecraft:dual_noise":
-		return ""
+	switch stateProviderType(o) {
 	case "minecraft:rotated":
-		return unsupportedReplaceProvider(required(o, "state"))
-	case "minecraft:randomized_int":
-		return unsupportedReplaceProvider(required(o, "source"))
-	case "minecraft:copy_properties":
-		// Its source must decode even when the enclosing provider is skipped.
-		unsupportedReplaceProvider(required(o, "source"))
+		checkReplaceProvider(required(o, "state"))
+	case "minecraft:randomized_int", "minecraft:copy_properties":
+		checkReplaceProvider(required(o, "source"))
 	case "minecraft:rule_based":
-		unsupportedReplaceProvider(o["fallback"])
+		checkReplaceProvider(o["fallback"])
 		for _, rule := range list(required(o, "rules"), "state provider rules") {
-			unsupportedReplaceProvider(required(object(rule, "a state provider rule"), "then"))
+			checkReplaceProvider(required(object(rule, "a state provider rule"), "then"))
 		}
 	}
-	return kind
 }
 
 // plainJSON copies a decoded tree with its numbers as float64, the form the
