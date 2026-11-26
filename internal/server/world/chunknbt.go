@@ -382,6 +382,23 @@ var legacyPaletteFixes = map[string]func(entry, props nbt.Compound, nameKey stri
 			props["mode"] = mode
 		}
 	},
+	"minecraft:grass_path": func(entry, _ nbt.Compound, nameKey string, version int32) {
+		if version < grassPathRenameVersion {
+			entry[nameKey] = nbt.String("minecraft:dirt_path")
+		}
+	},
+	"minecraft:cauldron": func(entry, props nbt.Compound, nameKey string, version int32) {
+		if version >= cauldronRenameVersion {
+			return
+		}
+		// vanilla: CauldronRenameFix
+		if level, _ := props["level"].(nbt.String); level == "" || level == "0" {
+			delete(entry, "Properties")
+			delete(entry, "properties")
+		} else {
+			entry[nameKey] = nbt.String("minecraft:water_cauldron")
+		}
+	},
 	"minecraft:grass": func(entry, _ nbt.Compound, nameKey string, version int32) {
 		if version < grassRenameVersion {
 			entry[nameKey] = nbt.String("minecraft:short_grass")
@@ -392,13 +409,21 @@ var legacyPaletteFixes = map[string]func(entry, props nbt.Compound, nameKey stri
 	},
 }
 
-// checkChunkFormat rejects a record older than decodeChunkNBT reads: a Level
-// wrapper or a DataVersion below chunkDataVersionFloor, or a Status without
-// namespace from a version that wrote one.
+// checkChunkFormat rejects a record older than decodeChunkNBT reads, a
+// DataVersion below chunkDataVersionFloor or below levelChunkFloor for a Level
+// wrapper, or a Status without namespace from a version that wrote one. A
+// chunk in the Level layout is rewritten in place to the current one.
 func checkChunkFormat(root nbt.Compound) error {
 	version, _ := nbt.Get[nbt.Int](root, "DataVersion")
-	if _, ok := root["Level"]; ok || version != 0 && version < chunkDataVersionFloor {
+	if _, ok := root["Level"]; ok {
 		// A Level wrapper with no DataVersion is from before 1.9.
+		if version < levelChunkFloor {
+			return &unsupportedVersionError{version: int32(version)}
+		}
+		if err := unwrapLevelChunk(root, int32(version)); err != nil {
+			return err
+		}
+	} else if version != 0 && version < chunkDataVersionFloor {
 		return &unsupportedVersionError{version: int32(version)}
 	}
 	if status, ok := nbt.Get[nbt.String](root, "Status"); ok && !strings.Contains(string(status), ":") && (version == 0 || version >= chunkStatusVersion) {

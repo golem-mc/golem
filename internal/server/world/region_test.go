@@ -617,7 +617,7 @@ func TestWorldKeepsChunksItCannotUpgrade(t *testing.T) {
 		name string
 		root nbt.Compound
 	}{
-		{"Level wrapper", nbt.Compound{"DataVersion": nbt.Int(2975), "Level": nbt.Compound{"Status": nbt.String("full")}}},
+		{"Level wrapper below the floor", nbt.Compound{"DataVersion": nbt.Int(levelChunkFloor - 1), "Level": nbt.Compound{"Status": nbt.String("full")}}},
 		{"unnamespaced status", chunkRoot(dataVersion, "full", "minecraft:stone")},
 		{"data version below the floor", chunkRoot(chunkDataVersionFloor-1, "minecraft:full", "minecraft:stone")},
 		{"unknown palette name", chunkRoot(dataVersion, "minecraft:full", "minecraft:grass")},

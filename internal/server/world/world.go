@@ -691,9 +691,9 @@ func (w *World) readyChunk(pos ChunkPos) (*Chunk, *[16][16]int32, bool) {
 		// Terrain generated over the stored chunk would hide it from the
 		// player; the record stays on disk (marked unreadable, never saved).
 		if !w.oldVersionLogged.Swap(true) {
-			slog.Warn("world has chunks this server cannot upgrade (saved before Minecraft 1.18, or holding item stacks from before 1.20.5), "+
+			slog.Warn("world has chunks this server cannot upgrade (saved before Minecraft 1.16.5, or holding entities, spawners or item stacks from before 1.20.5), "+
 				"they are served empty and left unchanged on disk",
-				"dimension", w.dimName, "chunk", pos, "data_version", old.version)
+				"world", w.dir, "dimension", w.dimName, "chunk", pos, "data_version", old.version)
 		}
 		c = newChunk(pos.X, pos.Z)
 		w.encodeChunk(c)

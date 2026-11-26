@@ -150,34 +150,82 @@ func TestAVanilla1_18_2WorldLoadsItsChunks(t *testing.T) {
 	}
 }
 
-// TestAVanilla1_16_5WorldIsNotSavedOver loads a region file vanilla 1.16.5
-// wrote, a chunk format this server does not upgrade: both chunks are kept
-// byte for byte though the server ran over them and an edit was made beside
-// them.
-func TestAVanilla1_16_5WorldIsNotSavedOver(t *testing.T) {
+// TestAVanilla1_16_5WorldLoadsItsChunks loads a region file vanilla 1.16.5
+// wrote, in the layout before 1.18: the sign keeps its text and colour,
+// grass is short grass, the chest of plain items holds them, the ground is
+// where it was and the biome is superflat's plains. Chunk (1,0), whose chest
+// holds an enchanted sword, stays as stored.
+func TestAVanilla1_16_5WorldLoadsItsChunks(t *testing.T) {
 	t.Parallel()
 	cfg := servertest.SurvivalConfig()
 	var region string
 	cfg.LevelName, region = oldWorld(t, "vanilla-1.16.5-r.0.0.mca")
-	want, err := os.ReadFile(filepath.Join(cfg.LevelName, "region", "r.0.0.mca"))
-	if err != nil {
-		t.Fatal(err)
-	}
 
 	srv, _ := servertest.Start(t, cfg)
 	release := srv.HoldChunk(0, 0)
-	if got := srv.BlockAt(2, 4, 2); got != 0 {
-		t.Errorf("block at the sign = %d, want air while the chunk is not upgraded", got)
+	wantSign, _ := registry.FindState("minecraft:oak_sign", map[string]string{"rotation": "0"})
+	for _, b := range []struct {
+		x, y int32
+		want uint16
+	}{
+		{2, 4, wantSign},
+		{6, 4, registry.BlockStates["minecraft:short_grass"]},
+		{2, 3, registry.BlockStates["minecraft:grass_block"]},
+		{2, 0, registry.BlockStates["minecraft:bedrock"]},
+	} {
+		if got := srv.BlockAt(b.x, b.y, 2); got != b.want {
+			t.Errorf("block at (%d,%d,2) = %d, want %d", b.x, b.y, got, b.want)
+		}
 	}
+	sign, ok := srv.BlockEntityTagAt(2, 4, 2)
+	if !ok {
+		t.Fatal("no sign block entity")
+	}
+	messages, color, glowing := signFront(t, sign)
+	want := []string{`{"text":"Hello"}`, `{"color":"red","text":"golem"}`, `{"text":""}`, `{"text":""}`}
+	if !slices.Equal(messages, want) {
+		t.Errorf("front messages = %q, want %q", messages, want)
+	}
+	// 1.16.5 has no glowing text: the fixture's GlowingText tag was never stored.
+	if color != "blue" || glowing {
+		t.Errorf("front colour %q glowing %v, want blue and not glowing", color, glowing)
+	}
+	chest, ok := srv.BlockEntityTagAt(4, 4, 2)
+	if !ok {
+		t.Fatal("no chest block entity")
+	}
+	items, _ := nbt.Get[nbt.List](chest, "Items")
+	got := map[int8]string{}
+	for _, item := range items.Items {
+		c, _ := nbt.CompoundView(item)
+		slot, _ := nbt.Get[nbt.Byte](c, "Slot")
+		id, _ := nbt.Get[nbt.String](c, "id")
+		count, _ := nbt.IntValue(c["count"])
+		got[int8(slot)] = fmt.Sprintf("%s x%d", id, count)
+	}
+	wantItems := map[int8]string{0: "minecraft:diamond x5", 3: "minecraft:short_grass x12"}
+	if !maps.Equal(got, wantItems) {
+		t.Errorf("chest items = %v, want %v", got, wantItems)
+	}
+	if b := srv.OverworldBiomeAt(2, 4, 2); b != "minecraft:plains" {
+		t.Errorf("biome = %q, want minecraft:plains", b)
+	}
+
 	srv.SetLoadedBlock(8, 4, 8, registry.BlockStates["minecraft:glass"])
 	release()
 	srv.Shutdown()
 
-	got, err := os.ReadFile(region)
+	fixture, err := os.ReadFile(filepath.Join("testdata", "vanilla-1.16.5-r.0.0.mca"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !bytes.Equal(got, want) {
-		t.Error("the 1.16.5 region file changed")
+	after, err := os.ReadFile(region)
+	if err != nil {
+		t.Fatal(err)
+	}
+	entry := binary.BigEndian.Uint32(fixture[4:8])
+	from, to := int(entry>>8)*4096, int(entry>>8+entry&0xFF)*4096
+	if !bytes.Equal(after[4:8], fixture[4:8]) || len(after) < to || !bytes.Equal(after[from:to], fixture[from:to]) {
+		t.Error("the chunk the server cannot upgrade changed on disk")
 	}
 }

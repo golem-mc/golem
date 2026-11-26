@@ -108,6 +108,9 @@ func renameOldItem(name string, version int32) string {
 	if version < shardRenameVersion && strings.HasSuffix(name, "_pottery_shard") {
 		name = strings.TrimSuffix(name, "_pottery_shard") + "_pottery_sherd"
 	}
+	if name == "minecraft:grass_path" && version < grassPathRenameVersion {
+		name = "minecraft:dirt_path"
+	}
 	if name == "minecraft:grass" && version < grassRenameVersion {
 		name = "minecraft:short_grass"
 	}
