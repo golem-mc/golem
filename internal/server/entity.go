@@ -1548,24 +1548,34 @@ func (c *client) moveHeldChecked(pos player.Position, own, checked bool) (was pl
 // commands use it; ordinary steps wait for tickPlayerTracking. c.tp.mu is held,
 // so a teleport cannot land between the position and the telling.
 func (c *client) sendMovement(pos player.Position) {
-	dim := c.dimension()
 	c.player.SetPosition(pos)
 	c.bouncedAt.Store(0)
 	if c.moveSeam != nil {
 		c.moveSeam()
 	}
+	c.tellObserversTeleported()
+}
+
+// tellObserversTeleported gives the viewers the absolute movement packets the
+// player's current position owes them.
+func (c *client) tellObserversTeleported() {
 	c.trackMu.Lock()
+	c.tellObserversTeleportedLocked()
+	c.trackMu.Unlock()
+}
+
+// tellObserversTeleportedLocked is tellObserversTeleported with trackMu held.
+func (c *client) tellObserversTeleportedLocked() {
+	w := c.dimension().w
 	for _, p := range c.movementPackets(moveTick{teleported: true}) {
 		for _, r := range c.seenBy {
-			r.sendIn(dim.w, p.id, p.data)
+			r.sendIn(w, p.id, p.data)
 		}
 	}
-	c.trackMu.Unlock()
 }
 
 // recordMovement is sendMovement for a step a client reported.
 func (c *client) recordMovement(pos player.Position) {
-	dim := c.dimension()
 	c.player.SetPosition(pos)
 	if c.moveSeam != nil {
 		c.moveSeam()
@@ -1573,11 +1583,7 @@ func (c *client) recordMovement(pos player.Position) {
 	c.trackMu.Lock()
 	now := track(pos)
 	if c.tracked.known && !inOneStep(now.x-c.tracked.x, now.y-c.tracked.y, now.z-c.tracked.z) {
-		for _, p := range c.movementPackets(moveTick{teleported: true}) {
-			for _, r := range c.seenBy {
-				r.sendIn(dim.w, p.id, p.data)
-			}
-		}
+		c.tellObserversTeleportedLocked()
 	}
 	c.trackMu.Unlock()
 }

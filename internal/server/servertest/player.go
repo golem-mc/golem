@@ -1198,3 +1198,9 @@ func WriteGzip(path string, data []byte) error {
 	}
 	return file.Close()
 }
+
+// Bed is the sleeping position the metadata names.
+func (m SleepMetadataView) Bed() (x, y, z int32) { return m.sleepX, m.sleepY, m.sleepZ }
+
+// EntityID is the entity the metadata is about.
+func (m SleepMetadataView) EntityID() int32 { return m.entityID }
