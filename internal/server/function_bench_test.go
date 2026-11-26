@@ -208,3 +208,29 @@ func BenchmarkFunctionLinesWithPlugin(b *testing.B) {
 		s.runLine(s.consoleSource(), "function zz:t")
 	}
 }
+
+// BenchmarkExecutePredicate runs an execute-if-predicate line over 20
+// executors, which a datapack's tick function does every tick.
+func BenchmarkExecutePredicate(b *testing.B) {
+	s, _ := newTrackerBenchServer(b)
+	s.mu.Lock()
+	clear(s.clients)
+	s.mu.Unlock()
+	logger := slog.Default()
+	slog.SetDefault(slog.New(slog.DiscardHandler))
+	b.Cleanup(func() { slog.SetDefault(logger) })
+	for i := range 20 {
+		s.RunRconLine(fmt.Sprintf("summon marker %d -60 0 {Tags:[\"t\"]}", i))
+	}
+	const line = `execute as @e[type=marker,tag=t] if predicate {type:"minecraft:random_chance",chance:0.5}`
+	for _, t := range s.RunRconLine(line) {
+		if t.Color == "red" {
+			b.Fatalf("command failed: %+v", t)
+		}
+	}
+	b.ReportAllocs()
+	b.ResetTimer()
+	for range b.N {
+		s.RunRconLine(line)
+	}
+}
