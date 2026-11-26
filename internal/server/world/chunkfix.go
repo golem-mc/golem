@@ -159,6 +159,9 @@ func fixOldBlockEntity(entry nbt.CompoundTag, version int32) {
 		fixBeaconEffect(tag, "Primary", "primary_effect")
 		fixBeaconEffect(tag, "Secondary", "secondary_effect")
 	}
+	if version < textComponentVersion {
+		unflattenBlockEntityText(tag)
+	}
 }
 
 func renameField(tag nbt.Compound, from, to string) {
