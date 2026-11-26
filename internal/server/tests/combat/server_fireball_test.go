@@ -217,6 +217,72 @@ func TestAFireballReachesAScaledMobFiledInTheChunkItsOwnBoxPadsInto(t *testing.T
 	}
 }
 
+// TestAFireballSkipsAScaledMobFiledInASectionBelowThePadding checks a mob
+// whose feet are in a lower 16-block section than the padded flight is not
+// offered even though its box overlaps the flight.
+// vanilla: EntitySectionStorage.forEachAccessibleNonEmptySection
+func TestAFireballSkipsAScaledMobFiledInASectionBelowThePadding(t *testing.T) {
+	t.Parallel()
+	srv := fireballChunks(t, [2]int32{17, 0}, [2]int32{24, 0})
+	cow := srv.SpawnMobTagged("minecraft:cow", 24.5, 64, 0.5, scale16)
+	if cow == 0 {
+		t.Fatal("the cow was refused")
+	}
+	before, _ := srv.MobHealth(cow)
+	// Cow box reaches y 64..86; the flight at y 85 pads down to 80.8, section 5.
+	if srv.LaunchFireball(entity.ThrownSmallFireball, 17.25, 85.0, 0.5, 1, 0, 0, 0, 1) == 0 {
+		t.Fatal("could not launch")
+	}
+	srv.TickEntities(1)
+	if after, _ := srv.MobHealth(cow); after != before {
+		t.Errorf("health %v -> %v, want the cow skipped", before, after)
+	}
+}
+
+// TestAFireballSkipsAScaledMobFiledInTheSectionAboveTheFlight checks a mob
+// whose feet are in the section above the flight's top is not offered, though
+// the flight is within 2 blocks of that section's boundary.
+// vanilla: EntitySectionStorage.forEachAccessibleNonEmptySection
+func TestAFireballSkipsAScaledMobFiledInTheSectionAboveTheFlight(t *testing.T) {
+	t.Parallel()
+	srv := fireballChunks(t, [2]int32{17, 0}, [2]int32{24, 0})
+	cow := srv.SpawnMobTagged("minecraft:cow", 24.5, 80, 0.5, scale16)
+	if cow == 0 {
+		t.Fatal("the cow was refused")
+	}
+	before, _ := srv.MobHealth(cow)
+	// Flight top at y 79.2 is section 4, the cow's feet are in section 5.
+	if srv.LaunchFireball(entity.ThrownSmallFireball, 17.25, 79.0, 0.5, 1, 0, 0, 0, 1) == 0 {
+		t.Fatal("could not launch")
+	}
+	srv.TickEntities(1)
+	if after, _ := srv.MobHealth(cow); after != before {
+		t.Errorf("health %v -> %v, want the cow skipped", before, after)
+	}
+}
+
+// TestAFireballReachesAScaledMobFiledInTheSectionFourBlocksBelow checks the
+// padding below the flight is 4 blocks: a flight 3 blocks above a section
+// boundary still offers the mob filed in the section below.
+// vanilla: EntitySectionStorage.forEachAccessibleNonEmptySection
+func TestAFireballReachesAScaledMobFiledInTheSectionFourBlocksBelow(t *testing.T) {
+	t.Parallel()
+	srv := fireballChunks(t, [2]int32{17, 0}, [2]int32{24, 0})
+	cow := srv.SpawnMobTagged("minecraft:cow", 24.5, 64, 0.5, scale16)
+	if cow == 0 {
+		t.Fatal("the cow was refused")
+	}
+	before, _ := srv.MobHealth(cow)
+	// Flight at y 83 pads down to 79, section 4 with the cow's feet.
+	if srv.LaunchFireball(entity.ThrownSmallFireball, 17.25, 83.0, 0.5, 1, 0, 0, 0, 1) == 0 {
+		t.Fatal("could not launch")
+	}
+	srv.TickEntities(1)
+	if after, _ := srv.MobHealth(cow); after >= before {
+		t.Errorf("health %v -> %v, want the fireball to hurt it", before, after)
+	}
+}
+
 // TestAFireballWithSavedAccelerationReachesAMobInOneTick checks the sweep
 // is queried over the velocity after the acceleration is applied.
 // vanilla: AbstractHurtingProjectile.tick, ProjectileUtil.getEntityHitResult

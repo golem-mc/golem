@@ -388,8 +388,14 @@ func (in *thrownTickInputs) mobTargets(targets []entity.ArrowTarget, s *Server, 
 	// of the box, however wide its own box is.
 	// vanilla: EntitySectionStorage.forEachAccessibleNonEmptySection
 	area, indexed := smallChunkArea(&box)
+	// Vertically the query runs over 16-block sections, padded 4 below and
+	// 0 above.
+	minSection, maxSection := math.Floor((box[1]-4)/16), math.Floor(box[4]/16)
 	in.mobsNear = in.mobsNear[:0]
 	tw.dim.mobs.mobsInArea(area, indexed, func(m *entity.Mob) bool {
+		if section := math.Floor(math.Floor(m.Y) / 16); section < minSection || section > maxSection {
+			return true
+		}
 		// vanilla: EntitySection.getEntities tests the entity's own box
 		minX, minY, minZ, maxX, maxY, maxZ := m.BlastBox()
 		if maxX < box[0] || minX > box[3] || maxZ < box[2] || minZ > box[5] || maxY < box[1] || minY > box[4] {
