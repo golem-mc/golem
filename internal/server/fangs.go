@@ -350,7 +350,7 @@ func (s *Server) hurtMobByPlayerFangs(w *world.World, m *entity.Mob, it fangsEff
 	}
 	self := owner.LootEntity
 	owner.hurtEntityAdvancements(advancement.Entity{Type: m.Type.Name(), Loot: s.mobLootOf(w, m), Blow: &advancement.Blow{
-		Dealt: entity.FangsDamage, Taken: taken, Type: rules.DamageTypeIndirectMagic, Attacker: self,
+		Dealt: entity.FangsDamage, Taken: taken, Type: rules.DamageTypeIndirectMagic, Attacker: self, Indirect: true,
 		Direct: func() rules.LootEntity { return rules.LootEntity{Type: "minecraft:evoker_fangs"} }}})
 	// Only enchantments can act, so an unenchanted weapon and mob skip the sky
 	// and block lookups and the loot binding.

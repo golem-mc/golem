@@ -1080,6 +1080,11 @@ func TestPackHurtEntityFiresOnAPlayerOwnedFangsBite(t *testing.T) {
 	}
 	packCriterion(t, dir, "cow", "player_hurt_entity", ofType("cow"))
 	packCriterion(t, dir, "zombie", "player_hurt_entity", ofType("zombie"))
+	direct := func(want string) string {
+		return `{"damage":{"type":{"is_direct":` + want + `}}}`
+	}
+	packCriterion(t, dir, "indirect", "player_hurt_entity", direct("false"))
+	packCriterion(t, dir, "direct", "player_hurt_entity", direct("true"))
 	srv, c := joinOp(t, cfg, "Packer")
 	c.MoveToGround(0.5, 64, 0.5, true)
 	c.Settle()
@@ -1091,5 +1096,11 @@ func TestPackHurtEntityFiresOnAPlayerOwnedFangsBite(t *testing.T) {
 	servertest.UntilTicks(t, srv, 12, "the fang bite's criterion", func() bool { return srv.AdvancementObtained("Packer", "pk:cow", "c") })
 	if srv.AdvancementObtained("Packer", "pk:zombie", "c") {
 		t.Fatal("a cow's bite fired the zombie criterion")
+	}
+	if !srv.AdvancementObtained("Packer", "pk:indirect", "c") {
+		t.Fatal("a fang bite did not fire an is_direct false criterion")
+	}
+	if srv.AdvancementObtained("Packer", "pk:direct", "c") {
+		t.Fatal("a fang bite fired an is_direct true criterion")
 	}
 }
