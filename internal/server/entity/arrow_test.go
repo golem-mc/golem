@@ -339,3 +339,23 @@ func TestAnArrowFlyingThroughLavaOrFireIsSetAlight(t *testing.T) {
 		}
 	}
 }
+
+// TestAnArrowBornInsideABlockDoesNotShakeOnItsFirstTick checks that an arrow
+// summoned inside stone is in the ground after its first tick with no shake,
+// and so can be picked up, while one stuck later does shake.
+func TestAnArrowBornInsideABlockDoesNotShakeOnItsFirstTick(t *testing.T) {
+	w := newTestWorld()
+	w.set(0, 64, 0, defaultState(t, "minecraft:stone"))
+
+	a := NewArrow(1, 0.5, 64.52, 0.5, 0, 0, 0, false, ArrowBaseDamage, PickupAllowed, 0, 3)
+	a.Step(w, nil, nil)
+	if !a.InGround {
+		t.Fatal("an arrow inside stone is not in the ground")
+	}
+	if a.ShakeTicks != 0 {
+		t.Errorf("first-tick shake = %d, want 0", a.ShakeTicks)
+	}
+	if !a.CanPickUp(false) {
+		t.Error("an arrow that began inside a block waits out a shake before pickup")
+	}
+}
