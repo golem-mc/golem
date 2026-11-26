@@ -112,7 +112,7 @@ var potShardRenames = map[string]string{
 // fixOldBlockEntity applies the block entity fixes between a chunk's data
 // version and the one decodeChunkNBT reads.
 func fixOldBlockEntity(entry nbt.CompoundTag, version int32) {
-	if version == 0 || version >= storedItemVersion {
+	if version == 0 || version >= textComponentVersion {
 		return
 	}
 	tag := entry.Entries()
@@ -129,6 +129,7 @@ func fixOldBlockEntity(entry nbt.CompoundTag, version int32) {
 	case kind == KindDecoratedPot:
 		fixPotSherds(tag, version)
 	}
+	unflattenBlockEntityText(tag)
 }
 
 // suspiciousSandID is the block entity id KindBrushable had before
