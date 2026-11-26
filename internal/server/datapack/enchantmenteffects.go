@@ -67,7 +67,7 @@ func stateProviderType(o obj) string {
 func simpleState(v any) uint16 {
 	if o, ok := v.(obj); ok && o["type"] != nil {
 		if stateProviderType(o) != "minecraft:simple" {
-			fail("a block state provider other than simple")
+			unsupported("a block state provider other than simple")
 		}
 		unknownKeys(o, "a simple state provider", "type", "state")
 		v = required(o, "state")
@@ -136,7 +136,7 @@ func blockPredicate(o obj) *registry.EnchBlockPredicate {
 		for _, x := range holderList(required(o, key)) {
 			name := str(x, "a name")
 			if strings.HasPrefix(name, "#") {
-				fail("a %s predicate with a tag", out.Kind)
+				unsupported("a %s predicate with a tag", out.Kind)
 			}
 			out.Names = append(out.Names, registry.Qualify(name))
 		}
@@ -167,7 +167,7 @@ func blockPredicate(o obj) *registry.EnchBlockPredicate {
 			out.Terms = append(out.Terms, blockPredicate(object(x, "a block predicate")))
 		}
 	default:
-		fail("block predicate %s is not supported by this server", kind)
+		unsupported("block predicate %s is not supported by this server", kind)
 	}
 	return out
 }
@@ -277,7 +277,7 @@ func floatRange(v any) registry.EnchFloatRange {
 	}
 	o := object(v, "a float provider")
 	if registry.Qualify(requireStr(o, "type")) != "minecraft:uniform" {
-		fail("a float provider other than a constant or uniform")
+		unsupported("a float provider other than a constant or uniform")
 	}
 	return registry.EnchFloatRange{Min: float32(requireNum(o, "min_inclusive")), Max: float32(requireNum(o, "max_exclusive"))}
 }
@@ -290,12 +290,12 @@ func particleAxis(pos, vel obj) registry.EnchParticleAxis {
 	switch requireStr(pos, "type") {
 	case "entity_position":
 		if out.Scale != 1 {
-			fail("Cannot scale an entity position coordinate source")
+			unsupported("Cannot scale an entity position coordinate source")
 		}
 	case "in_bounding_box":
 		out.InBox = true
 	default:
-		fail("position source %s", requireStr(pos, "type"))
+		unsupported("position source %s", requireStr(pos, "type"))
 	}
 	return out
 }
@@ -318,7 +318,7 @@ func particleOf(v any) (id int32, options []byte) {
 	}
 	id, options, ok := registry.ParticleOptions(tag)
 	if !ok {
-		fail("particle %v is not supported by this server", v)
+		unsupported("particle %v is not supported by this server", v)
 	}
 	return id, options
 }
@@ -343,7 +343,7 @@ func summonEffect(e obj) (bolt string, summon *registry.EnchSummon) {
 	for _, x := range holderList(required(e, "entity")) {
 		name := registry.Qualify(str(x, "an entity type"))
 		if strings.HasPrefix(name, "#") || !entityKnown(name) {
-			fail("summon_entity for %s", name)
+			unsupported("summon_entity for %s", name)
 		}
 		names = append(names, name)
 	}

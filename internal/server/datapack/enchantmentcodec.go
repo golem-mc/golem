@@ -20,9 +20,10 @@ type enchantmentDecoder struct {
 // DecodeEnchantment reads one data/<ns>/enchantment file into the tree the
 // server evaluates, the runtime twin of tools/gen's enchantments generator.
 // A component, effect or condition the tree cannot represent is left out and
-// named in dropped; a malformed required field or retired block state provider
-// type is an error. An omitted weight, cost or anvil_cost reads as 1, 0 and 1:
-// vanilla refuses such a file.
+// named in dropped; input vanilla's codec rejects (a missing required field, a
+// retired block state provider type) is an error, and a whole file the tree
+// cannot represent is an error wrapping ErrUnsupported. An omitted weight,
+// cost or anvil_cost reads as 1, 0 and 1: vanilla refuses such a file.
 // vanilla: Enchantment.DIRECT_CODEC
 func DecodeEnchantment(id string, data []byte) (registry.EnchantmentDef, []string, error) {
 	return DecodeEnchantmentWith(id, data, nil)
@@ -116,14 +117,15 @@ func nonEmpty(e registry.EnchEntityEffect) registry.EnchEntityEffect {
 	return e
 }
 
-// keep runs f, which reads one entry, and reports whether it did: an entry
-// the tree cannot represent is recorded as dropped instead of failing the file.
+// keep runs f, which reads one entry, and reports whether it did: a valid entry
+// the tree cannot represent is recorded as dropped instead of failing the file;
+// one vanilla's codec rejects fails it.
 func (d *enchantmentDecoder) keep(where string, f func()) (kept bool) {
 	defer func() {
 		switch r := recover().(type) {
 		case nil:
 		case lootFailure:
-			if r.fatal != nil {
+			if r.fatal != nil || !r.unsupported {
 				panic(r)
 			}
 			if r.msg != "" {
@@ -299,7 +301,7 @@ func soundPitch(v any) (low, high float32) {
 	}
 	o := object(v, "a pitch")
 	if registry.Qualify(requireStr(o, "type")) != "minecraft:uniform" {
-		fail("a pitch provider other than a constant or uniform")
+		unsupported("a pitch provider other than a constant or uniform")
 	}
 	unknownKeys(o, "a uniform pitch", "type", "min_inclusive", "max_exclusive")
 	return float32(requireNum(o, "min_inclusive")), float32(requireNum(o, "max_exclusive"))
@@ -371,7 +373,7 @@ func valueEffect(e obj) registry.EnchEffect {
 		}
 		return out
 	}
-	fail("value effect type %s is not supported by this server", kind)
+	unsupported("value effect type %s is not supported by this server", kind)
 	return registry.EnchEffect{}
 }
 
@@ -383,7 +385,7 @@ func put[T comparable](dst *T, src T) {
 		return
 	}
 	if *dst != zero {
-		fail("an all_of with two entity effects of one kind")
+		unsupported("an all_of with two entity effects of one kind")
 	}
 	*dst = src
 }
@@ -396,14 +398,12 @@ var carriedEntityEffects = []string{
 	"minecraft:set_block_properties", "minecraft:spawn_particles",
 }
 
-// entityEffect reads one entity effect; an effect type the tree does not carry
-// is recorded as dropped and leaves the result empty.
+// entityEffect reads one entity effect; a type vanilla has no codec for fails.
 func (d *enchantmentDecoder) entityEffect(e obj, where string) registry.EnchEntityEffect {
 	var out registry.EnchEntityEffect
 	kind := registry.Qualify(requireStr(e, "type"))
 	if !slices.Contains(carriedEntityEffects, kind) {
-		d.dropped = append(d.dropped, where+": effect "+kind)
-		return out
+		fail("Unknown entity effect type %s", kind)
 	}
 	switch kind {
 	case "minecraft:all_of":
@@ -460,7 +460,7 @@ func (d *enchantmentDecoder) entityEffect(e obj, where string) registry.EnchEnti
 		unknownKeys(e, "an apply impulse effect", "type", "direction", "coordinate_scale", "magnitude")
 		// Only the look itself, direction (0, 0, 1) in the look's frame.
 		if dir := vec3(e["direction"]); dir != [3]float32{0, 0, 1} {
-			fail("an apply_impulse with direction %v", dir)
+			unsupported("an apply_impulse with direction %v", dir)
 		}
 		out.ApplyImpulse = &registry.EnchApplyImpulse{
 			CoordinateScale: vec3(e["coordinate_scale"]),
@@ -480,7 +480,7 @@ func (d *enchantmentDecoder) entityEffect(e obj, where string) registry.EnchEnti
 		// One effect by name; a tag or a list is a shape the tree lacks.
 		toApply, ok := e["to_apply"].(string)
 		if !ok || strings.HasPrefix(toApply, "#") {
-			fail("apply_mob_effect whose to_apply is %v", e["to_apply"])
+			unsupported("apply_mob_effect whose to_apply is %v", e["to_apply"])
 		}
 		out.MobEffect = &registry.EnchMobEffect{
 			Name:         toApply,
@@ -532,11 +532,11 @@ func optStr(o obj, key string) string {
 func (d *enchantmentDecoder) predicateRef(name string) *registry.EnchCondition {
 	name = registry.Qualify(name)
 	if d.predicates == nil {
-		fail("a predicate reference %s is not supported by this server", name)
+		unsupported("a predicate reference %s is not supported by this server", name)
 	}
 	data, ok := d.predicates(name)
 	if !ok {
-		fail("unknown predicate %s", name)
+		unsupported("unknown predicate %s", name)
 	}
 	if d.refDepth >= 16 {
 		fail("a predicate reference loop at %s", name)
@@ -599,7 +599,7 @@ func (d *enchantmentDecoder) nativeCondition(v any) *registry.EnchCondition {
 			for _, x := range items {
 				one := str(x, "a match_tool item")
 				if strings.HasPrefix(one, "#") {
-					fail("a tag inside a match_tool item list: %s", one)
+					unsupported("a tag inside a match_tool item list: %s", one)
 				}
 				out.ToolItems = append(out.ToolItems, itemNamed(one))
 			}
@@ -635,7 +635,7 @@ func (d *enchantmentDecoder) nativeCondition(v any) *registry.EnchCondition {
 		chance := required(c, "chance")
 		if m, ok := chance.(map[string]any); ok {
 			if registry.Qualify(optStr(m, "type")) != "minecraft:enchantment_level" {
-				fail("a random_chance whose chance is %v", m)
+				unsupported("a random_chance whose chance is %v", m)
 			}
 			chance = required(m, "amount")
 		}
@@ -655,7 +655,7 @@ func (d *enchantmentDecoder) nativeCondition(v any) *registry.EnchCondition {
 		}
 		return out
 	}
-	fail("condition type %s is not supported by this server", kind)
+	unsupported("condition type %s is not supported by this server", kind)
 	return nil
 }
 
@@ -670,11 +670,11 @@ func entityProperties(c, predicate obj) *registry.EnchCondition {
 	if _, hasFlying := flags["is_flying"]; hasMovement || hasFlying {
 		unknownKeys(predicate, "an attacker movement predicate", "minecraft:flags", "minecraft:movement")
 		if entity != "direct_attacker" {
-			fail("movement predicate on %s", entity)
+			unsupported("movement predicate on %s", entity)
 		}
 		unknownKeys(flags, "entity flags", "is_flying")
 		if _, ok := flags["is_flying"]; !ok {
-			fail("entity flags without is_flying")
+			unsupported("entity flags without is_flying")
 		}
 		movement := object(required(predicate, "minecraft:movement"), "entity movement")
 		unknownKeys(movement, "entity movement", "fall_distance")
@@ -691,7 +691,7 @@ func entityProperties(c, predicate obj) *registry.EnchCondition {
 	}
 	if location, ok := optObject(predicate, "minecraft:location"); ok {
 		if len(predicate) != 1 {
-			fail("combined entity type and location predicate")
+			unsupported("combined entity type and location predicate")
 		}
 		out := &registry.EnchCondition{Kind: registry.EnchCondEntityProperties, Entity: entity}
 		enchLocation(out, location)
@@ -699,7 +699,7 @@ func entityProperties(c, predicate obj) *registry.EnchCondition {
 	}
 	entityType, ok := predicate["minecraft:entity_type"].(string)
 	if !ok {
-		fail("an entity_properties predicate whose entity_type is %v", predicate["minecraft:entity_type"])
+		unsupported("an entity_properties predicate whose entity_type is %v", predicate["minecraft:entity_type"])
 	}
 	out := &registry.EnchCondition{Kind: registry.EnchCondEntityProperties, Entity: entity}
 	if strings.HasPrefix(entityType, "#") {
@@ -734,7 +734,7 @@ func entityState(p obj) *registry.EnchEntityState {
 	found := false
 	if v, ok := optObject(p, "minecraft:vehicle"); ok {
 		if len(v) != 0 {
-			fail("a vehicle predicate with %v", v)
+			unsupported("a vehicle predicate with %v", v)
 		}
 		s.Vehicle, found = true, true
 	}
@@ -776,7 +776,7 @@ func enchLocation(out *registry.EnchCondition, p obj) {
 		unknownKeys(block, "an enchantment block predicate", "blocks")
 		tag := requireStr(block, "blocks")
 		if !strings.HasPrefix(tag, "#") {
-			fail("an enchantment location block without a tag")
+			unsupported("an enchantment location block without a tag")
 		}
 		out.BlockTag = tag[1:]
 	}
@@ -797,7 +797,7 @@ func explodeEffect(e obj) *registry.EnchExplode {
 	switch out.BlockInteraction = requireStr(e, "block_interaction"); out.BlockInteraction {
 	case "none", "block", "mob", "tnt", "trigger":
 	default:
-		fail("an explode effect with block_interaction %q", out.BlockInteraction)
+		unsupported("an explode effect with block_interaction %q", out.BlockInteraction)
 	}
 	smallID, smallOpts := particleOf(required(e, "small_particle"))
 	largeID, largeOpts := particleOf(required(e, "large_particle"))
@@ -857,7 +857,7 @@ func soundOf(v any) protocol.SoundHolder {
 	if r, ok := o["range"]; ok {
 		f, isNum := num(r)
 		if !isNum {
-			fail("a sound range that is not a number")
+			unsupported("a sound range that is not a number")
 		}
 		h.HasRange, h.Range = true, float32(f)
 	}
