@@ -22,8 +22,8 @@ type enchantmentDecoder struct {
 // A component, effect or condition the tree cannot represent is left out and
 // named in dropped; input vanilla's codec rejects (a missing required field, a
 // retired block state provider type) is an error, and a whole file the tree
-// cannot represent is an error wrapping ErrUnsupported. An omitted weight, cost or anvil_cost reads as 1, 0 and 1:
-// vanilla refuses such a file.
+// cannot represent is an error wrapping ErrUnsupported. An omitted weight,
+// cost or anvil_cost reads as 1, 0 and 1: vanilla refuses such a file.
 // vanilla: Enchantment.DIRECT_CODEC
 func DecodeEnchantment(id string, data []byte) (registry.EnchantmentDef, []string, error) {
 	return DecodeEnchantmentWith(id, data, nil)

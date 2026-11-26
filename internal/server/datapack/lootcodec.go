@@ -398,7 +398,7 @@ func (d lootDecoder) entry(o obj) registry.LootEntry {
 	case "minecraft:dynamic":
 		return registry.LootDynamic{Name: registry.Qualify(requireStr(o, "name")), Weight: weight, Quality: quality, Conditions: conds}
 	}
-	fail("loot entry %s is not supported by this server", kind)
+	unsupported("loot entry %s is not supported by this server", kind)
 	return nil
 }
 
@@ -597,7 +597,7 @@ func (d lootDecoder) condition(c obj) registry.LootCondition {
 			fail("Unknown registry key in ResourceKey[minecraft:root / minecraft:environment_attribute]: %s", name)
 		}
 		if !attr.Float {
-			fail("environment attribute %s is not supported by this server", name)
+			unsupported("environment attribute %s is not supported by this server", name)
 		}
 		return registry.LootEnvironmentCheck{Attribute: name, Value: float32(requireNum(c, "value"))}
 	case "minecraft:int_value_check", "minecraft:float_value_check":
@@ -610,7 +610,10 @@ func (d lootDecoder) condition(c obj) registry.LootCondition {
 			Float: kind == "minecraft:float_value_check",
 		}
 	}
-	fail("condition %s is not supported by this server", kind)
+	if !slices.Contains(lootConditionTypes, strings.TrimPrefix(kind, "minecraft:")) {
+		fail("Unknown registry key in ResourceKey[minecraft:root / minecraft:loot_condition_type]: %s", kind)
+	}
+	unsupported("condition %s is not supported by this server", kind)
 	return nil
 }
 
@@ -872,7 +875,7 @@ func componentTests(predicates obj) []registry.LootComponentTest {
 			potion := object(v, "potion_contents predicate")
 			unknownKeys(potion, "potion_contents predicate", "potions", "effects")
 			if _, has := potion["effects"]; has {
-				fail("a potion_contents predicate with effects is not supported by this server")
+				unsupported("a potion_contents predicate with effects is not supported by this server")
 			}
 			test := registry.LootComponentTest{Potion: true}
 			if set, has := potion["potions"]; has {
@@ -914,12 +917,12 @@ func (decoder ResourceDecoder) locationPredicate(predicate obj) registry.LootLoc
 				out.Block = registry.Qualify(blocks)
 			}
 		default:
-			fail("a block predicate with a list of blocks is not supported by this server")
+			unsupported("a block predicate with a list of blocks is not supported by this server")
 		}
 		if out.Block != "" {
 			out.Properties = stateProperties(block["state"])
 		} else if _, has := block["state"]; has {
-			fail("a block predicate with a state but no blocks is not supported by this server")
+			unsupported("a block predicate with a state but no blocks is not supported by this server")
 		}
 		if text, has := block["nbt"]; has {
 			compound, err := nbt.ParseOrderedSNBT(str(text, "block nbt"))
@@ -1289,6 +1292,16 @@ func (d lootDecoder) intLimit(o obj) (lo, hi registry.LootNumber) {
 	return bound("min"), bound("max")
 }
 
+// lootConditionTypes is every loot condition type the game registers.
+// vanilla: LootItemConditionTypes.bootstrap
+var lootConditionTypes = []string{
+	"inverted", "any_of", "all_of", "random_chance", "random_chance_with_enchanted_bonus",
+	"entity_properties", "killed_by_player", "entity_scores", "match_block", "match_tool",
+	"table_bonus", "survives_explosion", "damage_source_properties", "location_check",
+	"weather_check", "time_check", "int_value_check", "float_value_check",
+	"enchantment_active_check", "environment_attribute_check",
+}
+
 // lootFunctionTypes is every loot function type the game registers, which
 // tells a type this server leaves out from one that does not exist.
 // vanilla: LootItemFunctions.bootstrap
@@ -1319,7 +1332,7 @@ func (d lootDecoder) functions(v any) []registry.LootFunction {
 // which this server does not model.
 func holderName(name string) string {
 	if strings.HasPrefix(name, "#") {
-		fail("a holder set %s is not supported by this server", name)
+		unsupported("a holder set %s is not supported by this server", name)
 	}
 	return registry.Qualify(name)
 }
@@ -1481,7 +1494,7 @@ func (d lootDecoder) function(f obj) registry.LootFunction {
 		for k, v := range object(required(f, "toggles"), "toggles") {
 			name := registry.Qualify(k)
 			if _, ok := registry.ComponentID(name); !ok {
-				fail("data component %s is not supported by this server", name)
+				unsupported("data component %s is not supported by this server", name)
 			}
 			shown, isBool := v.(bool)
 			if !isBool {
@@ -1634,7 +1647,7 @@ func (d lootDecoder) function(f obj) registry.LootFunction {
 	if fn, ok := d.componentFunction(kind, f, conds); ok {
 		return fn
 	}
-	fail("function %s is not supported by this server", kind)
+	unsupported("function %s is not supported by this server", kind)
 	return nil
 }
 
@@ -1688,7 +1701,7 @@ func copyOps(v any) []registry.LootCopyOp {
 func setName(f obj, conds []registry.LootCondition) registry.LootFunction {
 	target, ok := f["target"].(string)
 	if ok && target != "custom_name" && target != "item_name" {
-		fail("name target %q is not supported by this server", target)
+		unsupported("name target %q is not supported by this server", target)
 	}
 	v, ok := f["name"]
 	if !ok {
@@ -1818,7 +1831,7 @@ func bonusFormula(f obj) registry.LootBonusFormula {
 		params := object(valueOr(f, "parameters", obj{}), "parameters")
 		return registry.LootBinomialBonus{Extra: int32(optNum(params, "extra", 0)), Probability: optNum(params, "probability", 0)}
 	default:
-		fail("bonus formula %s is not supported by this server", kind)
+		unsupported("bonus formula %s is not supported by this server", kind)
 	}
 	return nil
 }
@@ -1859,7 +1872,7 @@ func snbt(v any) string {
 		quoted, _ := json.Marshal(k)
 		return string(quoted)
 	}
-	fail("a component value of this kind is not supported by this server")
+	unsupported("a component value of this kind is not supported by this server")
 	return ""
 }
 

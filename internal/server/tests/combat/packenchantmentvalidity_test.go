@@ -41,3 +41,18 @@ func TestPackUnimplementedEnchantmentEffectStillSent(t *testing.T) {
 		t.Error("pk:ammo is not in the registry sent to the client")
 	}
 }
+
+// A requirement the loot codec cannot represent (an environment attribute that
+// is not a float) is valid in vanilla, so the enchantment loads and is sent.
+// vanilla: EnvironmentAttributeCheck.CODEC
+func TestPackUnsupportedEnchantmentRequirementStillSent(t *testing.T) {
+	cfg := servertest.MobTestConfig()
+	cfg.LevelName = servertest.PackEnchantments(t, map[string]string{
+		"data/pk/enchantment/ammo.json": spawnEnchantment(`{"effect":{"type":"minecraft:apply_impulse","direction":[0,1,0],"coordinate_scale":[1,1,1],"magnitude":1},"requirements":{"type":"minecraft:environment_attribute_check","attribute":"minecraft:gameplay/can_start_raid","value":true}}`),
+	})
+	servertest.JoinAs(t, cfg, "Joiner")
+	ench, _ := registry.Get("minecraft:enchantment")
+	if !slices.Contains(ench.Entries, "pk:ammo") {
+		t.Error("pk:ammo is not in the registry sent to the client")
+	}
+}
