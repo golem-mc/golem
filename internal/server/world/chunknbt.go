@@ -356,7 +356,7 @@ func fixLegacyPalette(palette nbt.List, version int32) {
 			name, _ = nbt.Get[nbt.String](entry, nameKey)
 		}
 		props, _ := nbt.Get[nbt.Compound](entry, propsKey)
-		if wallBlocks[registry.Qualify(string(name))] {
+		if b, ok := registry.BlockByName(registry.Qualify(string(name))); ok && b.IsWall() {
 			fixWallSides(props, version)
 		}
 		if fix, ok := legacyPaletteFixes[registry.Qualify(string(name))]; ok {

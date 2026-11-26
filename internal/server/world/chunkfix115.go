@@ -21,16 +21,6 @@ const (
 	redstoneWireVersion   = 2531 // vanilla: DataFixers.addFixers (RedstoneWireConnectionsFix)
 )
 
-// wallBlocks are the walls of 1.15, whose sides were "true" or "false".
-// vanilla: WallPropertyFix.WALL_BLOCKS
-var wallBlocks = map[string]bool{
-	"minecraft:andesite_wall": true, "minecraft:brick_wall": true, "minecraft:cobblestone_wall": true,
-	"minecraft:diorite_wall": true, "minecraft:end_stone_brick_wall": true, "minecraft:granite_wall": true,
-	"minecraft:mossy_cobblestone_wall": true, "minecraft:mossy_stone_brick_wall": true,
-	"minecraft:nether_brick_wall": true, "minecraft:prismarine_wall": true, "minecraft:red_nether_brick_wall": true,
-	"minecraft:red_sandstone_wall": true, "minecraft:sandstone_wall": true, "minecraft:stone_brick_wall": true,
-}
-
 var sideProps = [...]string{"east", "west", "north", "south"}
 
 // fixWallSides turns a wall's boolean sides into "low" and "none".
