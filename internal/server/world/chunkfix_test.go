@@ -10,6 +10,10 @@ import (
 func oldChunkWorld(t *testing.T, version int32, blockEntities ...nbt.Tag) (*World, ChunkPos) {
 	t.Helper()
 	pos := ChunkPos{X: 1, Z: 2}
+	grass := "minecraft:grass"
+	if version >= grassRenameVersion {
+		grass = "minecraft:short_grass"
+	}
 	root := nbt.Compound{
 		"DataVersion": nbt.Int(version),
 		"Status":      nbt.String("minecraft:full"),
@@ -18,7 +22,7 @@ func oldChunkWorld(t *testing.T, version int32, blockEntities ...nbt.Tag) (*Worl
 		"sections": nbt.List{Elem: nbt.TypeCompound, Items: []nbt.Tag{nbt.Compound{
 			"Y": nbt.Byte(4),
 			"block_states": nbt.Compound{"palette": nbt.List{Elem: nbt.TypeCompound, Items: []nbt.Tag{
-				nbt.Compound{"Name": nbt.String("minecraft:grass")},
+				nbt.Compound{"Name": nbt.String(grass)},
 			}}},
 		}}},
 		"block_entities": nbt.List{Elem: nbt.TypeCompound, Items: blockEntities},
