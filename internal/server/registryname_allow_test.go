@@ -117,7 +117,7 @@ var registryNameAllowed = map[string]nameAllowance{
 	"internal/server/world/bonemeal.go: string block lookup":                        {count: 2, issue: 6380},
 	"internal/server/world/bubblecolumn.go: string block lookup":                    {count: 1, issue: 6380},
 	"internal/server/world/chunk.go: string registry lookup":                        {count: 1, issue: 6380},
-	"internal/server/world/chunknbt.go: string block lookup":                        {count: 1, boundary: "stored data decoding"},
+	"internal/server/world/chunknbt.go: string block lookup":                        {count: 2, boundary: "stored data decoding"},
 	"internal/server/world/coral.go: string block lookup":                           {count: 2, issue: 6380},
 	"internal/server/world/crops.go: name-keyed block states":                       {count: 1, issue: 6380},
 	"internal/server/world/decor_protos.go: comparison with an entity name":         {count: 1, issue: 6380},
