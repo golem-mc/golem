@@ -173,7 +173,7 @@ func (s *Server) tellArrowMobHit(hit arrowMobHit) {
 	}
 	if !hit.softened {
 		s.tellWatchers(hit.w, hit.watchers, []outbound{
-			{id: protocol.IDPlayDamageEvent, data: damageEventPayload(hit.victimID, hit.damageType, hit.causeID, hit.directID)},
+			{id: protocol.IDPlayDamageEvent, data: damageEventPayload(hit.victimID, hit.damageType, hit.wireCause, hit.directID)},
 			{id: protocol.IDPlayHurtAnimation, data: hurtAnimationPayload(hit.victimID, hit.yaw)},
 			{id: protocol.IDPlaySetEntityMotion, data: entityVelocityPayload(hit.victimID, hit.vx, hit.vy, hit.vz)},
 		})
