@@ -24,6 +24,7 @@ func TestLandingPastAnEdgeStillRestsOnTheBlockItLeft(t *testing.T) {
 	c.MoveToGround(5.9, 65, 0.5, false)
 	// The box now spans x 6.1..6.7: clear of the bale at 5..6.
 	c.MoveToGround(6.4, 64, 0.5, true)
+	c.Settle()
 	servertest.RunTicks(t, srv, 3)
 	// Ten blocks: 7 damage on stone, 1 on hay (multiplier 0.2).
 	if got := 20 - srv.PlayerHealth("Edger"); math.Abs(float64(got)-1) > 1e-4 {
