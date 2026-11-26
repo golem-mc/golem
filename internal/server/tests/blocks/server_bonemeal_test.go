@@ -1164,3 +1164,13 @@ func TestTallGrassBonemealUsesDimensionCeiling(t *testing.T) {
 		{"minecraft:fern", "minecraft:dirt"},
 	})
 }
+
+// TestGrassBlockBonemealUsesDimensionCeiling checks that a grass block needs
+// air above it inside the dimension's build height.
+// vanilla: GrassBlock.isValidBonemealTarget, BoneMealItem.growCrop
+func TestGrassBlockBonemealUsesDimensionCeiling(t *testing.T) {
+	t.Parallel()
+	checkBonemealCeiling(t, [][2]string{
+		{"minecraft:grass_block", ""},
+	})
+}
