@@ -217,6 +217,28 @@ func TestAFireballReachesAScaledMobFiledInTheChunkItsOwnBoxPadsInto(t *testing.T
 	}
 }
 
+// TestAFireballSkipsAScaledMobFiledInASectionBelowThePadding checks a mob
+// whose feet are in a lower 16-block section than the padded flight is not
+// offered even though its box overlaps the flight.
+// vanilla: EntitySectionStorage.forEachAccessibleNonEmptySection
+func TestAFireballSkipsAScaledMobFiledInASectionBelowThePadding(t *testing.T) {
+	t.Parallel()
+	srv := fireballChunks(t, [2]int32{17, 0}, [2]int32{24, 0})
+	cow := srv.SpawnMobTagged("minecraft:cow", 24.5, 64, 0.5, scale16)
+	if cow == 0 {
+		t.Fatal("the cow was refused")
+	}
+	before, _ := srv.MobHealth(cow)
+	// Cow box reaches y 64..86; the flight at y 84 pads down to 82, section 5.
+	if srv.LaunchFireball(entity.ThrownSmallFireball, 17.25, 84.0, 0.5, 1, 0, 0, 0, 1) == 0 {
+		t.Fatal("could not launch")
+	}
+	srv.TickEntities(1)
+	if after, _ := srv.MobHealth(cow); after != before {
+		t.Errorf("health %v -> %v, want the cow skipped", before, after)
+	}
+}
+
 // TestAFireballWithSavedAccelerationReachesAMobInOneTick checks the sweep
 // is queried over the velocity after the acceleration is applied.
 // vanilla: AbstractHurtingProjectile.tick, ProjectileUtil.getEntityHitResult
