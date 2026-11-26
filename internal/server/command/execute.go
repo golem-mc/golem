@@ -1474,8 +1474,8 @@ func stepConditional(src Source, ctxs []execContext, forked bool, expected bool,
 	case "predicate":
 		// The argument is a pack predicate's name or an inline one.
 		text, span := itemPredicateText(tokens, at+2)
+		cond, err := parsePredicate(text, nil)
 		next, ask := expectOver(src, ctxs, expected, false, func(view Source) condAnswer {
-			cond, err := parsePredicate(text, nil)
 			if err != nil {
 				return condAnswer{}
 			}
