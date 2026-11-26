@@ -77,6 +77,7 @@ Options for the server go after `--`; they are the vanilla server's options:
 | [spark](https://github.com/golem-mc/spark) | Performance profiler, ported from [spark](https://spark.lucko.me/) | `golem-launcher plugin add github.com/golem-mc/spark` |
 | [multiverse](https://github.com/golem-mc/multiverse) | Multi-world manager, ported from [Multiverse](https://github.com/Multiverse/Multiverse-Core) | `golem-launcher plugin add github.com/golem-mc/multiverse` |
 | [vault](https://github.com/golem-mc/vault) | Economy, permission and chat API, ported from [Vault](https://github.com/MilkBowl/Vault) | `golem-launcher plugin add github.com/golem-mc/vault/vaultplugin` |
+| [plots](https://github.com/golem-mc/plots) | Plot worlds: claim, merge and manage plots, ported from [PlotSquared](https://github.com/IntellectualSites/PlotSquared); needs worldedit | `golem-launcher plugin add github.com/golem-mc/plots/plotsplugin` |
 
 Some plugins come with optional modules, each added the same way by its package path:
 
