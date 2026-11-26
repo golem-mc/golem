@@ -545,7 +545,8 @@ func (p *Physics) pistonRideCreate(pos [3]int32, rideState, movedState uint16, d
 
 // pistonLandedHooks runs a landing's two passes after the write:
 // updateFromNeighbourShapes's six shape offers, which re-book a moved
-// observer's pulse, and onPlace, which stops the pulse of one landing powered.
+// observer's pulse, and onPlace, which stops the pulse of one landing powered
+// and books a landed frosted ice's melt tick.
 // oldState is the cell's state before the landing, onPlace's old block.
 // vanilla: PistonMovingBlockEntity.tick, PistonMovingBlockEntity.finalTick
 func (p *Physics) pistonLandedHooks(x, y, z int32, oldState uint16, changes *[]BlockChange) {
@@ -553,6 +554,10 @@ func (p *Physics) pistonLandedHooks(x, y, z int32, oldState uint16, changes *[]B
 		p.shapeUpdate(x, y, z, [3]int32{-d[0], -d[1], -d[2]}, changes)
 	}
 	p.redstoneOnPlace(x, y, z, oldState, changes)
+	if registry.BlockOf(p.w.BlockAt(x, y, z)) == registry.BlockFrostedIce {
+		// vanilla: FrostedIceBlock.onPlace
+		p.schedule(x, y, z, p.now+frostedIcePlaceDelay(p.rng))
+	}
 }
 
 // pistonEventTick runs one of the piston's block events. Vanilla's state
