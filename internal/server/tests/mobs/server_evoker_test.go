@@ -514,3 +514,35 @@ func TestFangsThornsReachAnOwnerInAnotherDimension(t *testing.T) {
 		t.Error("the player's attacker relation did not find the nether evoker as the speaker")
 	}
 }
+
+// TestFangsKeepADyingOwner: an evoker killed during its fangs' warmup stays
+// their owner while its corpse lasts, so they spare its ally and the pig's
+// damage names the evoker.
+// vanilla: EvokerFangs.dealDamageTo, EntityReference.getEntity
+func TestFangsKeepADyingOwner(t *testing.T) {
+	t.Parallel()
+	cfg := servertest.HostileTestConfig()
+	cfg.ViewDistance, cfg.SimulationDistance = config.MinDistance, config.MinDistance
+	srv, c := servertest.Join(t, cfg, "Target", servertest.OpsListing(t, "Target"))
+	servertest.HoldTicks(t, srv)
+	pig := srv.SpawnMob("minecraft:pig", 10.5, 64, 0.5)
+	ally := srv.SpawnMob("minecraft:vindicator", 10.5, 64, 0.5)
+	for _, id := range []int32{pig, ally} {
+		srv.SetMobNoAI(id)
+		srv.SetMobHealth(id, 100)
+	}
+	owner := srv.SpawnMob(evokerKind, 40.5, 64, 40.5)
+	srv.SetMobNoAI(owner)
+	srv.SpawnFangsWarmup(10.5, 64, 0.5, owner, 4)
+	srv.RunLine("kill @e[type=minecraft:evoker,limit=1]")
+	damageType, cause := damageEventOf(c, srv, 14, pig)
+	if want := registry.MustID("minecraft:damage_type", "minecraft:indirect_magic"); damageType != want {
+		t.Errorf("damage type = %d, want indirect magic %d", damageType, want)
+	}
+	if cause != owner+1 {
+		t.Errorf("damage cause = %d, want the dying evoker %d", cause, owner+1)
+	}
+	if hp, _ := srv.MobHealth(ally); hp < 100 {
+		t.Errorf("vindicator health = %v, want it spared as the dying evoker's ally", hp)
+	}
+}
