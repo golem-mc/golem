@@ -345,7 +345,9 @@ type arrowMobHit struct {
 	pitch    float32
 	silent   bool
 	causeID  int32
-	directID int32
+	// wireCause is the damage event's cause: the shooter, else the projectile.
+	wireCause int32
+	directID  int32
 	// damageType is the blow's own — the arrow's, or the trident's for a
 	// trident's hit — which the damage event names the hurt by.
 	damageType registry.DamageType
@@ -472,6 +474,12 @@ func (s *Server) arrowHurtMob(it *arrowEntity, dim *dimension, m *entity.Mob, ev
 		shaftSound = &snd
 	}
 	ent := dim.mobs.book[m]
+	// vanilla: AbstractArrow.onHitEntity, ThrownTrident.onHitEntity: an
+	// ownerless projectile is its own causing entity.
+	wireCause := it.arrow.ID + 1
+	if it.arrow.OwnerID != 0 {
+		wireCause = it.arrow.OwnerID + 1
+	}
 	hit := arrowMobHit{
 		w:          dim.w,
 		victimID:   m.ID,
@@ -481,6 +489,7 @@ func (s *Server) arrowHurtMob(it *arrowEntity, dim *dimension, m *entity.Mob, ev
 		pitch:      m.VoicePitch(),
 		silent:     m.Silent,
 		causeID:    causeEntityID(&damageCause{entityID: it.arrow.OwnerID}),
+		wireCause:  wireCause,
 		directID:   it.arrow.ID + 1,
 		damageType: damageType,
 		dealt:      ev.Damage, taken: healthBefore - m.Health,
