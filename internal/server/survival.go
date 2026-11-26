@@ -545,12 +545,12 @@ func causeEntityID(cause *damageCause) int32 {
 
 // damageIsDirect reports whether the cause also carried the blow, for
 // enchantment conditions (vanilla: DamageSource.isDirect); a nil cause is
-// direct, as vanilla's null == null.
+// direct, as vanilla's null == null. An ownerless projectile fills both roles.
 func damageIsDirect(cause *damageCause) bool {
 	if cause == nil || cause.posOnly {
 		return true
 	}
-	return cause.directID == 0 || cause.directID == cause.entityID+1
+	return cause.directID == 0 || cause.directIsSource || cause.directID == cause.entityID+1
 }
 
 // meleeDamageType is the damage type a player's blow with held deals.
