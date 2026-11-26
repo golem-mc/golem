@@ -1067,3 +1067,29 @@ func TestPackKilledPlayerByFangsHasFangsDirect(t *testing.T) {
 	srv.RunLine("summon minecraft:evoker_fangs 3.5 64 0.5 " + owner)
 	servertest.UntilTicks(t, srv, 9, "the fangs' kill of a player", func() bool { return srv.AdvancementObtained("Packer", "pk:fangs", "c") })
 }
+
+// TestPackHurtEntityFiresOnAPlayerOwnedFangsBite: a player_hurt_entity
+// criterion fires for a mob bitten by evoker fangs the player owns, with the
+// damage dealt, and one that wants a different victim does not.
+// vanilla: EvokerFangs.dealDamageTo, LivingEntity.hurtServer
+func TestPackHurtEntityFiresOnAPlayerOwnedFangsBite(t *testing.T) {
+	cfg, data := packConfig(t)
+	dir := filepath.Join(data, "pk", "advancement")
+	ofType := func(name string) string {
+		return `{"entity":[{"condition":"minecraft:entity_properties","entity":"this","predicate":{"minecraft:entity_type":"minecraft:` + name + `"}}],"damage":{"dealt":{"min":5}}}`
+	}
+	packCriterion(t, dir, "cow", "player_hurt_entity", ofType("cow"))
+	packCriterion(t, dir, "zombie", "player_hurt_entity", ofType("zombie"))
+	srv, c := joinOp(t, cfg, "Packer")
+	c.MoveToGround(0.5, 64, 0.5, true)
+	c.Settle()
+	servertest.HoldTicks(t, srv)
+	cow := srv.SpawnMob("minecraft:cow", 5.5, 64, 0.5)
+	srv.SetMobNoAI(cow)
+	owner := servertest.UuidWords(protocol.OfflineUUID("Packer"))
+	srv.RunLine(fmt.Sprintf("summon minecraft:evoker_fangs 5.5 64 0.5 {Owner:[I;%d,%d,%d,%d]}", owner[0], owner[1], owner[2], owner[3]))
+	servertest.UntilTicks(t, srv, 12, "the fang bite's criterion", func() bool { return srv.AdvancementObtained("Packer", "pk:cow", "c") })
+	if srv.AdvancementObtained("Packer", "pk:zombie", "c") {
+		t.Fatal("a cow's bite fired the zombie criterion")
+	}
+}
