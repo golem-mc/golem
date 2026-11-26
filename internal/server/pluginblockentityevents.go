@@ -227,9 +227,9 @@ func yieldLootRadius(yield float32) float64 {
 }
 
 // pluginTNTPrime fires TNTPrimeEvent for a TNT block about to become a primed
-// entity and reports a cancel. Most callers have written air over the block by
-// now, so a cancel puts the block back rather than losing it; it is the plain
-// block, as the caller's state is gone.
+// entity and reports a cancel. Callers that have written air over the block
+// by now get it back with a client-only write; it is the plain block, as the
+// caller's state is gone.
 // vanilla: TntBlock.prime
 func (s *Server) pluginTNTPrime(w *world.World, t world.TNTPrime, igniter uuid.UUID) bool {
 	pw := pluginWorld{srv: s, dim: s.dimensionOfWorld(w), host: s.pluginAdapter}
@@ -244,7 +244,9 @@ func (s *Server) pluginTNTPrime(w *world.World, t world.TNTPrime, igniter uuid.U
 		return false
 	}
 	if w.BlockAt(t.X, t.Y, t.Z) == airBlockState {
-		s.setBlockAndTell(w, t.X, t.Y, t.Z, registry.BlockTnt.DefaultState())
+		// Client update only: a wake would find the TNT still powered and
+		// prime it again.
+		s.writeBlock(w, t.X, t.Y, t.Z, registry.BlockTnt.DefaultState(), nil, writeLight|writeLightAfter)
 	}
 	return true
 }

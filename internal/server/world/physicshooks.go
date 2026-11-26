@@ -23,6 +23,9 @@ const (
 	HookFertilize
 	HookStructure
 	HookMoisture
+	// HookTNTPrime asks before a powered or burning TNT block is removed; a
+	// veto leaves the block in place.
+	HookTNTPrime
 )
 
 // Causes of HookIgnite.
