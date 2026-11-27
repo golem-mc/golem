@@ -82,7 +82,7 @@ func upgradeEntities(entities nbt.List, version int32) {
 		if version < equipmentFormatVersion {
 			upgradeEquipment(c, version)
 		}
-		if version < tooltipDisplayVersion {
+		if version < dataVersion {
 			fixStoredComponents(c, version)
 			fixEntityTexts(c, version)
 		}
@@ -95,13 +95,13 @@ func upgradeEntities(entities nbt.List, version int32) {
 // UpgradePlayerData brings a player file written at an older data version to
 // the shapes this server reads: item stacks of Inventory, EnderItems and the
 // equipment, and the player's attributes. It raises the file's DataVersion to
-// the last of those fixes (tooltipDisplayVersion), so a later load does not run
+// the current one, so a later load does not run
 // them over the upgraded data; the respawn and equipment steps keyed on the
 // claim stay with the caller.
 // vanilla: DataFixTypes.PLAYER.updateToCurrentVersion
 func UpgradePlayerData(root nbt.Compound) {
 	version, _ := nbt.Get[nbt.Int](root, "DataVersion")
-	if version == 0 || version >= tooltipDisplayVersion {
+	if version == 0 || version >= dataVersion {
 		return
 	}
 	if version < legacyDimensionIDVersion {
@@ -112,7 +112,7 @@ func UpgradePlayerData(root nbt.Compound) {
 	}
 	fixStoredComponents(root, int32(version))
 	fixEntityTexts(root, int32(version))
-	root["DataVersion"] = nbt.Int(tooltipDisplayVersion)
+	root["DataVersion"] = nbt.Int(dataVersion)
 }
 
 // legacyDimensionIDVersion is the DataVersion that turned a player's numeric

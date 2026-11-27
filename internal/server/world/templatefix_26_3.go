@@ -105,7 +105,7 @@ func templateUnpackPot(value nbt.Tag) nbt.Tag {
 
 // templatePlainTranslation is ExtraDataFixUtils.getPlainTranslationKey.
 func templatePlainTranslation(value nbt.Tag) string {
-	c, _ := value.(nbt.Compound)
+	c, _ := nbt.CompoundView(value)
 	if len(c) == 1 {
 		key, _ := nbt.Get[nbt.String](c, "translate")
 		return string(key)
@@ -122,10 +122,10 @@ var templateExplorerMapRenames = map[string]string{
 }
 
 // vanilla: ExplorerMapItemFix
-func templateExplorerMap(item nbt.Compound) {
-	components, _ := nbt.Get[nbt.Compound](item, "components")
-	decorations, _ := nbt.Get[nbt.Compound](components, "minecraft:map_decorations")
-	decoration, _ := nbt.Get[nbt.Compound](decorations, "+")
+func templateExplorerMap(item nbt.CompoundTag) {
+	components, _ := nbt.CompoundView(item.Entries()["components"])
+	decorations, _ := nbt.CompoundView(components["minecraft:map_decorations"])
+	decoration, _ := nbt.CompoundView(decorations["+"])
 	typeID, _ := nbt.Get[nbt.String](decoration, "type")
 	var name, translation string
 	switch registry.Qualify(string(typeID)) {
@@ -147,8 +147,8 @@ func templateExplorerMap(item nbt.Compound) {
 	default:
 		return
 	}
-	item["id"] = nbt.String("minecraft:" + name)
+	item.Set("id", nbt.String("minecraft:"+name))
 	if templatePlainTranslation(components["minecraft:item_name"]) == "filled_map."+translation {
-		delete(components, "minecraft:item_name")
+		item.Entries()["components"].(nbt.CompoundTag).Delete("minecraft:item_name")
 	}
 }

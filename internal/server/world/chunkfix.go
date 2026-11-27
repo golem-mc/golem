@@ -162,6 +162,17 @@ func fixOldBlockEntity(entry nbt.CompoundTag, version int32) bool {
 		tag["allow_op_features"] = nbt.Byte(1)
 	}
 	if version >= tooltipDisplayVersion {
+		if version < dataVersion {
+			fixStoredComponents(entry, version)
+			if kind == KindDecoratedPot && version < potDecorationsVersion {
+				// vanilla: PotDecorationsBlockEntityUnflatteningFix
+				v, ok := tag["sherds"]
+				if !ok {
+					v = nbt.List{Elem: nbt.TypeString}
+				}
+				tag["sherds"] = templateUnpackPot(v)
+			}
+		}
 		return true
 	}
 	if version < storedItemVersion {

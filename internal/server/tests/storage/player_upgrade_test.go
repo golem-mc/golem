@@ -81,7 +81,11 @@ func TestPlayerFileBefore1_20_5Upgrades(t *testing.T) {
 	if _, ok := book["minecraft:written_book_content"]; !ok {
 		t.Errorf("book components %v lack written_book_content", book)
 	}
-	inv("minecraft:iron_chestplate")
+	// The file is stamped current, so the worn item is saved in the equipment tag.
+	equipment, _ := nbt.Get[nbt.Compound](saved, "equipment")
+	if chest, _ := nbt.Get[nbt.Compound](equipment, "chest"); chest["id"] != nbt.String("minecraft:iron_chestplate") {
+		t.Errorf("equipment = %v, want an iron chestplate in chest", equipment)
+	}
 	savedStack(t, saved, "EnderItems", "minecraft:emerald")
 	attrs, _ := nbt.Get[nbt.List](saved, "attributes")
 	found := false
@@ -130,6 +134,26 @@ func TestPlayerFileFrom1_21_1Upgrades(t *testing.T) {
 	if typ, _ := nbt.Get[nbt.String](m, "type"); typ != "minecraft:attack_damage" {
 		t.Errorf("modifier type = %q", typ)
 	}
+}
+
+// TestPlayerFileFrom26_2KeepsExplorerMap loads a 26.2 player file and finds
+// the explorer map as its own item.
+// vanilla: ExplorerMapItemFix, ItemRenameFix
+func TestPlayerFileFrom26_2KeepsExplorerMap(t *testing.T) {
+	t.Parallel()
+	saved := joinOldPlayer(t, nbt.Compound{
+		"DataVersion": nbt.Int(4903),
+		"Inventory": list(nbt.Compound{
+			"id": nbt.String("minecraft:filled_map"), "count": nbt.Int(1), "Slot": nbt.Byte(1),
+			"components": nbt.Compound{
+				"minecraft:map_id":    nbt.Int(1),
+				"minecraft:map_color": nbt.Int(3830373),
+				"minecraft:map_decorations": nbt.Compound{"+": nbt.Compound{
+					"type": nbt.String("minecraft:mansion"), "x": nbt.Double(0), "z": nbt.Double(0), "rotation": nbt.Float(180)}},
+				"minecraft:item_name": nbt.Compound{"translate": nbt.String("filled_map.mansion")},
+			}}),
+	})
+	savedStack(t, saved, "Inventory", "minecraft:woodland_mansion_map")
 }
 
 // TestPlayerFileBefore1_16KeepsItsDimension loads a 1.15.2 player file whose

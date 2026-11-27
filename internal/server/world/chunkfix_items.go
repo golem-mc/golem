@@ -20,6 +20,12 @@ const (
 	textComponentVersion       = 4290 // vanilla: DataFixers.addFixers (UnflattenTextComponentFix)
 	entityVariantVersion       = 4299 // vanilla: DataFixers.addFixers (EntitySpawnerItemVariantComponentFix)
 	tooltipDisplayVersion      = 4307 // vanilla: DataFixers.addFixers (TooltipDisplayComponentFix)
+	potDecorationsVersion      = 4996 // vanilla: DataFixers.addFixers (PotDecorationsComponentUnflatteningFix)
+	swingAnimationVersion      = 5007 // vanilla: DataFixers.addFixers (SwingAnimationComponentSplitFix)
+	explorerMapVersion         = 5008 // vanilla: DataFixers.addFixers (ExplorerMapItemFix, MapColorComponentRemovalFix)
+	explorerMapRenameVersion   = 5012 // vanilla: DataFixers.addFixers (ItemRenameFix, explorer map items)
+	blockTransformerVersion    = 5014 // vanilla: DataFixers.addFixers (RemoveBlockTransformerComponentFix)
+	buriedTreasureMapVersion   = 5016 // vanilla: DataFixers.addFixers (UnfilledBuriedTreasureMapFix)
 )
 
 // fixStoredComponents upgrades the components of every stack under tag from
@@ -33,8 +39,9 @@ func fixStoredComponents(tag nbt.Tag, version int32) {
 	case nbt.CompoundTag:
 		entries := v.Entries()
 		if id, isStack := entries["id"].(nbt.String); isStack {
-			if components, ok := nbt.CompoundView(entries["components"]); ok {
-				fixComponentShapes(components, string(id), version)
+			if components, ok := entries["components"].(nbt.CompoundTag); ok {
+				fixComponentShapes(components.Entries(), string(id), version)
+				fixStackComponents(v, components, version)
 			}
 		}
 		for _, child := range entries {
@@ -83,6 +90,47 @@ func fixComponentShapes(c nbt.Compound, id string, version int32) {
 	}
 	if version < tooltipDisplayVersion {
 		fixTooltipDisplay(c)
+	}
+}
+
+// fixStackComponents runs the fixes of data versions 4996 to 5016 on a stack:
+// they delete components and change the item id, so they take the stack's
+// CompoundTag, whose key order a plain map write would corrupt.
+func fixStackComponents(stack, components nbt.CompoundTag, version int32) {
+	if version < potDecorationsVersion {
+		if v, ok := components.Entries()["minecraft:pot_decorations"]; ok {
+			components.Set("minecraft:pot_decorations", templateUnpackPot(v))
+		}
+	}
+	if version < swingAnimationVersion {
+		if animation, ok := components.Entries()["minecraft:swing_animation"]; ok {
+			components.Delete("minecraft:swing_animation")
+			components.Set("minecraft:attack_animation", animation)
+			components.Set("minecraft:interact_animation", animation)
+		}
+	}
+	id, _ := stack.Entries()["id"].(nbt.String)
+	if version < explorerMapVersion {
+		// vanilla: ExplorerMapItemFix, MapColorComponentRemovalFix
+		components.Delete("minecraft:map_color")
+		if string(id) == registry.ItemFilledMap.Name() {
+			templateExplorerMap(stack)
+			id, _ = stack.Entries()["id"].(nbt.String)
+		}
+	}
+	if version < explorerMapRenameVersion {
+		if renamed, ok := templateExplorerMapRenames[registry.Qualify(string(id))]; ok {
+			stack.Set("id", nbt.String(renamed))
+		}
+	}
+	if version < blockTransformerVersion {
+		components.Delete("minecraft:block_transformer")
+	}
+	if version < buriedTreasureMapVersion && string(id) == registry.ItemMap.Name() {
+		// vanilla: UnfilledBuriedTreasureMapFix
+		if name, ok := components.Entries()["minecraft:item_name"].(nbt.CompoundTag); ok && templatePlainTranslation(name) == "filled_map.buried_treasure" {
+			name.Set("translate", nbt.String("item.minecraft.buried_treasure_map"))
+		}
 	}
 }
 
