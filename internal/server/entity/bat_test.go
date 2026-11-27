@@ -85,7 +85,7 @@ func batsFromPasses(w batWorld, counts func() *SpawnCounts) (n int, types map[Mo
 	bx, bz := atChunk(0, 0)
 	players := []SpawnPlayer{{EntityID: 1, X: float64(bx) + 100.5, Y: 30, Z: float64(bz) + 0.5}}
 	for seed := int64(1); seed < 300; seed++ {
-		var bodies []SpawnBody
+		var bodies SpawnBodies
 		spawnCategoryForPosition(w, readSpawnPoint(w), rand.New(rand.NewSource(seed)), ChunkPos{}, 30, bx, bz,
 			players, &bodies, &SpawnPotential{}, counts(), CategoryAmbient, func(r SpawnRequest) { n++; types[r.Type] = true })
 	}

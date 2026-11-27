@@ -101,7 +101,9 @@ func (s *Server) tickNaturalSpawning() {
 		// vanilla: NaturalSpawner.spawnCategoryForPosition
 		spawn := func(r entity.SpawnRequest) { s.spawnMobInDim(dim, r.Type, r.X, r.Y, r.Z, 0, r.Group) }
 		spawnable := spawnableChunkCount(players)
-		bodies := s.spawnBodies(dim, players)
+		dim.spawnBodies.Reset(func(dst []entity.SpawnBody) []entity.SpawnBody {
+			return s.appendSpawnBodies(dst, dim, players)
+		})
 		counts, potential := s.spawnCountsAll(dim, players)
 		// MobCategory order. Creatures join every 400 game ticks; the water
 		// categories are friendly but not persistent: they spawn every tick,
@@ -120,7 +122,7 @@ func (s *Server) tickNaturalSpawning() {
 				passes = append(passes, entity.NewSpawnPass(c, counts[c], dim.spawnTuning.Limit(c)))
 			}
 		}
-		entity.SpawnNaturally(w, s.spawnRng, chunks, players, bodies, potential, passes, spawnable, ticking, spawn)
+		entity.SpawnNaturally(w, s.spawnRng, chunks, players, &dim.spawnBodies, potential, passes, spawnable, ticking, spawn)
 	}
 }
 
@@ -262,7 +264,12 @@ func (s *Server) spawnCountsAll(dim *dimension, players []entity.SpawnPlayer) ([
 // falling blocks, boats, minecarts and end crystals. Each list is read
 // under its own lock alone, the server's usual lock order.
 func (s *Server) spawnBodies(dim *dimension, players []entity.SpawnPlayer) []entity.SpawnBody {
-	var bodies []entity.SpawnBody
+	return s.appendSpawnBodies(nil, dim, players)
+}
+
+// appendSpawnBodies is spawnBodies appending to dst, so a caller can reuse
+// the backing slice.
+func (s *Server) appendSpawnBodies(bodies []entity.SpawnBody, dim *dimension, players []entity.SpawnPlayer) []entity.SpawnBody {
 	for i := range players {
 		p := &players[i]
 		if p.Spectator {

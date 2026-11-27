@@ -21,10 +21,10 @@ func TestSpawnRefusesABodyInTheWay(t *testing.T) {
 	x, z := atChunk(0, 0)
 	const y = 30
 	cx, cz := float64(x)+0.5, float64(z)+0.5
-	bodies := []SpawnBody{{
+	bodies := NewSpawnBodies([]SpawnBody{{
 		MinX: cx - 0.4, MinY: y, MinZ: cz - 0.4,
 		MaxX: cx + 0.4, MaxY: y + 1, MaxZ: cz + 0.4,
-	}}
+	}})
 	if validPositionForMob(w, registry.EntityTypeZombie, x, y, z, 100, bodies) {
 		t.Fatal("a spawn landed inside an existing body's box")
 	}

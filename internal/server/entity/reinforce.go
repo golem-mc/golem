@@ -250,7 +250,7 @@ func (m *Mob) AsReinforcement(target int32) {
 // on each axis: a valid spawn position for the type, no player within 7
 // blocks, the box clear of blocks, liquid and bodies. false when none fits.
 // vanilla: Zombie.hurtServer
-func ReinforcementSite(w SpawnWorld, rng *rand.Rand, t MobType, x, y, z int32, players []SpawnPlayer, bodies []SpawnBody) (sx, sy, sz int32, ok bool) {
+func ReinforcementSite(w SpawnWorld, rng *rand.Rand, t MobType, x, y, z int32, players []SpawnPlayer, bodies *SpawnBodies) (sx, sy, sz int32, ok bool) {
 	offset := func() int32 {
 		return (ReinforcementRangeMin + rng.Int31n(ReinforcementRangeMax-ReinforcementRangeMin+1)) * (rng.Int31n(3) - 1)
 	}
