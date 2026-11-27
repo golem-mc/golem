@@ -115,6 +115,7 @@ var registryNameAllowed = map[string]nameAllowance{
 	"internal/server/traderspawner.go: string block lookup":                         {count: 1, issue: 6380},
 	"internal/server/tridentchanneling.go: comparison with an entity name":          {count: 1, issue: 6380},
 	"internal/server/villagerview.go: string block lookup":                          {count: 1, issue: 6380},
+	"internal/server/world/entities_fixes.go: case on an entity name":               {count: 3, boundary: "stored data upgrade of saved entity ids"},
 	"internal/server/world/entities_fixes.go: comparison with an entity name":       {count: 7, boundary: "stored data upgrade of saved entity ids"},
 	"internal/server/world/entities_old.go: comparison with an entity name":         {count: 6, boundary: "stored entity and item ids of old worlds"},
 	"internal/server/world/blockentity_codec.go: string block lookup":               {count: 1, boundary: "stored data decoding"},

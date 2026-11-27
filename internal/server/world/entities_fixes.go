@@ -18,6 +18,7 @@ const (
 	thrownPotionSplitVersion  = 4306 // vanilla: DataFixers.addFixers (ThrownPotionSplitFix)
 	copperGolemWeatherVersion = 4535 // vanilla: DataFixers.addFixers (CopperGolemWeatherStateFix)
 	villagerFinalizedVersion  = 4763 // vanilla: DataFixers.addFixers (VillagerSetVillagerDataFinalized)
+	blockStateFieldsVersion   = 5006 // vanilla: DataFixers.addFixers (BlockStateFieldNamesFix)
 )
 
 // followRangeFixes maps an entity's saved follow_range base to the one
@@ -105,12 +106,37 @@ func upgradeEntityShapes(e nbt.CompoundTag, version int32) {
 	if version < villagerFinalizedVersion && (id == "minecraft:villager" || id == "minecraft:zombie_villager") {
 		entries["VillagerDataFinalized"] = nbt.Byte(1)
 	}
+	if version < blockStateFieldsVersion {
+		renameEntityBlockStates(entries, string(id))
+	}
 	if passengers, ok := nbt.Get[nbt.List](entries, "Passengers"); ok {
 		for _, p := range passengers.Items {
 			if c, ok := p.(nbt.CompoundTag); ok {
 				upgradeEntityShapes(c, version)
 			}
 		}
+	}
+}
+
+// renameEntityBlockStates renames Name and Properties to id and properties in
+// the block states an entity saves.
+// vanilla: BlockStateFieldNamesFix
+func renameEntityBlockStates(entries nbt.Compound, id string) {
+	key := ""
+	switch id {
+	case "minecraft:falling_block":
+		key = "BlockState"
+	case "minecraft:enderman":
+		key = "carriedBlockState"
+	case "minecraft:minecart", "minecraft:chest_minecart", "minecraft:furnace_minecart", "minecraft:tnt_minecart",
+		"minecraft:hopper_minecart", "minecraft:spawner_minecart", "minecraft:command_block_minecart":
+		key = "DisplayState"
+	default:
+		return
+	}
+	if state, ok := nbt.CompoundView(entries[key]); ok {
+		renameField(state, "Name", "id")
+		renameField(state, "Properties", "properties")
 	}
 }
 

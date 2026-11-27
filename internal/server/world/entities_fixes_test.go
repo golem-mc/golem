@@ -21,6 +21,10 @@ func TestUpgradeEntitiesAppliesTheEntityFixesAfter1_21(t *testing.T) {
 		in      nbt.Compound
 		want    nbt.Compound
 	}{
+		{"falling anvil", 4903, nbt.Compound{"id": str("minecraft:falling_block"), "BlockState": nbt.Compound{"Name": str("minecraft:anvil"), "Properties": nbt.Compound{"facing": str("east")}}},
+			nbt.Compound{"id": str("minecraft:falling_block"), "BlockState": nbt.Compound{"id": str("minecraft:anvil"), "properties": nbt.Compound{"facing": str("east")}}}},
+		{"carried block", 4903, nbt.Compound{"id": str("minecraft:enderman"), "carriedBlockState": nbt.Compound{"Name": str("minecraft:stone")}},
+			nbt.Compound{"id": str("minecraft:enderman"), "carriedBlockState": nbt.Compound{"id": str("minecraft:stone")}}},
 		{"boat", 3955, nbt.Compound{"id": str("minecraft:boat"), "Type": str("birch")},
 			nbt.Compound{"id": str("minecraft:birch_boat")}},
 		{"boat without type", 3955, nbt.Compound{"id": str("minecraft:boat")},
