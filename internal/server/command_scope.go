@@ -1014,6 +1014,10 @@ type fillWake struct {
 	// placed marks a cell the sequential path already shaped and whose
 	// neighbours it already reshaped.
 	placed bool
+	// template splits the wake as StructureTemplate.placeInWorld does: on-place
+	// as each cell is written, then every cell's shapes, then every cell's
+	// neighbour update in placement order.
+	template bool
 }
 
 // FillCells writes a fill's changes at once: section updates, a destroy
@@ -1205,7 +1209,14 @@ func (s *Server) finishCellWrites(w *world.World, sent []world.BlockChange, wake
 			}
 		}
 		for _, wake := range wakes {
-			if wake.handNew {
+			if wake.template {
+				s.blockTemplateShaped(w, wake.x, wake.y, wake.z, wake.old)
+			}
+		}
+		for _, wake := range wakes {
+			if wake.template {
+				s.updateNeighboursOnBlockSet(w, wake.x, wake.y, wake.z, wake.old)
+			} else if wake.handNew {
 				s.blockPlaced(w, wake.x, wake.y, wake.z, wake.old)
 			} else {
 				s.blockChanged(w, wake.x, wake.y, wake.z, wake.old)
@@ -1515,6 +1526,7 @@ func (ws worldScope) PlaceTemplate(t *world.PlacedTemplate, strict bool) {
 		note(ch)
 		if !strict {
 			reshape(ch.X, ch.Y, ch.Z)
+			s.blockTemplatePlaced(w, ch.X, ch.Y, ch.Z, before)
 		}
 		if !strict && registry.BlockOf(ch.State) == registry.BlockRedstoneWire {
 			// Dust checks its support as it is written, before the blocks the
@@ -1523,7 +1535,7 @@ func (ws worldScope) PlaceTemplate(t *world.PlacedTemplate, strict bool) {
 			s.blockChanged(w, ch.X, ch.Y, ch.Z, before)
 			note(world.BlockChange{X: ch.X, Y: ch.Y, Z: ch.Z, State: w.BlockAt(ch.X, ch.Y, ch.Z)})
 		} else {
-			wakes = append(wakes, fillWake{x: ch.X, y: ch.Y, z: ch.Z, old: before})
+			wakes = append(wakes, fillWake{x: ch.X, y: ch.Y, z: ch.Z, old: before, template: true})
 		}
 		cells = append(cells, rules.TemplateCell{X: ch.X, Y: ch.Y, Z: ch.Z, WasSource: wasSource})
 		entityType, hasEntity := blockEntityTypeOf(ch.State)
