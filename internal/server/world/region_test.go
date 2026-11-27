@@ -670,7 +670,7 @@ func TestWorldKeepsChunksItCannotUpgrade(t *testing.T) {
 }
 
 func TestOldDataVersionChunkIsNotGeneratedOver(t *testing.T) {
-	t.Parallel()
+	// Not parallel: it swaps the global slog default to read the warning.
 	dir := t.TempDir()
 	pos := ChunkPos{X: 1, Z: 2}
 	rx, rz := regionCoords(pos)
@@ -733,7 +733,7 @@ func TestOldDataVersionChunkIsNotGeneratedOver(t *testing.T) {
 }
 
 func TestOldDataVersionWarningNamesVersionInNether(t *testing.T) {
-	t.Parallel()
+	// Not parallel: it swaps the global slog default to read the warning.
 	dir := t.TempDir()
 	pos := ChunkPos{X: 1, Z: 2}
 	rx, rz := regionCoords(pos)
