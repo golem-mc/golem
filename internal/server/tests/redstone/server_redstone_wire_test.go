@@ -170,6 +170,59 @@ func TestSetblockWireSidesFollowTheNeighboursAndTheGivenProperties(t *testing.T)
 	}
 }
 
+// TestDecayingWireWakeOrderPulsesSideBranch pins that a decaying wire wakes its
+// cell and six neighbours in vanilla's 16-bucket HashSet<BlockPos> order: when
+// replacing a redstone block with unpowered dust, the west wire's SOUTH
+// neighbour (under an unpowered step-up branch) runs before its EAST neighbour
+// at coordinates where SOUTH hashes into the same or earlier bucket, transiently
+// powering the branch and scheduling a repeater pulse two ticks later.
+// vanilla: DefaultRedstoneWireEvaluator.updatePowerStrength, Vec3i.hashCode
+func TestDecayingWireWakeOrderPulsesSideBranch(t *testing.T) {
+	t.Parallel()
+	srv, c := servertest.AttachActor(t)
+
+	// At (4, 70, 4), the decaying line's HashSet<BlockPos> order visits the
+	// west wire's SOUTH neighbour (under the step-up branch) while (4, 70, 4)
+	// still holds transient power 14, whereas a fixed [SELF, W, E, D, U, N, S]
+	// order decays the line to 0 first.
+	const bx, by, bz int32 = 4, 70, 4
+	servertest.Setblock(t, c, bx-1, by-1, bz-1, "stone")
+	servertest.Setblock(t, c, bx, by-1, bz-1, "stone")
+	servertest.Setblock(t, c, bx+1, by-1, bz-1, "stone")
+	servertest.Setblock(t, c, bx, by-1, bz, "stone")
+	servertest.Setblock(t, c, bx-1, by, bz, "stone")
+	servertest.Setblock(t, c, bx-1, by, bz+1, "stone")
+
+	// Powered wire line fed by the redstone block at (bx, by, bz).
+	servertest.Setblock(t, c, bx, by, bz, "redstone_block")
+	servertest.Setblock(t, c, bx-1, by, bz-1, "redstone_wire")
+	servertest.Setblock(t, c, bx, by, bz-1, "redstone_wire")
+	servertest.Setblock(t, c, bx+1, by, bz-1, "redstone_wire")
+
+	// Side branch one block up, disconnected from the redstone block, feeding a
+	// 1-tick repeater directly at (bx-1, by+1, bz+1).
+	servertest.Setblock(t, c, bx-1, by+1, bz, "redstone_wire")
+	servertest.Setblock(t, c, bx-1, by+1, bz+1, "repeater[delay=1,facing=north,locked=false,powered=false]")
+	c.Settle()
+
+	servertest.ExpectBlockNamed(t, srv, bx-1, by+1, bz+1, "minecraft:repeater", map[string]string{"powered": "false"})
+
+	servertest.HoldTicks(t, srv)
+	// Replace the redstone block with unpowered dust; its onPlace briefly reads
+	// power 14 from (bx, by, bz-1) before the line decays to 0.
+	c.ChatCommand("setblock 4 70 4 redstone_wire[east=none,north=side,power=0,south=none,west=up]")
+	servertest.RunTicks(t, srv, 1)
+	servertest.AwaitCommandFeedback(t, c, "commands.setblock.success", "4", "70", "4")
+
+	servertest.ExpectBlockNamed(t, srv, bx-1, by+1, bz+1, "minecraft:repeater", map[string]string{"powered": "false"})
+	servertest.RunTicks(t, srv, 2)
+	servertest.ExpectBlockNamed(t, srv, bx-1, by+1, bz+1, "minecraft:repeater", map[string]string{"powered": "true"})
+	servertest.RunTicks(t, srv, 1)
+	servertest.ExpectBlockNamed(t, srv, bx-1, by+1, bz+1, "minecraft:repeater", map[string]string{"powered": "true"})
+	servertest.RunTicks(t, srv, 1)
+	servertest.ExpectBlockNamed(t, srv, bx-1, by+1, bz+1, "minecraft:repeater", map[string]string{"powered": "false"})
+}
+
 // TestWirePowerDecayFollowsVanillaHashSetOrder checks that replacing a redstone
 // block with dust beside a powered wire and a lower dust line follows vanilla's
 // DefaultRedstoneWireEvaluator HashSet wake order: at (110,-58,99) the east
