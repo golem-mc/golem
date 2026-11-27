@@ -102,6 +102,8 @@ type World struct {
 	// storage is the dimension's folder, holding its region and entities
 	// folders.
 	storage string
+	// savedStarts caches the structure ids each unloaded saved chunk starts.
+	savedStarts savedStartCache
 	// border tracks what world_border.dat last held.
 	border borderSaved
 

@@ -49,7 +49,7 @@ func (g *mapTicketGenerator) Generate(c *Chunk) {
 		return tag
 	})
 }
-func (g *mapTicketGenerator) locateStructure(ids []string, _, _, _ int32, _ int, accept func(string, int32, int32) bool) (int32, int32, string, bool) {
+func (g *mapTicketGenerator) locateStructure(ids []string, _, _, _ int32, _ int, accept func(string, int32, int32) bool, _ startLookup) (int32, int32, string, bool) {
 	if !containsID(ids, "minecraft:monument") {
 		return 0, 0, "", false
 	}
