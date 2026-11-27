@@ -4,6 +4,7 @@ import (
 	"maps"
 	"slices"
 
+	"github.com/golem-mc/golem/internal/server/advancement"
 	"github.com/golem-mc/golem/nbt"
 	"github.com/golem-mc/golem/registry"
 )
@@ -61,6 +62,10 @@ func RecipeBookOf(root nbt.Compound) *RecipeBook {
 	if !ok {
 		return FreshRecipeBook()
 	}
+	version := advancement.DefaultDataVersion
+	if v, ok := nbt.Get[nbt.Int](root, "DataVersion"); ok {
+		version = int(v)
+	}
 	readNames := func(field string) []string {
 		list, ok := nbt.Get[nbt.List](book, field)
 		if !ok || list.Elem != nbt.TypeString {
@@ -69,7 +74,7 @@ func RecipeBookOf(root nbt.Compound) *RecipeBook {
 		var names []string
 		for _, item := range list.Items {
 			if name, ok := item.(nbt.String); ok {
-				names = append(names, string(name))
+				names = append(names, advancement.RenameRecipe(string(name), version))
 			}
 		}
 		return names
