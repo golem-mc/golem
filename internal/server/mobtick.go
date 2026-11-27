@@ -2,6 +2,7 @@ package server
 
 import (
 	"github.com/golem-mc/golem/plugin"
+	"reflect"
 	"slices"
 
 	"github.com/golem-mc/golem/internal/protocol"
@@ -1103,17 +1104,24 @@ func (h *mobHerd) MobUUID(m *entity.Mob) uuid.UUID {
 	return uuid.Nil
 }
 
-// teamCollisionRules is each team's collision rule, nil while there are no teams.
+// teamCollisionRules is each team's collision rule, nil while there are no
+// teams. The map is shared and read-only; it is converted again only when
+// the board hands out a new snapshot.
 func (s *Server) teamCollisionRules() map[string]entity.CollisionRule {
 	rules := s.scoreboard.TeamCollisions()
 	if rules == nil {
 		return nil
 	}
-	out := make(map[string]entity.CollisionRule, len(rules))
-	for name, r := range rules {
-		out[name] = entity.CollisionRule(r)
+	s.collisionCache.Lock()
+	defer s.collisionCache.Unlock()
+	if reflect.ValueOf(rules).UnsafePointer() != reflect.ValueOf(s.collisionCache.src).UnsafePointer() {
+		out := make(map[string]entity.CollisionRule, len(rules))
+		for name, r := range rules {
+			out[name] = entity.CollisionRule(r)
+		}
+		s.collisionCache.src, s.collisionCache.rules = rules, out
 	}
-	return out
+	return s.collisionCache.rules
 }
 
 // corpseMobs is the bodies of the dimension's dying mobs.

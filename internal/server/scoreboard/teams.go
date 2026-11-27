@@ -214,34 +214,44 @@ func (b *Board) CanHarm(victim, attacker string) bool {
 }
 
 // MemberTeams maps each member's name to the name of its team, nil while no
-// one is on a team.
+// one is on a team. The map is a snapshot shared until the next change:
+// callers must not modify it.
 func (b *Board) MemberTeams() map[string]string {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	if len(b.teamOf) == 0 {
 		return nil
 	}
-	out := make(map[string]string, len(b.teamOf))
-	for name, t := range b.teamOf {
-		out[name] = t.Name
+	if b.members == nil {
+		b.members = make(map[string]string, len(b.teamOf))
+		for name, t := range b.teamOf {
+			b.members[name] = t.Name
+		}
 	}
-	return out
+	return b.members
 }
 
 // TeamCollisions maps each team's name to its collision rule, nil while there
-// are no teams.
+// are no teams. The map is a snapshot shared until the next change: callers
+// must not modify it.
 func (b *Board) TeamCollisions() map[string]CollisionRule {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	if len(b.teams) == 0 {
 		return nil
 	}
-	out := make(map[string]CollisionRule, len(b.teams))
-	for _, t := range b.teams {
-		out[t.Name] = t.Collision
+	if b.collisions == nil {
+		b.collisions = make(map[string]CollisionRule, len(b.teams))
+		for _, t := range b.teams {
+			b.collisions[t.Name] = t.Collision
+		}
 	}
-	return out
+	return b.collisions
 }
+
+// membersChanged drops the MemberTeams and TeamCollisions snapshots; every
+// write to teams, teamOf or a team's collision rule calls it.
+func (b *Board) membersChanged() { b.members, b.collisions = nil, nil }
 
 // AddTeam adds a team with a display name, answering false when the name is
 // taken. Clients are told the team under its own name first, then the
@@ -264,6 +274,7 @@ func (b *Board) AddTeam(name string, displayName nbt.Tag) bool {
 // teamChanged tells the clients a team's parameters changed.
 // vanilla: ServerScoreboard.onTeamChanged
 func (b *Board) teamChanged(t *Team) {
+	b.membersChanged()
 	b.emit(&TeamEvent{Mode: TeamChange, Team: copyTeam(t)})
 	b.dirty = true
 }
@@ -294,6 +305,7 @@ func (b *Board) RemoveTeam(name string, instance ...InstanceID) bool {
 	if t == nil {
 		return false
 	}
+	b.membersChanged()
 	b.teams = slices.DeleteFunc(b.teams, func(x *Team) bool { return x == t })
 	for _, player := range t.Players {
 		delete(b.teamOf, player)
@@ -313,6 +325,7 @@ func (b *Board) JoinTeam(team string, players []string, instance ...InstanceID) 
 	if t == nil {
 		return
 	}
+	b.membersChanged()
 	for _, player := range players {
 		b.leave(player)
 		b.teamOf[player] = t
@@ -369,6 +382,7 @@ func (b *Board) leave(player string) bool {
 func (b *Board) unlink(player string) *Team {
 	t := b.teamOf[player]
 	if t != nil {
+		b.membersChanged()
 		delete(b.teamOf, player)
 		t.Players = slices.DeleteFunc(t.Players, func(p string) bool { return p == player })
 	}
@@ -472,6 +486,7 @@ func (b *Board) loadTeams(list nbt.List) {
 		if v, ok := nbt.Get[nbt.String](entry, "CollisionRule"); ok {
 			t.Collision, _ = ParseCollisionRule(string(v))
 		}
+		b.membersChanged()
 		b.teams = append(b.teams, t)
 		players, _ := nbt.Get[nbt.List](entry, "Players")
 		for _, p := range players.Items {
