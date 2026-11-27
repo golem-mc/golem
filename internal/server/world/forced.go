@@ -43,7 +43,7 @@ type forcedChunks struct {
 // one reads as no tickets.
 func (w *World) loadForcedChunks() {
 	w.forced = &forcedChunks{set: map[ChunkPos]struct{}{}}
-	data, err := readSavedData(w.storage, chunkTicketsFile)
+	data, version, err := readSavedDataVersioned(w.storage, chunkTicketsFile, MaxSavedData, false)
 	switch {
 	case errors.Is(err, errNoSavedData):
 		return
@@ -51,6 +51,7 @@ func (w *World) loadForcedChunks() {
 		slog.Warn("could not read the chunk tickets", "dimension", w.dimName, "error", err)
 		return
 	}
+	upgradeForcedTickets(data, version)
 	list, _ := nbt.Get[nbt.List](data, "tickets")
 	for _, tag := range list.Items {
 		entry, ok := tag.(nbt.Compound)
@@ -58,13 +59,54 @@ func (w *World) loadForcedChunks() {
 			continue
 		}
 		typ, _ := nbt.Get[nbt.String](entry, "type")
-		pos, _ := nbt.Get[nbt.IntArray](entry, "chunk_pos")
-		if typ != forcedTicketType || len(pos) != 2 {
+		cpos, ok := ticketPos(entry["chunk_pos"])
+		if typ != forcedTicketType || !ok {
+			if pos, isLong := entry["chunk_pos"].(nbt.Long); isLong {
+				entry["chunk_pos"] = nbt.IntArray{int32(uint64(pos) & 0xFFFFFFFF), int32(uint64(pos) >> 32)}
+			}
 			w.forced.others = append(w.forced.others, entry)
 			continue
 		}
-		w.forced.set[ChunkPos{X: pos[0], Z: pos[1]}] = struct{}{}
+		w.forced.set[cpos] = struct{}{}
 	}
+}
+
+// upgradeForcedTickets turns the pre-1.21.5 {Forced: [L; packed...]} into
+// forced tickets.
+// vanilla: ForcedChunkToTicketFix (v4297)
+func upgradeForcedTickets(data nbt.Compound, version int32) {
+	if version >= 4297 {
+		return
+	}
+	forced, ok := data["Forced"].(nbt.LongArray)
+	if !ok {
+		return
+	}
+	tickets := nbt.List{Elem: nbt.TypeCompound}
+	if old, ok := data["tickets"].(nbt.List); ok {
+		tickets = old
+	}
+	for _, packed := range forced {
+		tickets.Items = append(tickets.Items, nbt.Compound{
+			"type": nbt.String(forcedTicketType), "level": nbt.Int(forcedTicketLevel),
+			"ticks_left": nbt.Long(0), "chunk_pos": nbt.Long(packed),
+		})
+	}
+	data["tickets"] = tickets
+	delete(data, "Forced")
+}
+
+// ticketPos reads a ticket's chunk_pos: an int pair, or a packed long whatever
+// the file's version.
+// vanilla: ChunkTicketUnpackPosFix (v4309), ChunkPos.pack
+func ticketPos(tag nbt.Tag) (ChunkPos, bool) {
+	switch v := tag.(type) {
+	case nbt.IntArray:
+		return ChunkPos{X: v[0], Z: v[1]}, len(v) == 2
+	case nbt.Long:
+		return ChunkPos{X: int32(uint64(v) & 0xFFFFFFFF), Z: int32(uint64(v) >> 32)}, true
+	}
+	return ChunkPos{}, false
 }
 
 // forcedFootprint is the chunks a forced chunk at pos keeps loaded.
