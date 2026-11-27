@@ -506,16 +506,55 @@ func (l *sendList) drain(f func(c *client, p outbound)) {
 	l.entries = nil
 }
 
+// sendScratch is the bucketed copy of a list and its per-slot counts.
+type sendScratch struct {
+	entries []sendEntry
+	starts  []int
+}
+
+var sendScratches = sync.Pool{New: func() any { return new(sendScratch) }}
+
+// send queues the list grouped by recipient, each recipient's entries in the
+// order they were added: only the order per recipient is observable.
 func (l *sendList) send() {
 	if l.entries == nil {
 		return
 	}
-	for _, e := range *l.entries {
-		e.to.sendOutboundIn(e.w, e.p)
+	src := *l.entries
+	sc := sendScratches.Get().(*sendScratch)
+	top := 0
+	for _, e := range src {
+		top = max(top, e.to.slot)
+	}
+	sc.starts = append(sc.starts[:0], make([]int, top+2)...)
+	for _, e := range src {
+		sc.starts[e.to.slot+1]++
+	}
+	for i := 1; i < len(sc.starts); i++ {
+		sc.starts[i] += sc.starts[i-1]
+	}
+	sc.entries = append(sc.entries[:0], src...)
+	for _, e := range src {
+		i := &sc.starts[e.to.slot]
+		sc.entries[*i] = e
+		*i++
+	}
+	// starts[s] is now the end of slot s's bucket. Clients that share a slot
+	// (none joined) stay apart by the run of the same recipient.
+	for i := 0; i < len(sc.entries); {
+		j := i + 1
+		for j < len(sc.entries) && sc.entries[j].to == sc.entries[i].to {
+			j++
+		}
+		sc.entries[i].to.sendOutboundsIn(sc.entries[i:j])
+		i = j
 	}
 	// Cleared, so a pooled list holds no client or payload alive.
-	clear(*l.entries)
-	*l.entries = (*l.entries)[:0]
+	clear(sc.entries)
+	sc.entries = sc.entries[:0]
+	sendScratches.Put(sc)
+	clear(src)
+	*l.entries = src[:0]
 	sendEntries.Put(l.entries)
 	l.entries = nil
 }

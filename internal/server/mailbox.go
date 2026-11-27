@@ -184,22 +184,73 @@ func (c *client) sendIn(w *world.World, packetID int32, data []byte) bool {
 }
 
 func (c *client) sendOutboundIn(w *world.World, p outbound) bool {
-	packetID, data := p.id, p.data
-	if p.playerChat && !c.acceptsChatMessages() {
+	p, ok := c.filterOutbound(p)
+	if !ok {
 		return true
 	}
+	return c.queueIn(w, p)
+}
+
+// filterOutbound applies the per-packet filters; ok is false for a packet
+// this client is not sent.
+func (c *client) filterOutbound(p outbound) (_ outbound, ok bool) {
+	if p.playerChat && !c.acceptsChatMessages() {
+		return p, false
+	}
 	if c.sky.Load() != nil {
-		var ok bool
-		if data, ok = c.skyFilter(packetID, data); !ok {
-			return true
+		data, ok := c.skyFilter(p.id, p.data)
+		if !ok {
+			return p, false
 		}
 		p.data = data
 	}
 	// vanilla: ServerPlayer.acceptsSystemMessages
-	if packetID == protocol.IDPlaySystemChat && c.chatMode.Load() == protocol.ChatModeHidden && len(data) > 0 && data[len(data)-1] == 0 {
-		return true
+	if p.id == protocol.IDPlaySystemChat && c.chatMode.Load() == protocol.ChatModeHidden && len(p.data) > 0 && p.data[len(p.data)-1] == 0 {
+		return p, false
 	}
-	return c.queueIn(w, p)
+	return p, true
+}
+
+// sendOutboundsIn queues the entries, all bound for c, in order under one
+// mailbox lock, with the filters, world check and limit of sendOutboundIn.
+// It reuses entries as scratch.
+func (c *client) sendOutboundsIn(entries []sendEntry) {
+	m := c.out
+	if m == nil {
+		return
+	}
+	kept := entries[:0]
+	for _, e := range entries {
+		if p, ok := c.filterOutbound(e.p); ok {
+			e.p = p
+			kept = append(kept, e)
+		}
+	}
+	if len(kept) == 0 {
+		return
+	}
+	wake := false
+	soon := c.srv.tickFlushSoon()
+	m.mu.Lock()
+	for _, e := range kept {
+		if e.w != nil && c.theWorld() != e.w {
+			continue
+		}
+		if queued := m.queued; queued+len(e.p.data) > mailboxLimit {
+			m.mu.Unlock()
+			c.log.Warn("dropping client that is not keeping up", "queuedBytes", queued)
+			c.conn.Close()
+			return
+		}
+		m.queue = append(m.queue, e.p)
+		m.queued += len(e.p.data)
+		wake = wake || !e.p.lazy || !soon
+	}
+	m.mu.Unlock()
+	// Read after enqueue, as in queueIn.
+	if wake && !c.srv.deferWakes.Load() {
+		m.signal()
+	}
 }
 
 // sendUnfiltered bypasses chat visibility for the hidden-chat refusal itself.
