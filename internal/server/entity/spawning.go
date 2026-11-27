@@ -1063,6 +1063,9 @@ func NewSpawnPass(c SpawnCategory, counts *SpawnCounts, limit int) SpawnPass {
 // vanilla: ServerChunkCache.tickChunks, NaturalSpawner.spawnForChunk; global cap scales by chunks/289.
 func SpawnNaturally(w SpawnWorld, rng *rand.Rand, chunks []ChunkPos, players []SpawnPlayer,
 	bodies *SpawnBodies, potential *SpawnPotential, passes []SpawnPass, spawnableChunkCount int, ticking func(ChunkPos) bool, sink func(SpawnRequest)) {
+	if bodies == nil {
+		bodies = &SpawnBodies{}
+	}
 	open := make([]SpawnPass, 0, len(passes))
 	for _, p := range passes {
 		if p.Counts.Global < spawnableChunkCount*p.max/spawnMagicNumber {
