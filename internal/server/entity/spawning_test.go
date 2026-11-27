@@ -21,10 +21,10 @@ func TestSpawnRefusesABodyInTheWay(t *testing.T) {
 	x, z := atChunk(0, 0)
 	const y = 30
 	cx, cz := float64(x)+0.5, float64(z)+0.5
-	bodies := []SpawnBody{{
+	bodies := NewSpawnBodies([]SpawnBody{{
 		MinX: cx - 0.4, MinY: y, MinZ: cz - 0.4,
 		MaxX: cx + 0.4, MaxY: y + 1, MaxZ: cz + 0.4,
-	}}
+	}})
 	if validPositionForMob(w, registry.EntityTypeZombie, x, y, z, 100, bodies) {
 		t.Fatal("a spawn landed inside an existing body's box")
 	}
@@ -288,4 +288,32 @@ type striderRuleWorld struct {
 
 func (w striderRuleWorld) BoolRule(id world.GameRuleIndex) bool {
 	return id != w.disabledRule && w.spawnTestWorld.BoolRule(id)
+}
+
+func TestSpawnBodiesBuildsLazilyAndTakesAdds(t *testing.T) {
+	builds := 0
+	var b SpawnBodies
+	b.Reset(func(dst []SpawnBody) []SpawnBody {
+		builds++
+		return append(dst, SpawnBody{MinX: 100, MinY: 0, MinZ: 100, MaxX: 101, MaxY: 2, MaxZ: 101})
+	})
+	if builds != 0 {
+		t.Fatal("built before first use")
+	}
+	probe := SpawnBody{MinX: 100.5, MinY: 1, MinZ: 100.5, MaxX: 101.5, MaxY: 2, MaxZ: 101.5}
+	if !b.Overlaps(probe) || builds != 1 {
+		t.Fatalf("built body missed or builds=%d", builds)
+	}
+	far := SpawnBody{MinX: -50, MinY: 0, MinZ: -50, MaxX: -49, MaxY: 2, MaxZ: -49}
+	if b.Overlaps(far) {
+		t.Fatal("far box overlapped")
+	}
+	b.Add(far)
+	if !b.Overlaps(far) {
+		t.Fatal("added body missed")
+	}
+	b.Reset(nil)
+	if b.Overlaps(probe) || b.Overlaps(far) {
+		t.Fatal("reset list still obstructs")
+	}
 }
