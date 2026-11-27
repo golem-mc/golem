@@ -405,7 +405,7 @@ func BenchmarkTickMobsFoxAmongItems(b *testing.B) {
 			mix := []mobMix{{entity.TypeCow, 500}, extra}
 			s := benchMobHerd(b, mix, 94, 500, benchMobSpectator(b), func(s *Server, rng *rand.Rand) {
 				for range 2000 {
-					s.SpawnItemEntityDelay((rng.Float64()-0.5)*94, float64(world.GroundLevel), (rng.Float64()-0.5)*94, "dirt", 1, 0)
+					s.SpawnItemEntityDelay((rng.Float64()-0.5)*94, float64(world.GroundLevel), (rng.Float64()-0.5)*94, "minecraft:dirt", 1, 0)
 				}
 			})
 			b.ReportAllocs()
