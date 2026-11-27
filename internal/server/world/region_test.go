@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"io"
+	"log/slog"
 	"math/rand/v2"
 	"os"
 	"path/filepath"
@@ -696,8 +697,22 @@ func TestOldDataVersionChunkIsNotGeneratedOver(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	if err := writeLevelCompound(dir, nbt.Compound{
+		"Version": nbt.Compound{"Name": nbt.String("1.17.1")},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	var logs bytes.Buffer
+	prev := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&logs, nil)))
+	defer slog.SetDefault(prev)
+
 	w, _ := NewWorld(dir, NewFlatGenerator())
 	w.Acquire(pos)
+	w.Acquire(pos)
+	if n := strings.Count(logs.String(), "cannot upgrade"); n != 1 || !strings.Contains(logs.String(), "world_version=1.17.1") {
+		t.Errorf("want one warning naming the world and version 1.17.1, got %d:\n%s", n, logs.String())
+	}
 	if got := w.BlockAt(pos.X*16, 1, pos.Z*16); got != 0 {
 		t.Errorf("block at the flat ground = %d, want air", got)
 	}

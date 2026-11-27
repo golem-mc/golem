@@ -74,7 +74,10 @@ type World struct {
 	dir   string
 	// oldVersionLogged limits the unsupported-data-version warning to one per world.
 	oldVersionLogged atomic.Bool
-	gen              Generator
+	// savedVersion is the Minecraft version name level.dat says last saved the
+	// world, "" for a dimension without a level.dat or one that names none.
+	savedVersion string
+	gen          Generator
 	// debug is the debug world flag: no block writes, ticks or spawning.
 	// Every dimension of a debug world carries it.
 	debug atomic.Bool
@@ -409,19 +412,27 @@ func newWorldIn(dir, storage string, gen Generator, name string, shape dimension
 		}
 		level = loaded
 	}
+	savedVersion := ""
+	if levelDat && level.existed {
+		if v, ok := nbt.Get[nbt.Compound](level.raw, "Version"); ok {
+			name, _ := nbt.Get[nbt.String](v, "Name")
+			savedVersion = string(name)
+		}
+	}
 	w := &World{
-		dir:        dir,
-		gen:        gen,
-		level:      level,
-		storage:    storage,
-		dim:        shape,
-		dimName:    name,
-		levelDat:   levelDat,
-		chunks:     make(map[ChunkPos]*loadedChunk),
-		exec:       newExecutors(),
-		clocks:     defaultClocks(),
-		saveFormat: defaultSaveFormat,
-		dice:       rand.New(rand.NewPCG(rand.Uint64(), rand.Uint64())),
+		savedVersion: savedVersion,
+		dir:          dir,
+		gen:          gen,
+		level:        level,
+		storage:      storage,
+		dim:          shape,
+		dimName:      name,
+		levelDat:     levelDat,
+		chunks:       make(map[ChunkPos]*loadedChunk),
+		exec:         newExecutors(),
+		clocks:       defaultClocks(),
+		saveFormat:   defaultSaveFormat,
+		dice:         rand.New(rand.NewPCG(rand.Uint64(), rand.Uint64())),
 	}
 	w.worldAge.Store(level.WorldAge)
 	w.setEnvironment(registry.EnvDimensionDefaults(shape.typ))
@@ -693,7 +704,7 @@ func (w *World) readyChunk(pos ChunkPos) (*Chunk, *[16][16]int32, bool) {
 		if !w.oldVersionLogged.Swap(true) {
 			slog.Warn("world has chunks this server cannot upgrade (saved before Minecraft 1.16.5, or in the layout before 1.18 and holding entities or spawners), "+
 				"they are served empty and left unchanged on disk",
-				"world", w.dir, "dimension", w.dimName, "chunk", pos, "data_version", old.version)
+				"world", w.dir, "world_version", w.savedVersion, "dimension", w.dimName, "chunk", pos, "data_version", old.version)
 		}
 		c = newChunk(pos.X, pos.Z)
 		w.encodeChunk(c)
