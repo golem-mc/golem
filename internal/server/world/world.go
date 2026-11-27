@@ -412,13 +412,7 @@ func newWorldIn(dir, storage string, gen Generator, name string, shape dimension
 		}
 		level = loaded
 	}
-	savedVersion := ""
-	if levelDat && level.existed {
-		if v, ok := nbt.Get[nbt.Compound](level.raw, "Version"); ok {
-			name, _ := nbt.Get[nbt.String](v, "Name")
-			savedVersion = string(name)
-		}
-	}
+	savedVersion := readSavedVersion(dir, level)
 	w := &World{
 		savedVersion: savedVersion,
 		dir:          dir,
@@ -2470,4 +2464,23 @@ func relocateChunkRoot(root nbt.Compound, pos ChunkPos) {
 		"expected", pos, "got", ChunkPos{int32(x), int32(z)})
 	root["xPos"] = nbt.Int(pos.X)
 	root["zPos"] = nbt.Int(pos.Z)
+}
+
+// readSavedVersion is the Minecraft version name the world's level.dat says
+// last saved it, "" when there is none. A dimension without a level.dat of its
+// own (level is the default) reads the one in dir, the shared world root.
+func readSavedVersion(dir string, level *LevelData) string {
+	raw := level.raw
+	if !level.existed {
+		raw = nil
+		for _, name := range []string{levelDatFile, levelDatBackupFile} {
+			if tag, err := readLevelFile(dir, name); err == nil {
+				raw = tag
+				break
+			}
+		}
+	}
+	v, _ := nbt.Get[nbt.Compound](raw, "Version")
+	name, _ := nbt.Get[nbt.String](v, "Name")
+	return string(name)
 }
