@@ -4,6 +4,7 @@ import (
 	"math"
 	"slices"
 	"sync"
+	"sync/atomic"
 
 	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/internal/server/command"
@@ -48,6 +49,8 @@ type paintingEntity struct {
 
 	// checkInterval counts ticks toward the periodic survives poll.
 	checkInterval int
+	// neighboursGen is the hangingGen at which the last poll found no body in the way.
+	neighboursGen uint64
 	// invulnerable is the Invulnerable tag, which turns away every hurt but
 	// a creative player's.
 	invulnerable bool
@@ -69,6 +72,7 @@ var paintingTracker = trackedKind[*paintingEntity, struct{}]{
 	chunks:      func(s *Server) *entity.ChunkIndex[*paintingEntity] { return &s.paintingChunks },
 	filing:      func(it *paintingEntity) *entity.Filing { return &it.Filing },
 	uuid:        func(it *paintingEntity) uuid.UUID { return it.uuid },
+	listed:      hangingChanged,
 	anchor:      func(it *paintingEntity) (float64, float64) { return paintingCentreX(it), paintingCentreZ(it) },
 	track:       func(p *paintingEntity) *bodyTrack[struct{}] { return &p.bodyTrack },
 	world:       func(p *paintingEntity) *world.World { return p.w },
@@ -273,6 +277,15 @@ func (s *Server) registerPaintingLocked(p *paintingEntity) {
 	paintingTracker.file(s, p)
 }
 
+// hangingGen counts the changes to the set or the boxes of listed frames and
+// paintings. A survives poll that found no neighbour in the way at generation g
+// has the same answer for its neighbours until the count moves, so it skips
+// the neighbour scan.
+var hangingGen atomic.Uint64
+
+// hangingChanged records that a listed body appeared or moved.
+func hangingChanged() { hangingGen.Add(1) }
+
 // hangingNear collects the listed paintings and frames of w filed in the
 // chunks covering the box widened by 2 blocks for paintings (a 4x4 painting's
 // centre, the point it is filed under, is at most 2 blocks from any cell it
@@ -451,6 +464,7 @@ func (s *Server) teleportPainting(p *paintingEntity, to player.Position, by stri
 		p.x, p.y, p.z = x, y, z
 		p.minX, p.minY, p.minZ, p.maxX, p.maxY, p.maxZ = rules.PaintingBox(x, y, z, p.dir, p.width, p.height)
 		p.Refile(entity.ChunkAt(paintingCentreX(p), paintingCentreZ(p)))
+		hangingChanged()
 	})
 }
 
@@ -603,9 +617,16 @@ func (s *Server) pollPaintings() {
 			continue
 		}
 		p.checkInterval = 0
-		others, frames := s.hangingNear(p.w, p.minX, p.minZ, p.maxX, p.maxZ)
-		others = slices.DeleteFunc(others, func(o *paintingEntity) bool { return o == p })
-		if !paintingSurvives(p.w, p.x, p.y, p.z, p.dir, p.width, p.height, others, frames) {
+		var others []*paintingEntity
+		var frames []*frameEntity
+		gen := hangingGen.Load()
+		if p.neighboursGen != gen {
+			others, frames = s.hangingNear(p.w, p.minX, p.minZ, p.maxX, p.maxZ)
+			others = slices.DeleteFunc(others, func(o *paintingEntity) bool { return o == p })
+		}
+		if paintingSurvives(p.w, p.x, p.y, p.z, p.dir, p.width, p.height, others, frames) {
+			p.neighboursGen = gen
+		} else {
 			doomed = append(doomed, p)
 			tells = append(tells, paintingTellOf(p))
 		}

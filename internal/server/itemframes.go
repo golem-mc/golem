@@ -57,6 +57,8 @@ type frameEntity struct {
 
 	// checkInterval counts ticks toward the periodic survives poll.
 	checkInterval int
+	// neighboursGen is the hangingGen at which the last poll found no body in the way.
+	neighboursGen uint64
 	bodyTrack[struct{}]
 
 	// tags are the scoreboard tags. Guarded by the frame lock.
@@ -75,6 +77,7 @@ var frameTracker = trackedKind[*frameEntity, struct{}]{
 	chunks:      func(s *Server) *entity.ChunkIndex[*frameEntity] { return &s.frameChunks },
 	filing:      func(it *frameEntity) *entity.Filing { return &it.Filing },
 	uuid:        func(it *frameEntity) uuid.UUID { return it.uuid },
+	listed:      hangingChanged,
 	anchor:      func(it *frameEntity) (float64, float64) { return frameCentreX(it), frameCentreZ(it) },
 	track:       func(f *frameEntity) *bodyTrack[struct{}] { return &f.bodyTrack },
 	world:       func(f *frameEntity) *world.World { return f.w },
@@ -175,6 +178,7 @@ func (f *frameEntity) reshape() {
 	_, framedMap := f.item.MapIDOf()
 	f.minX, f.minY, f.minZ, f.maxX, f.maxY, f.maxZ = rules.ItemFrameBox(f.x, f.y, f.z, f.dir, framedMap)
 	f.Refile(entity.ChunkAt(frameCentreX(f), frameCentreZ(f)))
+	hangingChanged()
 }
 
 // frameSurvives reports whether a frame survives in the cell given: nothing
@@ -740,9 +744,16 @@ func (s *Server) pollFrames() {
 			continue
 		}
 		f.checkInterval = 0
-		paintings, frames := s.hangingNear(f.w, f.minX, f.minZ, f.maxX, f.maxZ)
-		frames = slices.DeleteFunc(frames, func(o *frameEntity) bool { return o == f })
-		if !frameSurvives(f.w, f.x, f.y, f.z, f.dir, f.fixed, paintings, frames) {
+		var paintings []*paintingEntity
+		var frames []*frameEntity
+		gen := hangingGen.Load()
+		if f.neighboursGen != gen {
+			paintings, frames = s.hangingNear(f.w, f.minX, f.minZ, f.maxX, f.maxZ)
+			frames = slices.DeleteFunc(frames, func(o *frameEntity) bool { return o == f })
+		}
+		if frameSurvives(f.w, f.x, f.y, f.z, f.dir, f.fixed, paintings, frames) {
+			f.neighboursGen = gen
+		} else {
 			doomed = append(doomed, f)
 			tells = append(tells, frameTellOf(f))
 		}

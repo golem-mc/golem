@@ -203,6 +203,8 @@ type trackedKind[B any, S any] struct {
 	// anchor, if not nil, is the point a block-anchored body is filed under
 	// and queried at, in place of pose: where its snapshot reports it.
 	anchor func(B) (x, z float64)
+	// listed, if not nil, runs under the kind's lock as a body joins the list.
+	listed func()
 }
 
 // chunkOf is the chunk the index files b under.
@@ -759,6 +761,9 @@ func (k *trackedKind[B, S]) enroll(s *Server, b B, filed bool) bool {
 	}
 	list := k.list(s)
 	*list = append(*list, b)
+	if k.listed != nil {
+		k.listed()
+	}
 	if !filed {
 		k.file(s, b)
 	}
