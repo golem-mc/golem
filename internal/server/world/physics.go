@@ -944,7 +944,8 @@ func (p *Physics) NotifyPlaced(x, y, z int32, oldState uint16) ([]BlockChange, [
 
 // NotifyTemplatePlaced is the part of a template cell's write that runs at its
 // placement: the old block's removal reactions and the new block's on-place,
-// seeing only the cells placed so far.
+// seeing only the cells placed so far (including its own fluid, fire and
+// survival scheduling).
 // vanilla: StructureTemplate.placeInWorld, Level.setBlock
 func (p *Physics) NotifyTemplatePlaced(x, y, z int32, oldState uint16) ([]BlockChange, []Effect, []TNTPrime) {
 	p.mu.Lock()
@@ -957,6 +958,8 @@ func (p *Physics) NotifyTemplatePlaced(x, y, z int32, oldState uint16) ([]BlockC
 	p.redstoneAfterRemoval(x, y, z, oldState, false, false, &changes)
 	p.containerRemoved(x, y, z, oldState, newState)
 	p.redstoneOnPlace(x, y, z, oldState, &changes)
+	p.physicsAsked = nil
+	p.updateAsNeighbor(x, y, z, &changes, true, oldState, newState, [3]int32{})
 	effects, primes := p.takeWake()
 	return changes, effects, primes
 }

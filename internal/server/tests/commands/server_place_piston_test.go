@@ -55,3 +55,26 @@ func TestPlaceTemplateFiresThePistonBesideTheFirstCellFirst(t *testing.T) {
 	}
 	c.Disconnect()
 }
+
+// TestPlaceTemplateWaterSourceFlows checks that a placed template's water
+// cell books its own fluid tick, so it spreads to the air beside it.
+// vanilla: StructureTemplate.placeInWorld, Level.setBlock
+func TestPlaceTemplateWaterSourceFlows(t *testing.T) {
+	t.Parallel()
+	palette := nbt.List{Elem: nbt.TypeCompound, Items: []nbt.Tag{
+		paletteEntry("minecraft:water", map[string]string{"level": "0"}),
+	}}
+	blocks := nbt.List{Elem: nbt.TypeCompound, Items: []nbt.Tag{templateBlock(0, 0, 0, 0, nil)}}
+	tpl := nbt.Compound{"size": ints(1, 1, 1), "palette": palette, "blocks": blocks, "DataVersion": nbt.Int(4440)}
+	srv, c := startPlaceWorldWith(t, map[string]nbt.Compound{"water": tpl})
+	c.ChatCommand("place template test:water 10 70 10")
+	expectPlaced(t, c, "commands.place.template.success", "test:water", 10, 70, 10)
+	servertest.UntilTicks(t, srv, 60, "the water spreading", func() bool {
+		name, _ := servertest.StateProps(srv.BlockAt(11, 70, 10))
+		return name == "minecraft:water"
+	})
+	if name, _ := servertest.StateProps(srv.BlockAt(11, 70, 10)); name != "minecraft:water" {
+		t.Errorf("block beside the template's water is %q, want water", name)
+	}
+	c.Disconnect()
+}
