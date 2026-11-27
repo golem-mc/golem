@@ -26,13 +26,20 @@ var (
 // components of the block entity's kind; what is left becomes
 // minecraft:block_entity_data (kept with its id).
 // vanilla: ItemStackComponentizationFix.fixBlockEntityTag
-func componentizeBlockEntityTag(c, tag nbt.Compound) {
+func componentizeBlockEntityTag(c, tag nbt.Compound, itemID string) {
 	be, ok := nbt.CompoundView(tag["BlockEntityTag"])
 	if !ok {
 		return
 	}
 	delete(tag, "BlockEntityTag")
 	id, _ := be["id"].(nbt.String)
+	if id == "" {
+		// vanilla: V99.addNames
+		id = nbt.String(registry.BlockEntityTypes[itemID])
+		if id != "" {
+			be["id"] = id
+		}
+	}
 	name := string(id)
 	if name != "" && !strings.Contains(name, ":") {
 		name = "minecraft:" + name

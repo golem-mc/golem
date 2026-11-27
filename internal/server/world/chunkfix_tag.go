@@ -29,6 +29,13 @@ var tagComponentized = []string{
 	"Unbreakable", "Enchantments", "StoredEnchantments", "display", "AttributeModifiers",
 }
 
+// legacyItemEntities are the entities an item's id-less EntityTag describes.
+// vanilla: V99.ITEM_TO_ENTITY
+var legacyItemEntities = map[string]string{
+	"minecraft:armor_stand": "minecraft:armor_stand",
+	"minecraft:painting":    "minecraft:painting",
+}
+
 // componentizeTag moves the tag of a legacy stack, already renamed, into
 // entries["components"]; what is left of the tag becomes custom_data.
 // vanilla: ItemStackComponentizationFix.fixItemStack
@@ -63,9 +70,14 @@ func componentizeTag(entries nbt.Compound, id string) {
 		c["minecraft:block_state"] = fixBlockStateTag(v)
 	}
 	if v, ok := take("EntityTag"); ok {
+		if e, isMap := nbt.CompoundView(v); isMap {
+			if _, has := e["id"]; !has && legacyItemEntities[id] != "" {
+				e["id"] = nbt.String(legacyItemEntities[id]) // vanilla: V99.addNames
+			}
+		}
 		c["minecraft:entity_data"] = v
 	}
-	componentizeBlockEntityTag(c, tag)
+	componentizeBlockEntityTag(c, tag, id)
 	if v, ok := take("Unbreakable"); ok && boolValue(v) {
 		u := nbt.Compound{}
 		if hide&hideUnbreakable != 0 {
