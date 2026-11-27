@@ -565,3 +565,64 @@ func TestOldStackInUnmodelledBlockEntityTagStaysSaveable(t *testing.T) {
 		t.Error(err)
 	}
 }
+
+func explorerMapStack(slot int8) nbt.Compound {
+	return nbt.Compound{
+		"Slot": nbt.Byte(slot), "id": nbt.String("minecraft:filled_map"), "count": nbt.Int(1),
+		"components": nbt.Compound{
+			"minecraft:map_id":    nbt.Int(1),
+			"minecraft:map_color": nbt.Int(3830373),
+			"minecraft:map_decorations": nbt.Compound{"+": nbt.Compound{
+				"type": nbt.String("minecraft:mansion"), "x": nbt.Double(0), "z": nbt.Double(0), "rotation": nbt.Float(180)}},
+			"minecraft:item_name": nbt.Compound{"translate": nbt.String("filled_map.mansion")},
+		},
+	}
+}
+
+func TestChunkFrom26_2GetsMapAndPotFixes(t *testing.T) {
+	t.Parallel()
+	sherds := func(items ...string) nbt.List {
+		l := nbt.List{Elem: nbt.TypeString}
+		for _, s := range items {
+			l.Items = append(l.Items, nbt.String(s))
+		}
+		return l
+	}
+	chest := nbt.Compound{
+		"id": nbt.String("minecraft:chest"), "x": nbt.Int(16), "y": nbt.Int(64), "z": nbt.Int(32),
+		"Items": nbt.List{Elem: nbt.TypeCompound, Items: []nbt.Tag{
+			explorerMapStack(0),
+			nbt.Compound{"Slot": nbt.Byte(1), "id": nbt.String("minecraft:decorated_pot"), "count": nbt.Int(1),
+				"components": nbt.Compound{"minecraft:pot_decorations": sherds("minecraft:brick", "minecraft:angler_pottery_sherd", "minecraft:brick", "minecraft:brick")}},
+		}},
+	}
+	pot := nbt.Compound{
+		"id": nbt.String("minecraft:decorated_pot"), "x": nbt.Int(17), "y": nbt.Int(64), "z": nbt.Int(32),
+		"sherds": sherds("minecraft:brick", "minecraft:angler_pottery_sherd", "minecraft:brick", "minecraft:brick"),
+	}
+	w, pos := oldChunkWorld(t, 4903, chest, pot)
+	w.Acquire(pos)
+	tag, ok := w.BlockEntityTag(16, 64, 32)
+	if !ok {
+		t.Fatal("the chest was not loaded")
+	}
+	items, _ := nbt.Get[nbt.List](tag, "Items")
+	m, _ := nbt.CompoundView(items.Items[0])
+	comps, _ := nbt.Get[nbt.Compound](m, "components")
+	if m["id"] != nbt.String("minecraft:woodland_mansion_map") || comps["minecraft:map_color"] != nil || comps["minecraft:item_name"] != nil {
+		t.Errorf("map = %v", m)
+	}
+	p, _ := nbt.CompoundView(items.Items[1])
+	pc, _ := nbt.Get[nbt.Compound](p, "components")
+	want := nbt.Compound{
+		"back": nbt.Compound{"id": nbt.String("minecraft:brick")}, "left": nbt.Compound{"id": nbt.String("minecraft:angler_pottery_sherd")},
+		"right": nbt.Compound{"id": nbt.String("minecraft:brick")}, "front": nbt.Compound{"id": nbt.String("minecraft:brick")},
+	}
+	if !nbt.Equal(pc["minecraft:pot_decorations"], want) {
+		t.Errorf("pot item decorations = %v", pc["minecraft:pot_decorations"])
+	}
+	placed, ok := w.BlockEntityTag(17, 64, 32)
+	if !ok || !nbt.Equal(placed["sherds"], want) {
+		t.Errorf("placed pot = %v", placed)
+	}
+}
