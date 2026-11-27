@@ -333,3 +333,22 @@ func BenchmarkTNTBlastCrowd(b *testing.B) {
 		site.s.tntBlasts.drop()
 	}
 }
+
+// BenchmarkTNTBlastTall is one blast in the middle of a tall cube of primed
+// TNT, where the x/z grid alone leaves every layer a candidate.
+func BenchmarkTNTBlastTall(b *testing.B) {
+	site := newBlastSite(b, [6]int32{0, 35, 56, 72, 0, 35})
+	for i := range 35 * 35 * 35 {
+		site.s.tnts = append(site.s.tnts, site.s.newTNTEntity(site.w, float64(i%35)+0.5, float64(world.GroundLevel)+float64(i/1225)+0.5, float64(i/35%35)+0.5, 80, 0, uuid.Nil, false))
+	}
+	b.ReportAllocs()
+	b.ResetTimer()
+	for range b.N {
+		b.StopTimer()
+		site.rebuild()
+		site.s.tntBlasts.build(site.s.tnts)
+		b.StartTimer()
+		site.runBlast(17.5, 17.5)
+		site.s.tntBlasts.drop()
+	}
+}
