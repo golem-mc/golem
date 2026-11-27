@@ -5,6 +5,7 @@ import (
 
 	"github.com/golem-mc/golem/internal/server"
 	"github.com/golem-mc/golem/internal/server/rules"
+	"github.com/golem-mc/golem/internal/server/servertest"
 )
 
 // captainOf is the raider wearing the captain's banner.
@@ -29,10 +30,15 @@ func bannersOnTheGround(srv *server.Server) int {
 	return n
 }
 
-// firstWave starts a raid and runs it to its first wave.
+// firstWave starts a raid and runs it to its first wave. The wave spawns about
+// five chunks out; the harness's default simulation distance of 4 leaves a
+// raider on the edge of the ticking range unticked, so a kill or a walk to a
+// banner would wait until it strays in. 10 would read as unset, hence 8.
 func firstWave(t *testing.T) (*server.Server, func(n int)) {
 	t.Helper()
-	srv, c, _ := village(t, rules.DifficultyNormal)
+	cfg := servertest.HostileTestConfig()
+	cfg.SimulationDistance = 8
+	srv, c, _ := villageWith(t, cfg, rules.DifficultyNormal)
 	startRaid(t, c, srv, 0)
 	run(c, srv, 330)
 	return srv, func(n int) { run(c, srv, n) }
