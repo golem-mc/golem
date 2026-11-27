@@ -43,14 +43,14 @@ func upgradeLegacyEntity(e nbt.CompoundTag, version int32) {
 
 func upgradeLegacyEntityFields(e nbt.CompoundTag, version int32) {
 	entries := e.Entries()
-	name := entityName(entries)
+	typ, known := entityType(entries)
 	if version < horseBodyArmorVersion {
-		upgradeHorseBodyArmor(entries, name)
+		upgradeHorseBodyArmor(entries, typ, known)
 	}
 	if version < chestedHorsesSlotVersion {
-		upgradeChestedSlots(entries, name)
+		upgradeChestedSlots(entries, typ, known)
 	}
-	if version < wolfHealthVersion && name == "minecraft:wolf" {
+	if version < wolfHealthVersion && known && typ == registry.EntityTypeWolf {
 		upgradeWolfHealth(entries)
 	}
 	if version < blockPosFormatVersion {
@@ -78,25 +78,29 @@ func upgradeLegacyEntityFields(e nbt.CompoundTag, version int32) {
 	}
 }
 
-// entityName is the entity's namespaced id.
-// vanilla: NamespacedSchema.ensureNamespaced
-func entityName(entries nbt.Compound) string {
+// entityType is the type of the entity's namespaced id, and false when the id
+// names no entity type. vanilla: NamespacedSchema.ensureNamespaced
+func entityType(entries nbt.Compound) (registry.EntityType, bool) {
 	id, _ := nbt.Get[nbt.String](entries, "id")
-	if !strings.Contains(string(id), ":") {
-		return "minecraft:" + string(id)
+	name := string(id)
+	if !strings.Contains(name, ":") {
+		name = "minecraft:" + name
 	}
-	return string(id)
+	return registry.EntityTypeByName(name)
 }
 
 // upgradeHorseBodyArmor moves a horse's ArmorItem, or a llama's DecorItem, to
 // body_armor_item, which always drops, and clears the horse's copy in the
 // chest slot of ArmorItems. vanilla: HorseBodyArmorItemFix
-func upgradeHorseBodyArmor(entries nbt.Compound, name string) {
+func upgradeHorseBodyArmor(entries nbt.Compound, typ registry.EntityType, known bool) {
+	if !known {
+		return
+	}
 	var from string
-	switch name {
-	case "minecraft:horse":
+	switch typ {
+	case registry.EntityTypeHorse:
 		from = "ArmorItem"
-	case "minecraft:llama", "minecraft:trader_llama":
+	case registry.EntityTypeLlama, registry.EntityTypeTraderLlama:
 		from = "DecorItem"
 	default:
 		return
@@ -108,7 +112,7 @@ func upgradeHorseBodyArmor(entries nbt.Compound, name string) {
 	delete(entries, from)
 	entries["body_armor_item"] = item
 	entries["body_armor_drop_chance"] = nbt.Float(2)
-	if name != "minecraft:horse" {
+	if typ != registry.EntityTypeHorse {
 		return
 	}
 	if armor, ok := entries["ArmorItems"].(nbt.List); ok && len(armor.Items) > 2 {
@@ -122,9 +126,12 @@ func upgradeHorseBodyArmor(entries nbt.Compound, name string) {
 // upgradeChestedSlots shifts the Slot of a pack animal's chest down by two:
 // slots 0 and 1 used to be the saddle and armor.
 // vanilla: ChestedHorsesInventoryZeroIndexingFix
-func upgradeChestedSlots(entries nbt.Compound, name string) {
-	switch name {
-	case "minecraft:llama", "minecraft:trader_llama", "minecraft:mule", "minecraft:donkey":
+func upgradeChestedSlots(entries nbt.Compound, typ registry.EntityType, known bool) {
+	if !known {
+		return
+	}
+	switch typ {
+	case registry.EntityTypeLlama, registry.EntityTypeTraderLlama, registry.EntityTypeMule, registry.EntityTypeDonkey:
 	default:
 		return
 	}
