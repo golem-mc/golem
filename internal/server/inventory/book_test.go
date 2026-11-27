@@ -25,3 +25,20 @@ func TestRecipeBookOfReadsWhatTagWrites(t *testing.T) {
 		t.Errorf("a file without a book read as %+v, want the fresh book", got)
 	}
 }
+
+// TestRecipeBookOfRenamesOldRecipes checks a book saved before 4769 gets the
+// stonecutter recipes' new names, and a current one is left alone.
+// vanilla: DataFixers v4769 "Rename stonecutter recipes"
+func TestRecipeBookOfRenamesOldRecipes(t *testing.T) {
+	t.Parallel()
+	old := &RecipeBook{Known: []string{"minecraft:quartz_slab_from_stonecutting"}}
+	for version, want := range map[int32]string{
+		4700: "minecraft:quartz_slab_from_quartz_block_stonecutting",
+		5023: "minecraft:quartz_slab_from_stonecutting",
+	} {
+		root := nbt.Compound{"DataVersion": nbt.Int(version), "recipeBook": old.Tag(nbt.Compound{})}
+		if got := RecipeBookOf(root).Known; len(got) != 1 || got[0] != want {
+			t.Errorf("version %d: known = %v, want %s", version, got, want)
+		}
+	}
+}

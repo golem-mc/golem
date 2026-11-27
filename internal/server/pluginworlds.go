@@ -95,6 +95,9 @@ func (h *pluginHost) CreateWorld(opts plugin.WorldOptions) (plugin.World, error)
 		if err := world.MigrateLayout(root); err != nil {
 			return nil, err
 		}
+		if err := world.MigrateLevelRecords(root); err != nil {
+			return nil, err
+		}
 	}
 	meta, existed := world.ReadPluginMeta(root, folderDim)
 	if !existed && opts.Folder != "" {

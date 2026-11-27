@@ -447,3 +447,30 @@ func stacks(ids ...int32) []protocol.ItemStack {
 	}
 	return out
 }
+
+func TestParseRenamesWhatOlderVersionsCalledThings(t *testing.T) {
+	tree := Vanilla()
+	const when = "2026-10-31 12:34:56 +0100"
+	lode, err := Parse(tree, []byte(`{"minecraft:nether/use_lodestone": {"criteria": {"use_lodestone": "`+when+`"}, "done": true}, "DataVersion": 4189}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n := tree.Get("minecraft:adventure/use_lodestone"); n == nil || !lode.Done(n) {
+		t.Error("nether/use_lodestone of a 4189 file is not adventure/use_lodestone done")
+	}
+	cats, err := Parse(tree, []byte(`{"minecraft:husbandry/complete_catalogue": {"criteria": {"textures/entity/cat/tabby.png": "`+when+`", "textures/entity/cat/british_shorthair.png": "`+when+`"}, "done": false}, "DataVersion": 3000}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	n := tree.Get("minecraft:husbandry/complete_catalogue")
+	if !cats.Obtained(n, "minecraft:tabby") || !cats.Obtained(n, "minecraft:british_shorthair") {
+		t.Error("a 3000 file's cat criteria were not renamed")
+	}
+	current, err := Parse(tree, []byte(`{"minecraft:nether/use_lodestone": {"criteria": {"use_lodestone": "`+when+`"}, "done": true}, "DataVersion": 5023}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if current.Done(tree.Get("minecraft:adventure/use_lodestone")) {
+		t.Error("a current file's nether/use_lodestone was renamed")
+	}
+}

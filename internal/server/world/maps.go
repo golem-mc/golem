@@ -302,7 +302,7 @@ func (m *Maps) readCounter() int32 {
 // centre.
 // vanilla: MapItemSavedData.CODEC
 func (m *Maps) read(id int32) *MapData {
-	version, data, err := readSavedDataVersioned(m.root, fmt.Sprintf("data/minecraft/maps/%d.dat", id), MaxSavedData, false)
+	data, version, err := readSavedDataVersion(m.root, fmt.Sprintf("data/minecraft/maps/%d.dat", id), MaxSavedData, false)
 	if errors.Is(err, errNoSavedData) {
 		return nil
 	} else if err != nil {
