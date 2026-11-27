@@ -1,6 +1,9 @@
 package nbt
 
-import "slices"
+import (
+	"maps"
+	"slices"
+)
 
 // CompoundTag is a compound with mutable named entries. Compound supports
 // map literals; OrderedCompound also retains collision order for chat.
@@ -47,6 +50,12 @@ func (c *OrderedCompound) Set(key string, tag Tag) {
 	for len(c.values) > c.capacity-c.capacity/4 {
 		c.capacity *= 2
 	}
+}
+
+// Clone copies the entries, their order and the retained capacity, sharing
+// the children.
+func (c *OrderedCompound) Clone() *OrderedCompound {
+	return &OrderedCompound{values: maps.Clone(c.values), keys: slices.Clone(c.keys), capacity: c.capacity}
 }
 
 func (c *OrderedCompound) Delete(key string) {

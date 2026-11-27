@@ -51,49 +51,74 @@ func (w *World) BeehiveOccupants(x, y, z int32) (int, bool) {
 	return len(list.Items), true
 }
 
-// AdvanceHiveClocks increments ticks_in_hive of every stored bee without
-// marking the chunk (the next real change saves them). It swaps in a copy of
-// the entry because connection goroutines read the old compounds without the
-// lock.
-func (w *World) AdvanceHiveClocks(x, y, z int32) {
-	pos := ChunkPos{X: ChunkOf(float64(x)), Z: ChunkOf(float64(z))}
-	w.mu.Lock()
-	defer w.mu.Unlock()
-	loaded, ok := w.chunks[pos]
-	if !ok {
+// AdvanceHiveClocks increments ticks_in_hive of every stored bee of the given
+// hives without marking the chunk (the next real change saves them). It swaps
+// in copies of the entries because connection goroutines read the old
+// compounds without the lock.
+func (w *World) AdvanceHiveClocks(hives []BeehiveAt) {
+	if len(hives) == 0 {
 		return
 	}
-	items := loaded.chunk.carriedBlockEntities.Items
-	for i, item := range items {
-		entry, ok := nbt.CompoundView(item)
+	type cell [3]int32
+	byChunk := make(map[ChunkPos]map[cell]struct{})
+	for _, h := range hives {
+		pos := ChunkPos{X: ChunkOf(float64(h.X)), Z: ChunkOf(float64(h.Z))}
+		due := byChunk[pos]
+		if due == nil {
+			due = make(map[cell]struct{})
+			byChunk[pos] = due
+		}
+		due[cell{h.X, h.Y, h.Z}] = struct{}{}
+	}
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	for pos, due := range byChunk {
+		loaded, ok := w.chunks[pos]
 		if !ok {
 			continue
 		}
-		if cx, cy, cz := carriedPos(entry); cx != x || cy != y || cz != z {
-			continue
-		}
-		list, _ := nbt.Get[nbt.List](entry, "bees")
-		bees := make([]nbt.Tag, len(list.Items))
-		for j, bee := range list.Items {
-			occupant, ok := nbt.CompoundView(bee)
+		items := loaded.chunk.carriedBlockEntities.Items
+		var swapped []nbt.Tag
+		for i, item := range items {
+			entry, ok := nbt.CompoundView(item)
 			if !ok {
-				bees[j] = bee
 				continue
 			}
-			next := nbt.ShallowCopyCompound(bee.(nbt.CompoundTag))
-			ticks, _ := nbt.IntValue(occupant["ticks_in_hive"])
-			next.Set("ticks_in_hive", nbt.Int(ticks+1))
-			bees[j] = next
+			if x, y, z, ok := carriedPosInTag(entry); !ok {
+				continue
+			} else if _, hit := due[cell{x, y, z}]; !hit {
+				continue
+			}
+			list, _ := nbt.Get[nbt.List](entry, "bees")
+			bees := make([]nbt.Tag, len(list.Items))
+			for j, bee := range list.Items {
+				occupant, ok := nbt.CompoundView(bee)
+				if !ok {
+					bees[j] = bee
+					continue
+				}
+				var next nbt.CompoundTag
+				if ordered, ok := bee.(*nbt.OrderedCompound); ok {
+					next = ordered.Clone()
+				} else {
+					next = nbt.ShallowCopyCompound(bee.(nbt.CompoundTag))
+				}
+				ticks, _ := nbt.IntValue(occupant["ticks_in_hive"])
+				next.Set("ticks_in_hive", nbt.Int(ticks+1))
+				bees[j] = next
+			}
+			entryCopy := make(nbt.Compound, len(entry))
+			maps.Copy(entryCopy, entry)
+			list.Items = bees
+			entryCopy["bees"] = list
+			if swapped == nil {
+				swapped = slices.Clone(items)
+			}
+			swapped[i] = entryCopy
 		}
-		entryCopy := make(nbt.Compound, len(entry))
-		maps.Copy(entryCopy, entry)
-		list.Items = bees
-		entryCopy["bees"] = list
-		swapped := make([]nbt.Tag, len(items))
-		copy(swapped, items)
-		swapped[i] = entryCopy
-		loaded.chunk.carriedBlockEntities.Items = swapped
-		return
+		if swapped != nil {
+			loaded.chunk.carriedBlockEntities.Items = swapped
+		}
 	}
 }
 
