@@ -13,6 +13,7 @@ import (
 // still needs; the generated STRUCTURE chain starts at templateDataVersionFloor.
 const (
 	attributeModifierIdVersion = 3945 // vanilla: DataFixers.addFixers (AttributeModifierIdFix)
+	attributeIdPrefixVersion   = 4055 // vanilla: DataFixers.addFixers (AttributeIdPrefixFix)
 	foodConsumableVersion      = 4059 // vanilla: DataFixers.addFixers (FoodToConsumableFix)
 	customModelDataVersion     = 4175 // vanilla: DataFixers.addFixers (CustomModelDataExpandFix)
 	textComponentVersion       = 4290 // vanilla: DataFixers.addFixers (UnflattenTextComponentFix)
@@ -45,6 +46,9 @@ func fixComponentShapes(c nbt.Compound, version int32) {
 	if version < attributeModifierIdVersion {
 		fixAttributeModifierIDs(c)
 	}
+	if version < attributeIdPrefixVersion {
+		fixModifierTypePrefixes(c)
+	}
 	if version < foodConsumableVersion {
 		fixFoodToConsumable(c)
 	}
@@ -67,6 +71,35 @@ func fixComponentShapes(c nbt.Compound, version int32) {
 	}
 	if version < tooltipDisplayVersion {
 		fixTooltipDisplay(c)
+	}
+}
+
+// stripAttributePrefix drops the generic./horse./player./zombie. prefix of an
+// attribute id. vanilla: AttributeIdPrefixFix.replaceId
+func stripAttributePrefix(id string) string {
+	name := strings.TrimPrefix(id, "minecraft:")
+	for _, prefix := range []string{"generic.", "horse.", "player.", "zombie."} {
+		if rest, ok := strings.CutPrefix(name, prefix); ok {
+			return "minecraft:" + rest
+		}
+	}
+	return id
+}
+
+// fixModifierTypePrefixes strips the prefix from the type of each modifier in
+// a stack's attribute_modifiers. vanilla: AttributesRenameFix.fixDataComponentsOld
+func fixModifierTypePrefixes(c nbt.Compound) {
+	wrapper, ok := nbt.CompoundView(c["minecraft:attribute_modifiers"])
+	if !ok {
+		return
+	}
+	modifiers, _ := wrapper["modifiers"].(nbt.List)
+	for _, item := range modifiers.Items {
+		if m, ok := nbt.CompoundView(item); ok {
+			if t, ok := m["type"].(nbt.String); ok {
+				m["type"] = nbt.String(stripAttributePrefix(string(t)))
+			}
+		}
 	}
 }
 
