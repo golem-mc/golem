@@ -72,8 +72,9 @@ type World struct {
 	// means no limit.
 	limit *Border
 	dir   string
-	// oldVersionLogged limits the unsupported-data-version warning to one per world.
-	oldVersionLogged atomic.Bool
+	// oldVersionLogged limits the unsupported-data-version warning to one per
+	// world; unlike a flag on World it is shared by a save's dimensions.
+	oldVersionLogged *atomic.Bool
 	// savedVersion is the Minecraft version name level.dat says last saved the
 	// world, "" for a dimension without a level.dat or one that names none.
 	savedVersion string
@@ -402,6 +403,15 @@ func newWorld(dir string, gen Generator, name string, shape dimensionShape, leve
 	return newWorldIn(dir, DimensionDir(dir, name), gen, name, shape, levelDat)
 }
 
+// oldVersionFlags holds one unsupported-version warning flag per level
+// directory, for the life of the process.
+var oldVersionFlags sync.Map
+
+func oldVersionFlag(dir string) *atomic.Bool {
+	f, _ := oldVersionFlags.LoadOrStore(dir, new(atomic.Bool))
+	return f.(*atomic.Bool)
+}
+
 // newWorldIn is newWorld with the dimension's files in storage.
 func newWorldIn(dir, storage string, gen Generator, name string, shape dimensionShape, levelDat bool) (*World, error) {
 	level := defaultLevel("")
@@ -414,19 +424,20 @@ func newWorldIn(dir, storage string, gen Generator, name string, shape dimension
 	}
 	savedVersion := readSavedVersion(dir, level)
 	w := &World{
-		savedVersion: savedVersion,
-		dir:          dir,
-		gen:          gen,
-		level:        level,
-		storage:      storage,
-		dim:          shape,
-		dimName:      name,
-		levelDat:     levelDat,
-		chunks:       make(map[ChunkPos]*loadedChunk),
-		exec:         newExecutors(),
-		clocks:       defaultClocks(),
-		saveFormat:   defaultSaveFormat,
-		dice:         rand.New(rand.NewPCG(rand.Uint64(), rand.Uint64())),
+		savedVersion:     savedVersion,
+		dir:              dir,
+		oldVersionLogged: oldVersionFlag(dir),
+		gen:              gen,
+		level:            level,
+		storage:          storage,
+		dim:              shape,
+		dimName:          name,
+		levelDat:         levelDat,
+		chunks:           make(map[ChunkPos]*loadedChunk),
+		exec:             newExecutors(),
+		clocks:           defaultClocks(),
+		saveFormat:       defaultSaveFormat,
+		dice:             rand.New(rand.NewPCG(rand.Uint64(), rand.Uint64())),
 	}
 	w.worldAge.Store(level.WorldAge)
 	w.setEnvironment(registry.EnvDimensionDefaults(shape.typ))
@@ -2455,15 +2466,20 @@ func (w *World) rollN(n int) int {
 // block entities and filters scheduled ticks by them.
 // vanilla: SerializableChunkData.read
 func relocateChunkRoot(root nbt.Compound, pos ChunkPos) {
-	x, _ := nbt.Get[nbt.Int](root, "xPos")
-	z, _ := nbt.Get[nbt.Int](root, "zPos")
+	// A chunk from before 1.18 keeps its position under Level.
+	holder := root
+	if level, ok := nbt.Get[nbt.Compound](root, "Level"); ok {
+		holder = level
+	}
+	x, _ := nbt.Get[nbt.Int](holder, "xPos")
+	z, _ := nbt.Get[nbt.Int](holder, "zPos")
 	if int32(x) == pos.X && int32(z) == pos.Z {
 		return
 	}
 	slog.Error("chunk file is in the wrong location; relocating",
 		"expected", pos, "got", ChunkPos{int32(x), int32(z)})
-	root["xPos"] = nbt.Int(pos.X)
-	root["zPos"] = nbt.Int(pos.Z)
+	holder["xPos"] = nbt.Int(pos.X)
+	holder["zPos"] = nbt.Int(pos.Z)
 }
 
 // readSavedVersion is the Minecraft version name the world's level.dat says

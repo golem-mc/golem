@@ -732,7 +732,7 @@ func TestOldDataVersionChunkIsNotGeneratedOver(t *testing.T) {
 	}
 }
 
-func TestOldDataVersionWarningNamesVersionInNether(t *testing.T) {
+func TestOldDataVersionWarningIsOncePerSaveAcrossDimensions(t *testing.T) {
 	// Not parallel: it swaps the global slog default to read the warning.
 	dir := t.TempDir()
 	pos := ChunkPos{X: 1, Z: 2}
@@ -747,14 +747,16 @@ func TestOldDataVersionWarningNamesVersionInNether(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	rf, err := openRegion(path, defaultSaveFormat)
-	if err != nil {
-		t.Fatal(err)
+	for _, p := range []string{path, regionFilePath(DimensionDir(dir, DimensionName), rx, rz)} {
+		rf, err := openRegion(p, defaultSaveFormat)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := rf.writeChunk(pos, encoded); err != nil {
+			t.Fatal(err)
+		}
+		rf.close()
 	}
-	if err := rf.writeChunk(pos, encoded); err != nil {
-		t.Fatal(err)
-	}
-	rf.close()
 	if err := writeLevelCompound(dir, nbt.Compound{
 		"Version": nbt.Compound{"Name": nbt.String("1.17.1")},
 	}); err != nil {
@@ -767,7 +769,24 @@ func TestOldDataVersionWarningNamesVersionInNether(t *testing.T) {
 
 	w := NewDimensionWorld(dir, true, NewNetherGenerator(7))
 	w.Acquire(pos)
+	over, _ := NewWorld(dir, NewFlatGenerator())
+	over.Acquire(pos)
 	if n := strings.Count(logs.String(), "cannot upgrade"); n != 1 || !strings.Contains(logs.String(), "world_version=1.17.1") {
 		t.Errorf("want one warning naming version 1.17.1, got %d:\n%s", n, logs.String())
+	}
+}
+
+func TestRelocateChunkRootReadsLevelPosition(t *testing.T) {
+	t.Parallel()
+	pos := ChunkPos{X: 1, Z: 0}
+	level := nbt.Compound{"xPos": nbt.Int(1), "zPos": nbt.Int(0)}
+	root := nbt.Compound{"Level": level}
+	relocateChunkRoot(root, pos)
+	if _, ok := root["xPos"]; ok {
+		t.Error("a chunk already in its slot was rewritten")
+	}
+	relocateChunkRoot(root, ChunkPos{X: 3, Z: 4})
+	if x, _ := nbt.Get[nbt.Int](level, "xPos"); x != 3 {
+		t.Errorf("Level.xPos = %d, want 3", x)
 	}
 }
