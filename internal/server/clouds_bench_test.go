@@ -53,3 +53,23 @@ func BenchmarkTickCloudsInHerd(b *testing.B) {
 		})
 	}
 }
+
+// BenchmarkObstructedInHerd checks a placement far from a flat world's herd.
+func BenchmarkObstructedInHerd(b *testing.B) {
+	for _, cows := range []int{0, 2000} {
+		b.Run(strconv.Itoa(cows), func(b *testing.B) {
+			s, w := newTrackerBenchServer(b)
+			dim := s.allDims()[0]
+			for i := range cows {
+				x, z := float64(i%50)*2-49.5, float64(i/50)*2-39.5
+				s.spawnMobInDim(dim, entity.TypeCow, x, world.GroundLevel, z, int64(i+1), nil)
+			}
+			stone := uint16(registry.BlockStone.DefaultState())
+			b.ReportAllocs()
+			b.ResetTimer()
+			for range b.N {
+				s.obstructed(w, 40, world.GroundLevel, 40, stone)
+			}
+		})
+	}
+}

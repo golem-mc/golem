@@ -1,6 +1,7 @@
 package server
 
 import (
+	"cmp"
 	"fmt"
 	"github.com/golem-mc/golem/internal/server/advancement"
 	"math"
@@ -2334,14 +2335,28 @@ func (c *client) sweepHurt(w *world.World, held protocol.ItemStack, attackDamage
 	var struck []advancement.Entity
 	self := c.LootEntity
 	c.srv.mobsMu.Lock()
-	for m, ent := range c.srv.herdOf(w).book {
+	herd := c.srv.herdOf(w)
+	box := [6]float64{volMin[0] - mobIndexMargin, volMin[1], volMin[2] - mobIndexMargin,
+		volMax[0] + mobIndexMargin, volMax[1], volMax[2] + mobIndexMargin}
+	area, indexed := smallChunkArea(&box)
+	var reached []*entity.Mob
+	herd.mobsInArea(area, indexed, func(m *entity.Mob) bool {
 		if m.ID == targetID || m.Dead || alliedTo(c.player.UUID, myTeam, allies, m) {
-			continue
+			return true
 		}
 		bMinX, bMinY, bMinZ, bMaxX, bMaxY, bMaxZ := m.BlastBox()
-		if !rules.SweepReaches(from.X, from.Y, from.Z, m.X, m.Y, m.Z,
+		if rules.SweepReaches(from.X, from.Y, from.Z, m.X, m.Y, m.Z,
 			volMin, volMax,
 			[3]float64{bMinX, bMinY, bMinZ}, [3]float64{bMaxX, bMaxY, bMaxZ}) {
+			reached = append(reached, m)
+		}
+		return true
+	})
+	// Hurts apply in spawn order, as the herd book was walked.
+	slices.SortFunc(reached, func(a, b *entity.Mob) int { return cmp.Compare(a.ID, b.ID) })
+	for _, m := range reached {
+		ent := herd.record(m)
+		if ent == nil {
 			continue
 		}
 		mobCtx := c.attackEnchContext(meleeDamageType(held), mobEntityType(m.Type), func() *rules.LootEntity { return c.srv.mobLootLocked(ent) })
