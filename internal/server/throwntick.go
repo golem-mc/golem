@@ -132,11 +132,11 @@ func (s *Server) readThrownTickInputs(in *thrownTickInputs) {
 			c.pearlsOnJoin.Store(saved)
 		}
 	}
-	in.boatsByWorld, in.boatsByID, in.boatRoots = s.boatSnapshots()
 	s.lockTick(&s.arrowsMu)
 	flying := len(s.thrown) > 0
 	s.unlockTick(&s.arrowsMu)
 	if flying {
+		in.boatsByWorld, in.boatsByID, in.boatRoots = s.boatSnapshots()
 		in.projectileTargetSnapshots = s.readProjectileTargetSnapshots()
 	}
 }

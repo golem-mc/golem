@@ -741,7 +741,7 @@ func boatLeashStep(it *boatEntity, holder entity.LeashHolder, found bool) *mobLe
 func (s *Server) hullsByWorld() map[*world.World][]entity.AABB {
 	s.boatsMu.Lock()
 	defer s.boatsMu.Unlock()
-	hulls := make(map[*world.World][]entity.AABB, len(s.boats))
+	hulls := make(map[*world.World][]entity.AABB, len(s.allDims()))
 	for _, it := range s.boats {
 		if it.boat.Dead {
 			continue
