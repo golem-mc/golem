@@ -400,6 +400,10 @@ func TestOldBlockItemWithoutBlockEntityIDIsUpgraded(t *testing.T) {
 					"Slot": nbt.Byte(1), "id": nbt.String("minecraft:armor_stand"), "Count": nbt.Byte(1),
 					"tag": nbt.Compound{"EntityTag": nbt.Compound{"Small": nbt.Byte(1)}},
 				},
+				nbt.Compound{
+					"Slot": nbt.Byte(2), "id": nbt.String("minecraft:cow_spawn_egg"), "Count": nbt.Byte(1),
+					"tag": nbt.Compound{"EntityTag": nbt.Compound{"NoAI": nbt.Byte(1)}},
+				},
 			}},
 		}
 		w, pos := oldChunkWorld(t, 3700, chest)
@@ -425,6 +429,12 @@ func TestOldBlockItemWithoutBlockEntityIDIsUpgraded(t *testing.T) {
 		data, _ := nbt.Get[nbt.Compound](comps, "minecraft:entity_data")
 		if data["id"] != nbt.String("minecraft:armor_stand") || data["Small"] != nbt.Byte(1) {
 			t.Errorf("withID=%v: entity_data = %v", withID, data)
+		}
+		egg, _ := nbt.CompoundView(items.Items[2])
+		comps, _ = nbt.Get[nbt.Compound](egg, "components")
+		data, _ = nbt.Get[nbt.Compound](comps, "minecraft:entity_data")
+		if data["id"] != nbt.String("minecraft:cow") || data["NoAI"] != nbt.Byte(1) {
+			t.Errorf("withID=%v: egg entity_data = %v", withID, data)
 		}
 		if _, err := w.saveChunk(pos, c); err != nil {
 			t.Errorf("withID=%v: saveChunk: %v", withID, err)

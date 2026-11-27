@@ -34,7 +34,8 @@ func componentizeBlockEntityTag(c, tag nbt.Compound, itemID string) {
 	delete(tag, "BlockEntityTag")
 	id, _ := be["id"].(nbt.String)
 	if id == "" {
-		// vanilla: V99.addNames
+		// vanilla: V99.addNames. A superset: vanilla (V704.ITEM_TO_BLOCKENTITY)
+		// names only some items, and leaves the id off for the rest.
 		id = nbt.String(registry.BlockEntityTypes[itemID])
 		if id != "" {
 			be["id"] = id
