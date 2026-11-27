@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/golem-mc/golem/nbt"
+	"github.com/golem-mc/golem/registry"
 )
 
 // Data versions of the item component fixes a 1.20.5 to 1.21.4 block entity
@@ -78,7 +79,7 @@ func fixComponentShapes(c nbt.Compound, id string, version int32) {
 		}
 	}
 	if version < entityVariantVersion {
-		fixEntityVariants(c, id)
+		fixEntityVariants(c, itemOrNone(id))
 	}
 	if version < tooltipDisplayVersion {
 		fixTooltipDisplay(c)
@@ -503,14 +504,14 @@ var axolotlVariants = []string{"lucy", "wild", "gold", "cyan", "blue"}
 // fixEntityVariants moves the variant of a bucket, or the painting variant of
 // a painting, out of its entity data into its own component.
 // vanilla: EntitySpawnerItemVariantComponentFix
-func fixEntityVariants(c nbt.Compound, id string) {
+func fixEntityVariants(c nbt.Compound, item registry.Item) {
 	bucket, _ := nbt.CompoundView(c["minecraft:bucket_entity_data"])
-	switch id {
-	case "minecraft:salmon_bucket":
+	switch item {
+	case registry.ItemSalmonBucket:
 		if v, ok := takeKey(bucket, "type"); ok {
 			c["minecraft:salmon/size"] = v
 		}
-	case "minecraft:axolotl_bucket":
+	case registry.ItemAxolotlBucket:
 		if v, ok := takeKey(bucket, "Variant"); ok {
 			if n, isNum := nbt.IntValue(v); isNum {
 				variant := "lucy"
@@ -522,7 +523,7 @@ func fixEntityVariants(c nbt.Compound, id string) {
 				bucket["Variant"] = v
 			}
 		}
-	case "minecraft:tropical_fish_bucket":
+	case registry.ItemTropicalFishBucket:
 		if v, ok := bucket["BucketVariantTag"]; ok {
 			if packed, isNum := nbt.IntValue(v); isNum {
 				pattern, known := tropicalPatterns[packed&0xFFFF]
@@ -535,7 +536,7 @@ func fixEntityVariants(c nbt.Compound, id string) {
 				c["minecraft:tropical_fish/pattern_color"] = nbt.String(dyeName(packed >> 24 & 0xFF))
 			}
 		}
-	case "minecraft:painting":
+	case registry.ItemPainting:
 		data, ok := nbt.CompoundView(c["minecraft:entity_data"])
 		if !ok || data["id"] != nbt.String("minecraft:painting") {
 			return

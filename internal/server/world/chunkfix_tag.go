@@ -238,7 +238,7 @@ func componentizeTag(entries nbt.Compound, id string) {
 // the item places.
 // vanilla: V99.addNames
 func addTagIDs(tag nbt.Compound, item registry.Item) {
-	if be, ok := nbt.CompoundView(tag["BlockEntityTag"]); ok && item >= 0 && (item == registry.ItemShield || item.InTag(registry.ItemTagOf("minecraft:banners"))) {
+	if be, ok := nbt.CompoundView(tag["BlockEntityTag"]); ok && item >= 0 && (item == registry.ItemShield || item.InTag(registry.ItemTagIDBanners)) {
 		be["id"] = nbt.String("minecraft:banner")
 	}
 	if entity, ok := nbt.CompoundView(tag["EntityTag"]); ok && entity["id"] == nil {
