@@ -321,3 +321,34 @@ func TestPlayerStateSavesDeathTimeFromVitals(t *testing.T) {
 		t.Errorf("DeathTime after respawn = %v, %v; want 0, true", got, ok)
 	}
 }
+
+func TestFixPlayerRespawnEnteredNether(t *testing.T) {
+	cases := []struct {
+		name string
+		old  nbt.Compound
+		want [3]float64
+	}{
+		{"full", nbt.Compound{"x": nbt.Double(1.5), "y": nbt.Double(64), "z": nbt.Double(-3.25)}, [3]float64{1.5, 64, -3.25}},
+		{"partial", nbt.Compound{"x": nbt.Double(7)}, [3]float64{7, 0, 0}},
+		{"non-double", nbt.Compound{"x": nbt.Int(2), "y": nbt.Float(3.5), "z": nbt.String("a")}, [3]float64{2, 3.5, 0}},
+		{"empty", nbt.Compound{}, [3]float64{}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			root := nbt.Compound{"DataVersion": nbt.Int(inlineBlockPosFormatVersion - 1), "enteredNetherPosition": tc.old}
+			fixPlayerRespawn(root)
+			if _, ok := root["enteredNetherPosition"]; ok {
+				t.Error("enteredNetherPosition kept")
+			}
+			list, ok := nbt.Get[nbt.List](root, "entered_nether_pos")
+			if !ok || len(list.Items) != 3 {
+				t.Fatalf("entered_nether_pos = %v, %v", list, ok)
+			}
+			for i, item := range list.Items {
+				if d, ok := item.(nbt.Double); !ok || float64(d) != tc.want[i] {
+					t.Errorf("item %d = %v; want %v", i, item, tc.want[i])
+				}
+			}
+		})
+	}
+}
