@@ -64,7 +64,9 @@ func (s *Server) summonSaved(w *world.World, name string, x, y, z float64, tag n
 			return 0, uuid.Nil, errNotSimulated
 		}
 		k := &knotEntity{id: s.nextEntity(), uuid: identity, w: w, x: cx, y: cy, z: cz,
-			invulnerable: nbt.BoolField(compound, "Invulnerable"), custom: customNameOfTag(compound)}
+			invulnerable: nbt.BoolField(compound, "Invulnerable"), custom: customNameOfTag(compound),
+			silent: nbt.BoolField(compound, "Silent")}
+		k.tags.Reset(tagsOfTag(compound))
 		id, register = k.id, func() { s.registerKnot(k) }
 	}
 	if register == nil {
