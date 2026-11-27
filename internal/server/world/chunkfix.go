@@ -23,15 +23,18 @@ const (
 	potSherdsVersion            = 3448 // vanilla: DataFixers.addFixers (DecoratedPotFieldRenameFix)
 	shardRenameVersion          = 3447 // vanilla: DataFixers.addFixers (Pottery shard item renaming)
 	grassRenameVersion          = 3692 // vanilla: DataFixers.addFixers (Rename grass block to short_grass)
+	clickEventVersion           = 4292 // vanilla: DataFixers.addFixers (TextComponentHoverAndClickEventFix)
+	signsOpFlagVersion          = 5002 // vanilla: DataFixers.addFixers (SignsOpFlagFix)
 )
 
 // oldChunkFixedVersion is the data version a chunk from before it claims once
 // fixOldChunkRoot, fixLegacyPalette and fixOldBlockEntity have run over it:
 // every chunk and block entity fix up to it is applied, so the claim keeps the
 // game, and this server, from running a fix such as the sign one over its own
-// output again. Plain item stacks are already in storedItemVersion's shape,
-// which the game's componentization leaves alone.
-const oldChunkFixedVersion = grassRenameVersion
+// output, or over a block entity created after the upgrade, again. Plain item
+// stacks are already in storedItemVersion's shape, which the game's
+// componentization leaves alone.
+const oldChunkFixedVersion = signsOpFlagVersion
 
 // storedItemVersion is the data version from which stored item stacks are
 // componentized.
@@ -134,14 +137,18 @@ var potShardRenames = map[string]string{
 //
 // It reports false for a block entity the current version no longer has.
 func fixOldBlockEntity(entry nbt.CompoundTag, version int32) bool {
-	tag := entry.Entries()
-	id, _ := nbt.Get[nbt.String](tag, "id")
 	if version == 0 {
 		return true
 	}
+	tag := entry.Entries()
+	id, _ := nbt.Get[nbt.String](tag, "id")
+	kind, _ := BlockEntityKindByName(string(id))
 	if version < bedBlockEntityVersion && string(id) == "minecraft:bed" {
 		// vanilla: RemoveBlockEntityTagFix
 		return false
+	}
+	if version < signsOpFlagVersion && IsSignKind(kind) {
+		tag["allow_op_features"] = nbt.Byte(1)
 	}
 	if version >= tooltipDisplayVersion {
 		return true
@@ -160,7 +167,6 @@ func fixOldBlockEntity(entry nbt.CompoundTag, version int32) bool {
 		}
 	}
 	fixStoredComponents(entry, version)
-	kind, _ := BlockEntityKindByName(string(id))
 	fixBlockEntityFields(string(id), kind, tag, version)
 	switch {
 	case string(id) == suspiciousSandID && version < brushableBlockVersion:
@@ -183,6 +189,9 @@ func fixOldBlockEntity(entry nbt.CompoundTag, version int32) bool {
 	}
 	if version < textComponentVersion {
 		unflattenBlockEntityText(tag)
+	}
+	if version < clickEventVersion && IsSignKind(kind) {
+		fixSignClickEvents(tag)
 	}
 	return true
 }

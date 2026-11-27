@@ -3,6 +3,9 @@ package world
 import (
 	"encoding/json"
 	"maps"
+	"net/url"
+	"strconv"
+	"strings"
 
 	"github.com/golem-mc/golem/nbt"
 )
@@ -133,4 +136,132 @@ func flattenBlockEntities(entries []nbt.Tag) []nbt.Tag {
 		out[i] = copied
 	}
 	return out
+}
+
+// fixSignClickEvents renames the click and hover events in a sign's lines.
+func fixSignClickEvents(entries nbt.Compound) {
+	for _, side := range []string{"front_text", "back_text"} {
+		text, ok := nbt.Get[nbt.Compound](entries, side)
+		if !ok {
+			continue
+		}
+		for _, key := range []string{"messages", "filtered_messages"} {
+			if list, ok := nbt.Get[nbt.List](text, key); ok {
+				for i, line := range list.Items {
+					list.Items[i] = fixListItemEvents(line)
+				}
+			}
+		}
+	}
+}
+
+// fixTextEvents renames hoverEvent and clickEvent in a component and in the
+// components under it, and returns the component.
+// vanilla: TextComponentHoverAndClickEventFix
+func fixTextEvents(tag nbt.Tag) nbt.Tag {
+	switch v := tag.(type) {
+	case nbt.List:
+		for i, item := range v.Items {
+			v.Items[i] = fixListItemEvents(item)
+		}
+		return v
+	case nbt.Compound:
+		if extra, ok := nbt.Get[nbt.List](v, "extra"); ok {
+			fixTextEvents(extra)
+		}
+		if sep, ok := v["separator"]; ok {
+			v["separator"] = fixTextEvents(sep)
+		}
+		if hover, ok := nbt.Get[nbt.Compound](v, "hoverEvent"); ok {
+			delete(v, "hoverEvent")
+			v["hover_event"] = fixHoverEvent(hover)
+		}
+		if click, ok := nbt.Get[nbt.Compound](v, "clickEvent"); ok {
+			delete(v, "clickEvent")
+			if fixed := fixClickEvent(click); fixed != nil {
+				v["click_event"] = fixed
+			}
+		}
+		return v
+	}
+	return tag
+}
+
+// fixListItemEvents is fixTextEvents for a list item, which a mixed list
+// wraps in a compound with one empty key.
+func fixListItemEvents(item nbt.Tag) nbt.Tag {
+	if wrapper, ok := item.(nbt.Compound); ok && len(wrapper) == 1 {
+		if inner, ok := wrapper[""]; ok {
+			wrapper[""] = fixTextEvents(inner)
+			return wrapper
+		}
+	}
+	return fixTextEvents(item)
+}
+
+func fixHoverEvent(hover nbt.Compound) nbt.Compound {
+	action, _ := nbt.Get[nbt.String](hover, "action")
+	contents, _ := nbt.Get[nbt.Compound](hover, "contents")
+	copyFrom := func(fields ...string) {
+		delete(hover, "contents")
+		for _, f := range fields {
+			if value, ok := contents[f]; ok {
+				hover[f] = value
+			}
+		}
+	}
+	switch action {
+	case "show_text":
+		renameField(hover, "contents", "value")
+		if value, ok := hover["value"]; ok {
+			hover["value"] = fixTextEvents(value)
+		}
+	case "show_item":
+		copyFrom("id", "count", "components")
+	case "show_entity":
+		copyFrom("id", "type", "name")
+		renameField(hover, "id", "uuid")
+		renameField(hover, "type", "id")
+		if name, ok := hover["name"]; ok {
+			hover["name"] = fixTextEvents(name)
+		}
+	}
+	return hover
+}
+
+// fixClickEvent renames a click event's value by its action; nil drops an
+// event vanilla finds invalid.
+func fixClickEvent(click nbt.Compound) nbt.Compound {
+	action, _ := nbt.Get[nbt.String](click, "action")
+	value, _ := click["value"].(nbt.String)
+	switch action {
+	case "open_url":
+		if u, err := url.Parse(string(value)); err != nil || u.Scheme == "" || (!strings.EqualFold(u.Scheme, "http") && !strings.EqualFold(u.Scheme, "https")) {
+			return nil
+		}
+		renameField(click, "value", "url")
+	case "open_file":
+		renameField(click, "value", "path")
+	case "run_command", "suggest_command":
+		if strings.ContainsFunc(string(value), func(r rune) bool { return r == '§' || r < ' ' || r == 0x7f }) {
+			return nil
+		}
+		renameField(click, "value", "command")
+	case "change_page":
+		raw, ok := click["value"]
+		if !ok {
+			return nil
+		}
+		page, ok := nbt.IntValue(raw)
+		if s, isStr := raw.(nbt.String); isStr {
+			n, err := strconv.Atoi(string(s))
+			page, ok = int32(n), err == nil
+		}
+		if !ok {
+			return nil
+		}
+		delete(click, "value")
+		click["page"] = nbt.Int(max(page, 1))
+	}
+	return click
 }

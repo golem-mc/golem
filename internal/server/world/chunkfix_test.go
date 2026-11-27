@@ -149,7 +149,7 @@ func TestOldChestStacksAreUpgraded(t *testing.T) {
 	}
 }
 
-func TestPre1215TextIsComponentsInMemoryAndJSONOnDisk(t *testing.T) {
+func TestPre1215TextIsComponentsInMemoryAndOnDisk(t *testing.T) {
 	t.Parallel()
 	line := func(s string) nbt.Tag { return nbt.String(s) }
 	sign := nbt.Compound{
@@ -186,7 +186,7 @@ func TestPre1215TextIsComponentsInMemoryAndJSONOnDisk(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if v, _ := nbt.Get[nbt.Int](root, "DataVersion"); v != 4189 {
+	if v, _ := nbt.Get[nbt.Int](root, "DataVersion"); v != oldChunkFixedVersion {
 		t.Fatalf("DataVersion = %v", v)
 	}
 	list, _ := nbt.Get[nbt.List](root, "block_entities")
@@ -196,20 +196,12 @@ func TestPre1215TextIsComponentsInMemoryAndJSONOnDisk(t *testing.T) {
 		id, _ := nbt.Get[nbt.String](v, "id")
 		saved[string(id)] = v
 	}
-	if got := saved["minecraft:chest"]["CustomName"]; got != nbt.String(`"Loot"`) {
+	if got := saved["minecraft:chest"]["CustomName"]; got != nbt.String("Loot") {
 		t.Errorf("saved CustomName = %v", got)
 	}
 	front, _ := nbt.Get[nbt.Compound](saved["minecraft:sign"], "front_text")
-	messages, _ := nbt.Get[nbt.List](front, "messages")
-	if len(messages.Items) != 4 || messages.Items[0] != nbt.String(`"Hello"`) {
-		t.Errorf("saved messages = %v", messages.Items)
-	}
-	for i, item := range messages.Items {
-		if s, ok := item.(nbt.String); !ok {
-			t.Errorf("saved message %d is %T, want a JSON string", i, item)
-		} else if parsed := unflattenJSON(s); parsed == nbt.Tag(s) && i == 1 {
-			t.Errorf("saved message 1 %q does not parse", s)
-		}
+	if text := decodeSignText(front); text.Messages[0] != "Hello" || text.Messages[3] != "plain" {
+		t.Errorf("saved sign lines = %v", text.Messages)
 	}
 }
 
@@ -365,7 +357,9 @@ func TestOldChunkClaimsTheFixedVersion(t *testing.T) {
 		status        string
 	}{
 		{2975, oldChunkFixedVersion, "full"},
-		{3700, 3700, "minecraft:full"},
+		{3955, oldChunkFixedVersion, "minecraft:full"},
+		{oldChunkFixedVersion, oldChunkFixedVersion, "minecraft:full"},
+		{5023, 5023, "minecraft:full"},
 	} {
 		c, err := decodeChunkNBT(nbt.Compound{
 			"DataVersion": nbt.Int(tc.version),
@@ -378,6 +372,49 @@ func TestOldChunkClaimsTheFixedVersion(t *testing.T) {
 		}
 		if got := c.claimedVersion(); got != tc.want {
 			t.Errorf("version %d: claimed %d, want %d", tc.version, got, tc.want)
+		}
+	}
+}
+
+func TestOldSignGetsOpFlagAndClickEvent(t *testing.T) {
+	t.Parallel()
+	for _, version := range []int32{3700, 3955, 5001, dataVersion} {
+		click := nbt.Compound{"action": nbt.String("run_command"), "value": nbt.String("/say hi")}
+		line := nbt.Tag(nbt.String(`{"text":"Click","clickEvent":{"action":"run_command","value":"/say hi"}}`))
+		if version >= textComponentVersion {
+			line = nbt.Compound{"text": nbt.String("Click"), "clickEvent": click}
+		}
+		if version >= clickEventVersion {
+			line = nbt.Compound{"text": nbt.String("Click"), "click_event": nbt.Compound{"action": nbt.String("run_command"), "command": nbt.String("/say hi")}}
+		}
+		empty := nbt.Tag(nbt.String(`""`))
+		if version >= textComponentVersion {
+			empty = nbt.String("")
+		}
+		lines := func(first nbt.Tag) nbt.List {
+			return nbt.List{Elem: nbt.TypeString, Items: []nbt.Tag{first, empty, empty, empty}}
+		}
+		sign := nbt.Compound{
+			"id": nbt.String("minecraft:sign"), "x": nbt.Int(16), "y": nbt.Int(64), "z": nbt.Int(32),
+			"front_text": nbt.Compound{"messages": lines(line), "color": nbt.String("black"), "has_glowing_text": nbt.Byte(0)},
+			"back_text":  nbt.Compound{"messages": lines(empty), "color": nbt.String("black"), "has_glowing_text": nbt.Byte(0)},
+			"is_waxed":   nbt.Byte(0),
+		}
+		w, pos := oldChunkWorld(t, version, sign)
+		w.Acquire(pos)
+		be := w.BlockEntity(16, 64, 32)
+		if be == nil {
+			t.Fatalf("v%d: no sign block entity", version)
+		}
+		allowed, events := be.SignClicks(true)
+		if want := version < signsOpFlagVersion; allowed != want {
+			t.Errorf("v%d: AllowOpFeatures = %v, want %v", version, allowed, want)
+		}
+		if action, _ := nbt.Get[nbt.String](events[0], "action"); action != "run_command" {
+			t.Errorf("v%d: click event = %v", version, events[0])
+		}
+		if cmd, _ := nbt.Get[nbt.String](events[0], "command"); cmd != "/say hi" {
+			t.Errorf("v%d: click command = %v", version, events[0])
 		}
 	}
 }
