@@ -86,6 +86,9 @@ func upgradeEntities(entities nbt.List, version int32) {
 			fixStoredComponents(c, version)
 			fixEntityTexts(c, version)
 		}
+		if version < villagerFinalizedVersion {
+			upgradeEntityShapes(c, version)
+		}
 	}
 }
 
