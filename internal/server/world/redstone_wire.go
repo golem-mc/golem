@@ -220,14 +220,13 @@ func (p *Physics) wireWakeNeighbors(x, y, z int32, changes *[]BlockChange) {
 	}
 }
 
-// wireOnPlace evaluates a placed wire's power, wakes the cells above and below,
-// and wakes the wires stepping around its neighbours.
+// wireOnPlace evaluates a placed wire's power, wakes the six neighbours of the
+// cells above and below (up first), and wakes the wires stepping around its neighbours.
 // vanilla: RedStoneWireBlock.onPlace
 func (p *Physics) wireOnPlace(x, y, z int32, changes *[]BlockChange) {
 	p.wireUpdatePower(x, y, z, changes)
-	for _, d := range [2]int{dirDown, dirUp} {
-		nx, ny, nz := x+dirDelta[d][0], y+dirDelta[d][1], z+dirDelta[d][2]
-		p.redstoneNeighborChanged(nx, ny, nz, p.w.BlockAt(nx, ny, nz), changes, false)
+	for _, d := range [2]int{dirUp, dirDown} {
+		p.wireWakeNeighbors(x+dirDelta[d][0], y+dirDelta[d][1], z+dirDelta[d][2], changes)
 	}
 	p.wireCornerChanges(x, y, z, changes)
 }
