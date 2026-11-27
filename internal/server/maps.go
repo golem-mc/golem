@@ -352,30 +352,58 @@ type mapHolder struct {
 	dimension string
 }
 
+// mapHolders is one tick's carriers of each map, built on first need from the
+// tick's clients; only the tick goroutine touches it.
+type mapHolders struct {
+	built   bool
+	clients []*client
+	byID    map[int32][]*client
+}
+
+// build files every player not wearing a map-invisibility item under each map
+// it carries, in join order.
+func (m *mapHolders) build() {
+	m.built = true
+	clear(m.byID)
+	if m.byID == nil {
+		m.byID = map[int32][]*client{}
+	}
+	slices.SortFunc(m.clients, func(a, b *client) int {
+		return cmp.Compare(a.joinSeq.Load(), b.joinSeq.Load())
+	})
+	for _, o := range m.clients {
+		o.player.MapHoldings(func(carried []int32, hidden bool) {
+			if hidden {
+				return
+			}
+			for _, id := range carried {
+				m.byID[id] = append(m.byID[id], o)
+			}
+		})
+	}
+}
+
 // otherHolders returns, by map id, each other player carrying the map, in
 // join order, in any dimension. A player wearing a map-invisibility item is
-// omitted; the viewer's own marker never is.
+// omitted; the viewer's own marker never is. The carrier set is read once per
+// tick (vanilla's tickCarriedBy also sees each holder's inventory as of that
+// holder's tick); positions and dimensions are read now.
 // vanilla: MapItemSavedData.tickCarriedBy, hasMapInvisibilityItemEquipped
 func (c *client) otherHolders(ids []int32) map[int32][]mapHolder {
 	out := map[int32][]mapHolder{}
 	if len(ids) == 0 {
 		return out
 	}
-	for _, o := range c.srv.playerClients() {
-		if o == c {
-			continue
+	m := &c.srv.mapHolders
+	if !m.built {
+		m.build()
+	}
+	for _, id := range ids {
+		for _, o := range m.byID[id] {
+			if o != c {
+				out[id] = append(out[id], mapHolder{pos: o.player.Position(), dimension: o.dimension().name})
+			}
 		}
-		h := mapHolder{pos: o.player.Position(), dimension: o.dimension().name}
-		o.player.MapHoldings(func(carried []int32, hidden bool) {
-			if hidden {
-				return
-			}
-			for _, id := range carried {
-				if slices.Contains(ids, id) {
-					out[id] = append(out[id], h)
-				}
-			}
-		})
 	}
 	return out
 }

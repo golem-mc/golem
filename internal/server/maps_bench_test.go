@@ -67,10 +67,40 @@ func BenchmarkMapHolderPass(b *testing.B) {
 			b.ReportAllocs()
 			b.ResetTimer()
 			for range b.N {
+				s.mapHolders.built, s.mapHolders.clients = false, s.clientsLocked()
 				for _, c := range clients {
 					// Ordinary player ticks also access the inventory before reading maps.
 					c.player.Inventory(func(*player.Inventory) {})
 					c.otherHolders(ids)
+				}
+			}
+		})
+	}
+}
+
+// BenchmarkTickMapsOwnMap runs five ticks (one marker tick) of every player's
+// tickMaps, each player holding its own locked map.
+func BenchmarkTickMapsOwnMap(b *testing.B) {
+	for _, players := range []int{10, 50, 100} {
+		b.Run(fmt.Sprint(players), func(b *testing.B) {
+			s, _ := newIdlePlayersBenchServer(b, players)
+			clients := s.playerClients()
+			for _, c := range clients {
+				id, data := s.maps.Create(world.DimensionName, 0, 0, 2)
+				data.Locked = true
+				stack := protocol.ItemStack{ItemID: int32(registry.ItemFilledMap), Count: 1}
+				stack.SetMapID(id)
+				c.player.Inventory(func(inv *player.Inventory) { inv.Slots[9] = stack })
+			}
+			b.ReportAllocs()
+			b.ResetTimer()
+			for range b.N {
+				for range mapUpdateInterval {
+					s.mapHolders.built, s.mapHolders.clients = false, s.clientsLocked()
+					for _, c := range clients {
+						c.player.Inventory(func(*player.Inventory) {})
+						c.tickMaps()
+					}
 				}
 			}
 		})

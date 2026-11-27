@@ -660,6 +660,8 @@ type Server struct {
 	mannequinPushScratch *mannequinPushes
 	// crammers is the survival tick's pushable bodies, rebuilt on first need.
 	crammers crammingCrowd
+	// mapHolders is the tick's map carriers, rebuilt on first need.
+	mapHolders mapHolders
 
 	// minecartsMu guards minecarts: the main loop ticks them under it; placing,
 	// boarding, casting off or striking one only adds or amends. It is taken

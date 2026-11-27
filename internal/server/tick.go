@@ -585,6 +585,7 @@ func (s *Server) tickSurvival() {
 	clients := s.clientsLocked()
 	s.mu.RUnlock()
 	s.crammers.built, s.crammers.clients = false, clients
+	s.mapHolders.built, s.mapHolders.clients = false, slices.Clone(clients)
 
 	for _, c := range clients {
 		if c.keepAlive == nil {
