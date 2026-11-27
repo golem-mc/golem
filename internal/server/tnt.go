@@ -648,6 +648,7 @@ func playSoundEffect(name string, category int32, x, y, z float64, volume, pitch
 type tntBlastIndex struct {
 	grid   entity.BoxGrid
 	bodies []*tntEntity
+	ys     []float64 // Y of bodies[i]
 	hits   []int32
 	out    []*tntEntity
 	active bool
@@ -659,6 +660,7 @@ func (x *tntBlastIndex) build(list []*tntEntity) {
 	x.grid.Reset()
 	clear(x.bodies)
 	x.bodies = x.bodies[:0]
+	x.ys = x.ys[:0]
 	if len(list) > 0 {
 		minX, maxX := list[0].tnt.X, list[0].tnt.X
 		minZ, maxZ := list[0].tnt.Z, list[0].tnt.Z
@@ -670,6 +672,7 @@ func (x *tntBlastIndex) build(list []*tntEntity) {
 		x.bodies = append(x.bodies, list...)
 		for i, it := range list {
 			x.grid.AddPoint(int32(i), it.tnt.X, it.tnt.Z)
+			x.ys = append(x.ys, it.tnt.Y)
 		}
 	}
 	x.active = true
@@ -681,11 +684,13 @@ func (x *tntBlastIndex) drop() {
 	x.grid.Reset()
 	clear(x.bodies)
 	x.bodies = x.bodies[:0]
+	x.ys = x.ys[:0]
 	clear(x.out)
 	x.out = x.out[:0]
 }
 
-// near returns the bodies of list within radius of the point, in list
+// near returns the bodies of list within radius of the point (the grid is
+// x/z only, so the height is cut here too), in list
 // order, or list itself when no index applies. A body added since build is
 // appended; a list that no longer starts with the indexed bodies is scanned
 // whole. The slice is reused by the next call.
@@ -696,7 +701,11 @@ func (x *tntBlastIndex) near(list []*tntEntity, cx, cy, cz, radius float64) []*t
 	}
 	x.hits = x.hits[:0]
 	x.grid.QueryPoints(entity.NewAABB(cx-radius, cy-radius, cz-radius, cx+radius, cy+radius, cz+radius),
-		func(i int32) { x.hits = append(x.hits, i) })
+		func(i int32) {
+			if y := x.ys[i]; y >= cy-radius && y <= cy+radius {
+				x.hits = append(x.hits, i)
+			}
+		})
 	slices.Sort(x.hits)
 	clear(x.out)
 	x.out = x.out[:0]
