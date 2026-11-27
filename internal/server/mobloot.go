@@ -93,7 +93,7 @@ func (s *Server) tickMobLoot() {
 		clear(dim.mobLootNear)
 		clear(dim.mobLootFar)
 		for _, m := range dim.mobs.herd {
-			if !m.Alive() || !(m.LootPickupEnabled() || m.BannerGrabbing()) {
+			if !m.Alive() || (!m.LootPickupEnabled() && !m.BannerGrabbing()) {
 				continue
 			}
 			if dim.mobLootNear == nil {
