@@ -1031,6 +1031,17 @@ func (k *trackedKind[B, S]) teleport(s *Server, b B, set func()) {
 	mu.Unlock()
 }
 
+// rotate turns a body with set, run under the kind's lock, and marks it for
+// the next tracking pass; nothing moves and no motion changes.
+// vanilla: RotateCommand.rotate, Entity.forceSetRotation
+func (k *trackedKind[B, S]) rotate(s *Server, b B, set func()) {
+	mu := k.lock(s)
+	mu.Lock()
+	set()
+	k.track(b).teleported = true
+	mu.Unlock()
+}
+
 // invalidatePistonGrid runs under the kind lock, like the box cache it drops.
 func (k *trackedKind[B, S]) invalidatePistonGrid(s *Server, b B) {
 	if k.invalidatePiston == nil {

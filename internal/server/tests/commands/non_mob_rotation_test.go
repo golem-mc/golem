@@ -51,3 +51,26 @@ func TestNonMobBodiesKeepTeleportAndRotateAngles(t *testing.T) {
 		})
 	}
 }
+
+// TestRotateKeepsBodyMotion: /rotate turns a body without touching its motion.
+// vanilla: RotateCommand.rotate, Entity.forceSetRotation
+func TestRotateKeepsBodyMotion(t *testing.T) {
+	t.Parallel()
+	srv, _ := servertest.Join(t, servertest.BlockTestConfig(), "Op", servertest.OpsListing(t, "Op"))
+	servertest.HoldTicks(t, srv)
+	for _, tc := range []struct{ kind, extra string }{
+		{"falling_block", `,BlockState:{Name:"minecraft:sand"}`},
+		{"experience_orb", ""},
+		{"item", `,Item:{id:"minecraft:stick",count:1}`},
+		{"tnt", ",fuse:200"},
+	} {
+		t.Run(tc.kind, func(t *testing.T) {
+			srv.RunLine(`summon minecraft:` + tc.kind + ` 5.5 64 5.5 {Tags:["t"],NoGravity:1b,Motion:[0.0,0.5,0.0]` + tc.extra + `}`)
+			defer srv.RunLine("kill @e[tag=t]")
+			srv.RunLine("rotate @e[tag=t,limit=1] 20 -30")
+			if !strings.Contains(fmt.Sprint(srv.RunLine("execute if entity @e[tag=t,nbt={Motion:[0.0d,0.5d,0.0d]}]")), "conditional.pass") {
+				t.Error("rotate changed the motion")
+			}
+		})
+	}
+}

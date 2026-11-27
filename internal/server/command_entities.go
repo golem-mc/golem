@@ -1054,17 +1054,17 @@ func (e *entitySnapshot) Rotate(yaw, pitch float32) {
 	case *armorStandEntity:
 		e.srv.teleportArmorStand(ref, to, "rotate", false)
 	case *itemEntity:
-		e.srv.teleportItem(ref, to, "rotate")
+		itemTracker.rotate(e.srv, ref, func() { ref.look.yaw, ref.look.pitch = yaw, pitch })
 	case *orbEntity:
-		e.srv.teleportOrb(ref, to, "rotate")
+		orbTracker.rotate(e.srv, ref, func() { ref.look.yaw, ref.look.pitch = yaw, pitch })
 	case *tntEntity:
-		e.srv.teleportTNT(ref, to, "rotate")
+		tntTracker.rotate(e.srv, ref, func() { ref.look.yaw, ref.look.pitch = yaw, pitch })
 	case *fallingEntity:
-		e.srv.teleportFallingBlock(ref, to, "rotate")
+		fallingTracker.rotate(e.srv, ref, func() { ref.look.yaw, ref.look.pitch = yaw, pitch })
 	case *cloudEntity:
-		e.srv.teleportCloud(ref, to, "rotate")
+		cloudTracker.rotate(e.srv, ref, func() { ref.look.yaw, ref.look.pitch = yaw, pitch })
 	case *endCrystalEntity:
-		e.srv.teleportEndCrystal(ref, to, "rotate")
+		endCrystalTracker.rotate(e.srv, ref, func() { ref.look.yaw, ref.look.pitch = yaw, pitch })
 	case *eyeEntity:
 		e.srv.teleportEye(ref, command.Move{Pos: to, DeltaX: true, DeltaY: true, DeltaZ: true})
 	case *mannequinEntity:
