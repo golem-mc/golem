@@ -89,6 +89,26 @@ func upgradeEntities(entities nbt.List, version int32) {
 	}
 }
 
+// UpgradePlayerData brings a player file written at an older data version to
+// the shapes this server reads: item stacks of Inventory, EnderItems and the
+// equipment, and the player's attributes. It raises the file's DataVersion to
+// the last of those fixes (tooltipDisplayVersion), so a later load does not run
+// them over the upgraded data; the respawn and equipment steps keyed on the
+// claim stay with the caller.
+// vanilla: DataFixTypes.PLAYER.updateToCurrentVersion
+func UpgradePlayerData(root nbt.Compound) {
+	version, _ := nbt.Get[nbt.Int](root, "DataVersion")
+	if version == 0 || version >= tooltipDisplayVersion {
+		return
+	}
+	if version < attributeIdPrefixVersion {
+		upgradeLegacyEntity(root, int32(version))
+	}
+	fixStoredComponents(root, int32(version))
+	fixEntityTexts(root, int32(version))
+	root["DataVersion"] = nbt.Int(tooltipDisplayVersion)
+}
+
 // fixEntityTexts strips attribute id prefixes and unflattens CustomName on an
 // entity and its passengers.
 // vanilla: AttributeIdPrefixFix, UnflattenTextComponentFix

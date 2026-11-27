@@ -798,6 +798,7 @@ func (c *client) restore() {
 	// Fix old respawn data before anything reads it, as the game upgrades a
 	// file on load.
 	fixPlayerRespawn(root)
+	world.UpgradePlayerData(root)
 
 	loaded := player.LoadInventory(root)
 	c.player.Inventory(func(inv *player.Inventory) { *inv = loaded })

@@ -13,6 +13,7 @@ import (
 	"github.com/golem-mc/golem/internal/server/player"
 	"github.com/golem-mc/golem/internal/server/pluginruntime"
 	"github.com/golem-mc/golem/internal/server/rules"
+	"github.com/golem-mc/golem/internal/server/world"
 	"github.com/golem-mc/golem/nbt"
 	"github.com/golem-mc/golem/plugin"
 	"github.com/google/uuid"
@@ -446,6 +447,7 @@ func (p *pluginOfflinePlayer) loadOnce() (nbt.Compound, error) {
 		}
 		if root != nil {
 			fixPlayerRespawn(root)
+			world.UpgradePlayerData(root)
 			if r, ok := storedRespawn(root); ok {
 				p.spawn = &r
 			}
