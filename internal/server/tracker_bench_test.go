@@ -2,10 +2,12 @@ package server
 
 import (
 	"bytes"
+	"fmt"
 	"io"
 	"log/slog"
 	"math"
 	"net"
+	"strconv"
 	"sync"
 	"testing"
 	"time"
@@ -348,5 +350,44 @@ func BenchmarkFrozenTracking(b *testing.B) {
 		orbTracker.frozenPass(s, watchers)
 		tntTracker.frozenPass(s, watchers)
 		fallingTracker.frozenPass(s, watchers)
+	}
+}
+
+// BenchmarkStaticTracking is one fixture tracking pass over 2000 displays at
+// rest, each watched by the players around it.
+func BenchmarkStaticTracking(b *testing.B) {
+	for _, n := range []int{8, 32, 64} {
+		b.Run(strconv.Itoa(n), func(b *testing.B) {
+			logger := slog.Default()
+			slog.SetDefault(slog.New(slog.DiscardHandler))
+			b.Cleanup(func() { slog.SetDefault(logger) })
+			s, _ := newTrackerBenchServer(b)
+			dim := s.allDims()[0]
+			s.mu.Lock()
+			for i := trackerBenchWatchers; i < n; i++ {
+				p := &player.Player{UUID: uuid.New(), EntityID: s.nextEntity()}
+				p.SetPosition(player.Position{X: float64(i%8)*10 - 35, Y: float64(world.GroundLevel), Z: float64(i/8)*10 - 35})
+				c := &client{srv: s, player: p}
+				c.dim.Store(dim)
+				c.worldScope = worldScope{srv: s, in: c.dimension, by: c.Profile}
+				s.assignPlayerSlot(c)
+				s.clients[p.UUID] = c
+			}
+			s.mu.Unlock()
+			for i := range 2000 {
+				x, z := float64(i%45)*2-45, float64(i/45)*2-45
+				s.RunRconLine(fmt.Sprintf("summon block_display %g %d %g", x, world.GroundLevel, z))
+			}
+			for range 20 {
+				s.ticksRun.Add(1)
+				s.tickFixtureTracking()
+			}
+			b.ReportAllocs()
+			b.ResetTimer()
+			for b.Loop() {
+				s.ticksRun.Add(1)
+				s.tickFixtureTracking()
+			}
+		})
 	}
 }

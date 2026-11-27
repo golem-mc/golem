@@ -1846,6 +1846,8 @@ type client struct {
 	// copy-on-write set, nil for none.
 	abilities atomic.Pointer[pluginAbilities]
 	hidden    atomic.Pointer[map[int32]struct{}]
+	// tracking is what the last tracking snapshot read of this player.
+	tracking trackingStamp
 
 	// container is the window state: the open container, the cursor item, the
 	// click state ID both ends sync on, and the drag in progress. Written by
