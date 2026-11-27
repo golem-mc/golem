@@ -31,7 +31,9 @@ type mannequinPushWorld struct {
 }
 
 // mannequinPushReach is how far past a mannequin's box a body may still push
-// it this tick; a deliberate bound, not vanilla's.
+// it this tick; a deliberate bound, not vanilla's. Normal movement (walking,
+// boats, minecarts) is well under it; a body moving further in one tick (a
+// fall near terminal velocity, an elytra dash) can miss the push that tick.
 const mannequinPushReach = 2.0
 
 func (p *mannequinPushWorld) inReach(box entity.AABB) bool {
