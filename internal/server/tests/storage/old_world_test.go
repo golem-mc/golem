@@ -307,3 +307,26 @@ func checkBob(t *testing.T, e nbt.Compound) {
 		t.Errorf("head = %v, want a leather helmet", head)
 	}
 }
+
+// TestAVanilla1_16_5WorldDropsItsEntitiesFromTheChunk checks a loaded 1.16.5
+// chunk is rewritten without the entities list its record held, which the
+// entity region now owns, so a mob killed later is not moved in a second time.
+func TestAVanilla1_16_5WorldDropsItsEntitiesFromTheChunk(t *testing.T) {
+	t.Parallel()
+	cfg := servertest.SurvivalConfig()
+	var region string
+	cfg.LevelName, region = oldWorld(t, "vanilla-1.16.5-entities-r.0.0.mca")
+
+	srv, _ := servertest.Start(t, cfg)
+	release := srv.HoldChunk(16, 0)
+	release()
+	srv.Shutdown()
+
+	root := servertest.ReadBlockChunkNBT(t, region, world.ChunkPos{X: 1, Z: 0})
+	if entities, ok := nbt.Get[nbt.List](root, "entities"); ok && len(entities.Items) > 0 {
+		t.Errorf("the saved chunk still holds %d entities", len(entities.Items))
+	}
+	if got := servertest.ReadChunkEntities(t, cfg.LevelName, world.ChunkPos{X: 1, Z: 0}); len(got) == 0 {
+		t.Error("the entity region lost the chunk's entities")
+	}
+}

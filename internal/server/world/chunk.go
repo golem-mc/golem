@@ -180,6 +180,9 @@ type Chunk struct {
 	// lightFormsRetained is set only while the packet cache owns this chunk.
 	lightFormsRetained bool
 	lightCorrect       bool
+	// rewriteOnLoad marks a chunk read from a pre-1.18 record whose entities
+	// moved to the entity region; it is saved at once without them.
+	rewriteOnLoad bool
 	// lightBorrowed marks, per layer and light section, an array shared with
 	// another chunk or a uniform constant, copied before its first write
 	// (writableLight).

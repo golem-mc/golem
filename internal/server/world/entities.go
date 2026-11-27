@@ -302,17 +302,19 @@ func (w *World) releaseEntityRegion(rf *regionFile) {
 
 // moveChunkEntities hands the entities a chunk in the layout before 1.18 holds
 // to the entity region, upgraded, unless the region already has an entry for
-// the chunk: from then on they are read as any chunk's.
+// the chunk: from then on they are read as any chunk's. moved is true when the
+// chunk record still holds an entities list, which the caller must rewrite
+// without it so the entity region stays the only record.
 // vanilla: ChunkRenamesFix, SerializableChunkData.parse
-func (w *World) moveChunkEntities(pos ChunkPos, root nbt.Compound) error {
+func (w *World) moveChunkEntities(pos ChunkPos, root nbt.Compound) (moved bool, err error) {
 	entities, ok := nbt.Get[nbt.List](root, "entities")
 	if !ok || len(entities.Items) == 0 {
-		return nil
+		return false, nil
 	}
 	if _, has, err := w.LoadChunkEntities(pos); err != nil || has {
-		return err
+		return err == nil, err
 	}
 	version, _ := nbt.Get[nbt.Int](root, "DataVersion")
 	upgradeEntities(entities, int32(version))
-	return w.SaveChunkEntities(pos, entities.Items)
+	return true, w.SaveChunkEntities(pos, entities.Items)
 }

@@ -812,7 +812,7 @@ func (w *World) putChunk(pos ChunkPos, c *Chunk, motion *[16][16]int32, fresh bo
 	// A generated chunk starts unsaved, so it reaches disk on its first unload
 	// or save even unchanged.
 	// vanilla: LevelChunk(ServerLevel, ProtoChunk, PostLoadProcessor)
-	if fresh && !w.dropUntouched {
+	if fresh && !w.dropUntouched || c.rewriteOnLoad {
 		loaded.markDirty()
 	}
 	loaded.users.Add(1)
@@ -2154,7 +2154,10 @@ func (w *World) loadChunk(pos ChunkPos) (*Chunk, error) {
 	_, err := w.withChunkRoot(pos, false, func(root nbt.Compound) (err error) {
 		dropOldBlendingData(root, w.dimName)
 		if chunk, err = decodeChunkNBT(root); err == nil && chunk != nil {
-			err = w.moveChunkEntities(pos, root)
+			chunk.rewriteOnLoad, err = w.moveChunkEntities(pos, root)
+			if chunk.rewriteOnLoad {
+				chunk.carriedEntities = nbt.List{}
+			}
 		}
 		return err
 	})
