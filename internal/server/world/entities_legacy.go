@@ -8,7 +8,6 @@ import (
 // Data versions of the entity fixes a 1.20.3 or 1.20.4 record still needs.
 const (
 	areaEffectCloudPotionVersion = 3818 // vanilla: DataFixers.addFixers (AreaEffectCloudPotionFix)
-	legacyAttributeFormatVersion = attributeModifierIdVersion
 )
 
 // blockPosFields are the entity fields vanilla's BlockPosFormatAndRenamesFix
@@ -30,16 +29,20 @@ var blockPosFields = map[string]map[string]string{
 // 3945's shape) and the 1.20.5 shapes to an entity and its passengers, in
 // data version order.
 func upgradeLegacyEntity(e nbt.CompoundTag, version int32) {
+	if version < storedItemVersion {
+		upgradeLegacyStacks(e, version) // recurses into passengers itself
+	}
+	upgradeLegacyEntityFields(e, version)
+}
+
+func upgradeLegacyEntityFields(e nbt.CompoundTag, version int32) {
 	entries := e.Entries()
 	if version < blockPosFormatVersion {
 		id, _ := nbt.Get[nbt.String](entries, "id")
 		for from, to := range blockPosFields[string(id)] {
-			renameBlockPos(entries, from, to)
+			fixBlockPosField(entries, from, to)
 		}
-		renameBlockPos(entries, "Leash", "leash")
-	}
-	if version < storedItemVersion {
-		upgradeLegacyStacks(e, version)
+		fixBlockPosField(entries, "Leash", "leash")
 	}
 	if version < areaEffectCloudPotionVersion {
 		id, _ := nbt.Get[nbt.String](entries, "id")
@@ -47,35 +50,16 @@ func upgradeLegacyEntity(e nbt.CompoundTag, version int32) {
 			upgradeCloudPotion(entries)
 		}
 	}
-	if version < legacyAttributeFormatVersion {
+	if version < attributeModifierIdVersion {
 		upgradeEntityAttributes(entries)
 	}
 	if passengers, ok := nbt.Get[nbt.List](entries, "Passengers"); ok {
 		for _, p := range passengers.Items {
 			if c, ok := p.(nbt.CompoundTag); ok {
-				upgradeLegacyEntity(c, version)
+				upgradeLegacyEntityFields(c, version)
 			}
 		}
 	}
-}
-
-// renameBlockPos renames a field and turns an {X,Y,Z} compound in it into an
-// int array. vanilla: ExtraDataFixUtils.fixBlockPos
-func renameBlockPos(entries nbt.Compound, from, to string) {
-	v, ok := entries[from]
-	if !ok {
-		return
-	}
-	delete(entries, from)
-	if m, ok := nbt.CompoundView(v); ok {
-		x, okx := nbt.IntValue(m["X"])
-		y, oky := nbt.IntValue(m["Y"])
-		z, okz := nbt.IntValue(m["Z"])
-		if okx && oky && okz {
-			v = nbt.IntArray{x, y, z}
-		}
-	}
-	entries[to] = v
 }
 
 // upgradeCloudPotion folds Color, effects and Potion into potion_contents.
