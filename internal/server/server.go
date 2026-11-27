@@ -545,6 +545,8 @@ type Server struct {
 	// every herd under it, and anything else (spawn, hit, shearing) only reads
 	// or adds. It is taken inside mu where both are needed, like itemsMu.
 	mobsMu sync.Mutex
+	// colliderMaps holds each pass's collidersByWorld result, refilled per call on the tick goroutine.
+	colliderMaps [collisionPassCount]map[*world.World]entity.World
 	// waypointPass counts the locator bar passes; tick loop only.
 	waypointPass uint64
 	// The locator bar pass reuses its player list and changed receiver indices.

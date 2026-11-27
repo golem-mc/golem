@@ -278,6 +278,9 @@ type mobHerd struct {
 	dragons atomic.Int32
 	// illagers lets the banner pass skip this herd. Guarded by mobsMu.
 	illagers int32
+	// colliders counts shulkers and happy ghasts, an upper bound on the bodies
+	// CollidesWithAny accepts. Guarded by mobsMu.
+	colliders int32
 	// leashWaits is the mobs that joined carrying a saved lead, which the
 	// mob tick re-ties to their holder or lets go after the grace.
 	leashWaits []*mobEntity
@@ -296,6 +299,8 @@ func (h *mobHerd) count(m *entity.Mob, n int32) {
 		h.wardens.Add(n)
 	case entity.TypeEnderDragon:
 		h.dragons.Add(n)
+	case entity.TypeShulker, entity.TypeHappyGhast:
+		h.colliders += n
 	default:
 		if entity.IsIllagerType(m.Type) {
 			h.illagers += n
@@ -398,6 +403,7 @@ func (h *mobHerd) setHerd(herd entity.Mobs) {
 	h.wardens.Store(0)
 	h.dragons.Store(0)
 	h.illagers = 0
+	h.colliders = 0
 	for _, m := range herd {
 		h.count(m, 1)
 	}
