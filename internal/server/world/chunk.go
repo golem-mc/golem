@@ -106,6 +106,11 @@ type Chunk struct {
 	// pistonHandles is allocated only when a plugin requests a live handle.
 	pistonHandles        map[int64]*PistonBlockEntity
 	carriedBlockEntities nbt.List
+	// hiveTicks holds the ticks each hive's bees have stayed since the stored
+	// compound was written, so a tick does not rewrite every bee. Readers go
+	// through carriedEntries / carriedBlockEntityAt; a write that replaces the
+	// entry drops it (removeCarriedBlockEntity). Guarded by World.mu.
+	hiveTicks map[[3]int32]int32
 	// carriedHandles is allocated only when a plugin requests a live handle.
 	carriedHandles map[int64]*CarriedBlockEntity
 	// tickingCarried counts the trial spawners, vaults, beehives and end gateways among carriedBlockEntities.
@@ -926,7 +931,7 @@ func (c *Chunk) GeneratedTicks() [][3]int32 {
 func (c *Chunk) BlockEntitiesNBT() []nbt.Compound {
 	var out []nbt.Compound
 	all := append(encodeBlockEntities(c.blockEntities()), c.encodePistonRides()...)
-	all = append(all, c.carriedBlockEntities.Items...)
+	all = append(all, c.carriedEntries()...)
 	for _, tag := range all {
 		if compound, ok := nbt.CompoundView(tag); ok {
 			out = append(out, compound)

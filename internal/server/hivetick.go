@@ -36,9 +36,9 @@ func (s *Server) tickHives(w *world.World, ticks func(world.ChunkPos) bool) {
 		due = append(due, dueHive{hive, state})
 		positions = append(positions, hive)
 	}
-	// Clocks advance in place under one lock; the chunk is marked only when a
-	// bee leaves. Releases below read the list from before this advance and
-	// the stored one from after it.
+	// Clocks advance under one lock; the chunk is marked only when a bee
+	// leaves. Releases below read the list from before this advance and the
+	// stored one from after it.
 	w.AdvanceHiveClocks(positions)
 	for _, d := range due {
 		hive, state := d.BeehiveAt, d.state
@@ -56,6 +56,7 @@ func (s *Server) tickHives(w *world.World, ticks func(world.ChunkPos) bool) {
 				continue
 			}
 			ticks, _ := nbt.IntValue(occupant["ticks_in_hive"])
+			ticks += hive.Pending
 			minTicks, _ := nbt.IntValue(occupant["min_ticks_in_hive"])
 			next, due := rules.HiveOccupantDue(int(ticks), int(minTicks))
 			if due && !stays && !frontBlocked {

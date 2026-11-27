@@ -112,7 +112,8 @@ func (b *CarriedBlockEntity) Edit(edit func(nbt.Compound)) bool {
 		if [3]int32{x, y, z} != b.pos {
 			continue
 		}
-		entry := maps.Clone(old)
+		entry := maps.Clone(b.chunk.foldHiveTicks(old))
+		delete(b.chunk.hiveTicks, b.pos)
 		edit(entry)
 		// Replace in place: private data must not reorder carried tickers.
 		b.chunk.carriedBlockEntities.Items[i] = entry

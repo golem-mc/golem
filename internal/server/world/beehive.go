@@ -2,7 +2,6 @@ package world
 
 import (
 	"cmp"
-	"maps"
 	"slices"
 
 	"github.com/golem-mc/golem/nbt"
@@ -12,9 +11,11 @@ import (
 // BeehiveAt is a carried beehive or bee nest with at least one stored bee.
 type BeehiveAt struct {
 	X, Y, Z int32
-	// Tag is the carried compound. A change replaces it (see ReplaceCarried);
-	// only the bees' ticks_in_hive move in place (see AdvanceHiveClocks).
-	Tag nbt.Compound
+	// Tag is the carried compound as stored: its bees' ticks_in_hive lack the
+	// Pending ticks of stay counted since (see AdvanceHiveClocks). A change
+	// replaces it (see ReplaceCarried).
+	Tag     nbt.Compound
+	Pending int32
 }
 
 // BeesStayInHive reads the gameplay attribute, including weather's layer.
@@ -51,74 +52,26 @@ func (w *World) BeehiveOccupants(x, y, z int32) (int, bool) {
 	return len(list.Items), true
 }
 
-// AdvanceHiveClocks increments ticks_in_hive of every stored bee of the given
-// hives without marking the chunk (the next real change saves them). It swaps
-// in copies of the entries because connection goroutines read the old
-// compounds without the lock.
+// AdvanceHiveClocks counts one more tick of stay for every stored bee of the
+// given hives, under one world lock. The chunk is not marked (the next real
+// change saves them) and no compound is rewritten: the count waits in
+// Chunk.hiveTicks until a reader folds it in.
 func (w *World) AdvanceHiveClocks(hives []BeehiveAt) {
 	if len(hives) == 0 {
 		return
 	}
-	type cell [3]int32
-	byChunk := make(map[ChunkPos]map[cell]struct{})
-	for _, h := range hives {
-		pos := ChunkPos{X: ChunkOf(float64(h.X)), Z: ChunkOf(float64(h.Z))}
-		due := byChunk[pos]
-		if due == nil {
-			due = make(map[cell]struct{})
-			byChunk[pos] = due
-		}
-		due[cell{h.X, h.Y, h.Z}] = struct{}{}
-	}
 	w.mu.Lock()
 	defer w.mu.Unlock()
-	for pos, due := range byChunk {
-		loaded, ok := w.chunks[pos]
+	for _, h := range hives {
+		loaded, ok := w.chunks[ChunkPos{X: ChunkOf(float64(h.X)), Z: ChunkOf(float64(h.Z))}]
 		if !ok {
 			continue
 		}
-		items := loaded.chunk.carriedBlockEntities.Items
-		var swapped []nbt.Tag
-		for i, item := range items {
-			entry, ok := nbt.CompoundView(item)
-			if !ok {
-				continue
-			}
-			if x, y, z, ok := carriedPosInTag(entry); !ok {
-				continue
-			} else if _, hit := due[cell{x, y, z}]; !hit {
-				continue
-			}
-			list, _ := nbt.Get[nbt.List](entry, "bees")
-			bees := make([]nbt.Tag, len(list.Items))
-			for j, bee := range list.Items {
-				occupant, ok := nbt.CompoundView(bee)
-				if !ok {
-					bees[j] = bee
-					continue
-				}
-				var next nbt.CompoundTag
-				if ordered, ok := bee.(*nbt.OrderedCompound); ok {
-					next = ordered.Clone()
-				} else {
-					next = nbt.ShallowCopyCompound(bee.(nbt.CompoundTag))
-				}
-				ticks, _ := nbt.IntValue(occupant["ticks_in_hive"])
-				next.Set("ticks_in_hive", nbt.Int(ticks+1))
-				bees[j] = next
-			}
-			entryCopy := make(nbt.Compound, len(entry))
-			maps.Copy(entryCopy, entry)
-			list.Items = bees
-			entryCopy["bees"] = list
-			if swapped == nil {
-				swapped = slices.Clone(items)
-			}
-			swapped[i] = entryCopy
+		c := loaded.chunk
+		if c.hiveTicks == nil {
+			c.hiveTicks = make(map[[3]int32]int32)
 		}
-		if swapped != nil {
-			loaded.chunk.carriedBlockEntities.Items = swapped
-		}
+		c.hiveTicks[[3]int32{h.X, h.Y, h.Z}]++
 	}
 }
 
@@ -138,7 +91,7 @@ func (w *World) Beehives() []BeehiveAt {
 				continue
 			}
 			if x, y, z, ok := carriedPosInTag(compound); ok {
-				out = append(out, BeehiveAt{X: x, Y: y, Z: z, Tag: compound})
+				out = append(out, BeehiveAt{X: x, Y: y, Z: z, Tag: compound, Pending: w.chunks[pos].chunk.hiveTicks[[3]int32{x, y, z}]})
 			}
 		}
 	}

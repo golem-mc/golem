@@ -120,7 +120,7 @@ func encodeChunkNBTWith(c *Chunk, live []nbt.Tag, ticks chunkTicks) (nbt.Compoun
 	}
 	blockEntities = append(blockEntities, live...)
 	blockEntities = append(blockEntities, pistonTags...)
-	blockEntities = append(blockEntities, c.carriedBlockEntities.Items...)
+	blockEntities = append(blockEntities, c.carriedEntries()...)
 	// Text is a JSON string until the file's text component fixer.
 	if c.claimedVersion() < textComponentVersion {
 		blockEntities = flattenBlockEntities(blockEntities)
