@@ -1,6 +1,7 @@
 package redstone
 
 import (
+	"math"
 	"testing"
 
 	"github.com/golem-mc/golem/internal/server"
@@ -35,7 +36,7 @@ func TestAPistonPushesAMinecart(t *testing.T) {
 	servertest.Setblock(t, c, 2, 65, 3, "redstone_block")
 	servertest.RunTicks(t, srv, 3)
 	x, _, _, yaw, ok := srv.MinecartState(id)
-	if !ok || x != 4.5 {
+	if !ok || math.Abs(x-4.5) > 1e-6 {
 		t.Errorf("the cart stands at x=%v (alive %v), want 4.5", x, ok)
 	}
 	if yaw != 90 {

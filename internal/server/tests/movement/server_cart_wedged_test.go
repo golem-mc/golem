@@ -51,3 +51,46 @@ func TestFrozenGameMovesNoUnriddenCart(t *testing.T) {
 		}
 	}
 }
+
+// A furnace minecart resting on the top face of another cart (at float32
+// height 0.7f) inside a dispenser stays put over 1, 20 and 100 ticks: the
+// lower cart's hull supports it and neither cart pushes the other.
+// vanilla: EntityDimensions.makeBoundingBox, AbstractMinecart.canCollideWith, OldMinecartBehavior.pushAndPickupEntities
+func TestStackedFurnaceMinecartsStayPut(t *testing.T) {
+	t.Parallel()
+	srv, _ := servertest.Join(t, servertest.BlockTestConfig(), "Watcher")
+	servertest.HoldTicks(t, srv)
+
+	air := servertest.BlockState(t, "minecraft:air")
+	stone := servertest.BlockState(t, "minecraft:stone")
+	dispenser := servertest.BlockState(t, "minecraft:dispenser")
+	quartz := servertest.BlockState(t, "minecraft:quartz_block")
+
+	for _, baseY := range []int32{64, -56} {
+		const bx, bz int32 = 20, 20
+		for dx := int32(0); dx <= 2; dx++ {
+			srv.SetBlock(bx+dx, baseY-1, bz, stone)
+			srv.SetBlock(bx+dx, baseY, bz, air)
+			srv.SetBlock(bx+dx, baseY+1, bz, air)
+		}
+		srv.SetBlock(bx+1, baseY, bz, dispenser)
+		srv.SetBlock(bx+2, baseY, bz, quartz)
+
+		x1, y1, z1 := float64(bx)+0.6079331410046578, float64(baseY), float64(bz)+0.4989917801778301
+		x2, y2, z2 := float64(bx)+1.5099999904632568, float64(baseY)+float64(float32(0.7)), float64(bz)+0.4999368508987052
+		cart1 := srv.SpawnMinecartOfKind("minecraft:furnace_minecart", x1, y1, z1)
+		cart2 := srv.SpawnMinecartOfKind("minecraft:furnace_minecart", x2, y2, z2)
+
+		elapsed := 0
+		for _, target := range []int{1, 20, 100} {
+			servertest.RunTicks(t, srv, target-elapsed)
+			elapsed = target
+			if gx, gy, gz, _, ok := srv.MinecartState(cart1); !ok || gx != x1 || gy != y1 || gz != z1 {
+				t.Errorf("baseY=%d after %d ticks: cart1=(%v, %v, %v) present=%v, want (%v, %v, %v)", baseY, target, gx, gy, gz, ok, x1, y1, z1)
+			}
+			if gx, gy, gz, _, ok := srv.MinecartState(cart2); !ok || gx != x2 || gy != y2 || gz != z2 {
+				t.Errorf("baseY=%d after %d ticks: cart2=(%v, %v, %v) present=%v, want (%v, %v, %v)", baseY, target, gx, gy, gz, ok, x2, y2, z2)
+			}
+		}
+	}
+}
