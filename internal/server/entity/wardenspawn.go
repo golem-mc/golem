@@ -13,6 +13,16 @@ type WardenSpawnWorld interface {
 	BoxCollides(minX, minY, minZ, maxX, maxY, maxZ float64) bool
 }
 
+// WardenSpawnArea is the union of emerging boxes FindWardenSpawnSpot can test.
+func WardenSpawnArea(x, y, z int32) AABB {
+	width, _ := KindDims(TypeWarden)
+	hw := width / 2
+	return NewAABB(
+		float64(x-5)+0.5-hw, float64(y-6), float64(z-5)+0.5-hw,
+		float64(x+5)+0.5+hw, float64(y+6)+1, float64(z+5)+0.5+hw,
+	)
+}
+
 // FindWardenSpawnSpot tries twenty columns within five blocks of a shrieker.
 // vanilla: SculkShriekerBlockEntity.trySummonWarden, SpawnUtil.trySpawnMob
 func FindWardenSpawnSpot(w WardenSpawnWorld, x, y, z int32, intn func(int) int, bodies []SpawnBody) (int32, int32, int32, bool) {

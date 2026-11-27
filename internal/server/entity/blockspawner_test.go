@@ -140,6 +140,69 @@ func TestSpawnerPlacementDice(t *testing.T) {
 	}
 }
 
+func TestSpawnAreasCoverEveryCandidateBox(t *testing.T) {
+	check := func(t *testing.T, label string, outer, inner AABB) {
+		t.Helper()
+		if inner.minX < outer.minX || inner.maxX > outer.maxX ||
+			inner.minY < outer.minY || inner.maxY > outer.maxY ||
+			inner.minZ < outer.minZ || inner.maxZ > outer.maxZ {
+			t.Fatalf("%s: box %+v extends outside area %+v", label, inner, outer)
+		}
+	}
+
+	const x, y, z int32 = 10, 64, -5
+
+	t.Run("spawner", func(t *testing.T) {
+		rng := rand.New(rand.NewSource(1))
+		for _, kind := range []MobType{TypeZombie, TypeGhast, TypeSpider, TypeSilverfish} {
+			for _, spawnRange := range []int{0, 1, 4, -2} {
+				area := spawnerSpawnArea(kind, x, y, z, spawnRange)
+				r := float64(spawnRange)
+				for _, dx := range []float64{-r, r} {
+					for _, dy := range []int32{-1, 0, 1} {
+						for _, dz := range []float64{-r, r} {
+							box := spawnBox(kind, float64(x)+dx+0.5, float64(y+dy), float64(z)+dz+0.5).aabb()
+							check(t, kind.Name(), area, box)
+						}
+					}
+				}
+				for range 200 {
+					fx, fy, fz := SpawnerSpawnPos(rng, x, y, z, spawnRange)
+					check(t, kind.Name(), area, spawnBox(kind, fx, fy, fz).aabb())
+				}
+			}
+		}
+	})
+
+	t.Run("warden", func(t *testing.T) {
+		area := WardenSpawnArea(x, y, z)
+		for dx := int32(-5); dx <= 5; dx++ {
+			for dy := int32(-6); dy <= 6; dy++ {
+				for dz := int32(-5); dz <= 5; dz++ {
+					box := spawnBox(TypeWarden, float64(x+dx)+0.5, float64(y+dy), float64(z+dz)+0.5)
+					box.MaxY = float64(y+dy) + 1
+					check(t, "warden", area, box.aabb())
+				}
+			}
+		}
+	})
+
+	t.Run("reinforcement", func(t *testing.T) {
+		offsets := []int32{-ReinforcementRangeMax, -ReinforcementRangeMin, 0, ReinforcementRangeMin, ReinforcementRangeMax}
+		for _, kind := range []MobType{TypeZombie, TypeHusk, TypeDrowned, TypeZombifiedPiglin} {
+			area := ReinforcementSpawnArea(kind, x, y, z)
+			for _, dx := range offsets {
+				for _, dy := range offsets {
+					for _, dz := range offsets {
+						box := spawnBox(kind, float64(x+dx), float64(y+dy), float64(z+dz)).aabb()
+						check(t, kind.Name(), area, box)
+					}
+				}
+			}
+		}
+	})
+}
+
 func BenchmarkSpawnerMobFits(b *testing.B) {
 	w := newSpawnTestWorld()
 	w.sky = 15

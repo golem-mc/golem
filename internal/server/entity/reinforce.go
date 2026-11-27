@@ -246,6 +246,17 @@ func (m *Mob) AsReinforcement(target int32) {
 	m.syncCharge(m.attrs)
 }
 
+// ReinforcementSpawnArea is the union of spawn boxes ReinforcementSite can test.
+func ReinforcementSpawnArea(t MobType, x, y, z int32) AABB {
+	k := kindOf(t)
+	hw := k.width / 2
+	r := float64(ReinforcementRangeMax)
+	return NewAABB(
+		float64(x)-r-hw, float64(y)-r, float64(z)-r-hw,
+		float64(x)+r+hw, float64(y)+r+k.height, float64(z)+r+hw,
+	)
+}
+
 // ReinforcementSite tries 50 times for a spot 7 to 40 blocks from the caller
 // on each axis: a valid spawn position for the type, no player within 7
 // blocks, the box clear of blocks, liquid and bodies. false when none fits.
