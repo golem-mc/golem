@@ -1,6 +1,7 @@
 package server
 
 import (
+	"maps"
 	"slices"
 
 	"github.com/golem-mc/golem/internal/protocol"
@@ -551,16 +552,6 @@ func (t *mobDimTick) leaveUnloadedChunks(fx *mobEffects, in *mobTickInputs) {
 		gone[pos] = append(gone[pos], m)
 	}
 	h.setHerd(alive)
-	// A woken chunk left empty is written too, or the mobs that walked off it
-	// come back as duplicates.
-	for pos := range h.woken {
-		if _, ok := gone[pos]; ok || !unloaded(pos) {
-			continue
-		}
-		if h.listed[pos] {
-			gone[pos] = nil
-		}
-	}
 	// The four kinds' leavers join the same write, adding their chunks.
 	goneTags := make(map[world.ChunkPos][]nbt.Tag)
 	var steppedOff map[*mobEntity]uuid.UUID
@@ -585,6 +576,32 @@ func (t *mobDimTick) leaveUnloadedChunks(fx *mobEffects, in *mobTickInputs) {
 			gone[d.pos] = nil
 		}
 	}
+	// A woken chunk left empty is written too, or the mobs that walked off it
+	// come back as duplicates. An unlisted one has nothing to write; forgetting
+	// it keeps the woken set to loaded chunks, and the next load wakes it from disk.
+	forgotten := 0
+	for pos := range h.woken {
+		if _, ok := gone[pos]; ok || !unloaded(pos) {
+			continue
+		}
+		if h.listed[pos] {
+			gone[pos] = nil
+			continue
+		}
+		forgotten++
+		delete(h.woken, pos)
+		delete(h.wokenForWrite, pos)
+		delete(h.carried, pos)
+		delete(h.listed, pos)
+	}
+	// A map keeps its buckets after deletes, and every tick ranges over woken.
+	if forgotten >= 256 && len(h.woken)*4 < forgotten {
+		woken := make(map[world.ChunkPos]struct{}, len(h.woken))
+		maps.Copy(woken, h.woken)
+		listed := make(map[world.ChunkPos]bool, len(h.listed))
+		maps.Copy(listed, h.listed)
+		h.woken, h.listed = woken, listed
+	}
 	// An unwoken leaving chunk is read first so its saved mobs leave with it.
 	var live map[uuid.UUID]bool
 	for pos := range gone {
@@ -605,6 +622,7 @@ func (t *mobDimTick) leaveUnloadedChunks(fx *mobEffects, in *mobTickInputs) {
 		// The immutable pending snapshot is the source for the next load, even
 		// if disk I/O fails; the world retains it until a successful retry.
 		delete(h.carried, pos)
+		delete(h.listed, pos)
 		written[pos] = struct{}{}
 		// Drop records before a reload can wake the queued snapshot's UUIDs.
 		for _, m := range mobs {
