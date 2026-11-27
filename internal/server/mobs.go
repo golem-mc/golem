@@ -820,7 +820,7 @@ func (s *Server) finishReinforcement(call reinforcementCall) {
 	s.mobsMu.Unlock()
 	area := entity.ReinforcementSpawnArea(kind, x, y, z)
 	bodies := &entity.SpawnBodies{Build: func(dst []entity.SpawnBody) []entity.SpawnBody {
-		return s.appendSpawnBodiesNear(dst, dim, players, area)
+		return s.appendSpawnBodies(dst, dim, players, area, true)
 	}}
 	sx, sy, sz, ok := entity.ReinforcementSite(call.w, entity.NewDice(call.seed), kind, x, y, z, players, bodies)
 	if !ok {

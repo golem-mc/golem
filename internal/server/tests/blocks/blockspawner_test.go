@@ -137,6 +137,39 @@ func TestSpawnerCapIgnoresFarMobs(t *testing.T) {
 	c.Disconnect()
 }
 
+// vanilla: BaseSpawner.serverTick, Mob.checkSpawnObstruction
+func TestSpawnerEdgeMobBlocksSpawn(t *testing.T) {
+	t.Parallel()
+	srv, c := servertest.Join(t, servertest.BlockTestConfig(), "Spawnwatcher")
+	servertest.HoldTicks(t, srv)
+	srv.SetDifficulty(2)
+	srv.RunLine("time set midnight")
+	srv.RunLine("fill 1 62 3 8 67 10 stone")
+	srv.RunLine("fill 5 64 5 7 66 7 air")
+	srv.RunLine(`summon minecraft:ravager 6.0 64 6.5 {NoAI:1b,Tags:["blocker"]}`)
+	srv.RunLine(`setblock 4 64 6 spawner{Delay:0s,MinSpawnDelay:1s,MaxSpawnDelay:2s,SpawnCount:16s,MaxNearbyEntities:10s,SpawnRange:2s,SpawnData:{entity:{id:"minecraft:zombie",NoAI:1b},custom_spawn_rules:{block_light_limit:[0,15],sky_light_limit:[0,15]}}}`)
+
+	countZombies := func() int {
+		n := 0
+		for _, m := range srv.Mobs() {
+			if m.Kind == "minecraft:zombie" {
+				n++
+			}
+		}
+		return n
+	}
+	servertest.RunTicks(t, srv, 40)
+	if got := countZombies(); got != 0 {
+		t.Fatalf("zombie count with edge blocker = %d, want 0", got)
+	}
+	srv.RunLine("kill @e[tag=blocker]")
+	servertest.RunTicks(t, srv, 50)
+	if got := countZombies(); got == 0 {
+		t.Fatal("no zombie spawned after removing edge blocker")
+	}
+	c.Disconnect()
+}
+
 // entityPlaceLog records the entity_place events a server posts.
 type entityPlaceLog struct {
 	mu  sync.Mutex

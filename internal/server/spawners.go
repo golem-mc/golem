@@ -60,31 +60,11 @@ func (h *spawnerHost) Players() []entity.SpawnPlayer {
 }
 
 func (h *spawnerHost) Bodies(area entity.AABB) []entity.SpawnBody {
-	return h.s.appendSpawnBodiesNear(nil, h.dim, h.Players(), area)
+	return h.s.appendSpawnBodies(nil, h.dim, h.Players(), area, true)
 }
 
 func (h *spawnerHost) MobBodies(kind entity.MobType, area entity.AABB) []entity.SpawnBody {
-	var bodies []entity.SpawnBody
-	add := func(m *entity.Mob) {
-		if m.Type != kind {
-			return
-		}
-		b := mobSpawnBody(m)
-		if bodyCrosses(b, area) {
-			bodies = append(bodies, b)
-		}
-	}
-	boxes := [1]entity.AABB{area}
-	h.s.mobsMu.Lock()
-	defer h.s.mobsMu.Unlock()
-	h.dim.mobs.mobsNearBoxes(boxes[:], func(m *entity.Mob) bool {
-		add(m)
-		return true
-	})
-	for _, corpse := range h.dim.mobs.dying {
-		add(corpse.ent.mob)
-	}
-	return bodies
+	return h.s.appendMobSpawnBodies(nil, h.dim, area, true, kind, true)
 }
 
 func (h *spawnerHost) StandUp(kind entity.MobType, x, y, z float64, yaw float32, tag nbt.Compound, plain bool, equip func(*entity.Mob)) (int32, bool) {

@@ -102,7 +102,7 @@ func (s *Server) tickNaturalSpawning() {
 		spawn := func(r entity.SpawnRequest) { s.spawnMobInDim(dim, r.Type, r.X, r.Y, r.Z, 0, r.Group) }
 		spawnable := spawnableChunkCount(players)
 		dim.spawnBodies.Reset(func(dst []entity.SpawnBody) []entity.SpawnBody {
-			return s.appendSpawnBodies(dst, dim, players)
+			return s.appendSpawnBodies(dst, dim, players, entity.AABB{}, false)
 		})
 		counts, potential := s.spawnCountsAll(dim, players)
 		// MobCategory order. Creatures join every 400 game ticks; the water
@@ -264,7 +264,7 @@ func (s *Server) spawnCountsAll(dim *dimension, players []entity.SpawnPlayer) ([
 // falling blocks, boats, minecarts and end crystals. Each list is read
 // under its own lock alone, the server's usual lock order.
 func (s *Server) spawnBodies(dim *dimension, players []entity.SpawnPlayer) []entity.SpawnBody {
-	return s.appendSpawnBodies(nil, dim, players)
+	return s.appendSpawnBodies(nil, dim, players, entity.AABB{}, false)
 }
 
 func mobSpawnBody(m *entity.Mob) entity.SpawnBody {
@@ -279,99 +279,46 @@ func bodyCrosses(b entity.SpawnBody, area entity.AABB) bool {
 	return area.Crosses(entity.NewAABB(b.MinX, b.MinY, b.MinZ, b.MaxX, b.MaxY, b.MaxZ))
 }
 
-// appendSpawnBodies is spawnBodies appending to dst, so a caller can reuse
-// the backing slice.
-func (s *Server) appendSpawnBodies(bodies []entity.SpawnBody, dim *dimension, players []entity.SpawnPlayer) []entity.SpawnBody {
-	for i := range players {
-		p := &players[i]
-		if p.Spectator {
-			continue
+// appendMobSpawnBodies appends the living mobs and corpses of dim to bodies.
+// When bounded is true, live mobs are read through the chunk index and only
+// boxes intersecting area are included; when matchKind is true, only mobs of
+// kind are included.
+func (s *Server) appendMobSpawnBodies(bodies []entity.SpawnBody, dim *dimension, area entity.AABB, bounded bool, kind entity.MobType, matchKind bool) []entity.SpawnBody {
+	add := func(m *entity.Mob) {
+		if matchKind && m.Type != kind {
+			return
 		}
-		hw := p.Width / 2
-		bodies = append(bodies, entity.SpawnBody{
-			MinX: p.X - hw, MinY: p.Y, MinZ: p.Z - hw,
-			MaxX: p.X + hw, MaxY: p.Y + p.Height, MaxZ: p.Z + hw,
-		})
+		b := mobSpawnBody(m)
+		if !bounded || bodyCrosses(b, area) {
+			bodies = append(bodies, b)
+		}
 	}
-	lockedDo(&s.mobsMu, func() {
+	s.mobsMu.Lock()
+	defer s.mobsMu.Unlock()
+	if bounded {
+		boxes := [1]entity.AABB{area}
+		dim.mobs.mobsNearBoxes(boxes[:], func(m *entity.Mob) bool {
+			add(m)
+			return true
+		})
+	} else {
 		for _, m := range dim.mobs.herd {
-			bodies = append(bodies, mobSpawnBody(m))
+			add(m)
 		}
-		// A corpse keeps its box for the twenty ticks its death animation runs.
-		for _, corpse := range dim.mobs.dying {
-			bodies = append(bodies, mobSpawnBody(corpse.ent.mob))
-		}
-	})
-
-	lockedDo(&s.tntMu, func() {
-		for _, it := range s.tnts {
-			if it.w != dim.w || it.tnt.Dead {
-				continue
-			}
-			bodies = append(bodies, entity.SpawnBody{
-				MinX: it.tnt.X - entity.TNTHalfWidth, MinY: it.tnt.Y, MinZ: it.tnt.Z - entity.TNTHalfWidth,
-				MaxX: it.tnt.X + entity.TNTHalfWidth, MaxY: it.tnt.Y + entity.TNTHeight, MaxZ: it.tnt.Z + entity.TNTHalfWidth,
-			})
-		}
-	})
-
-	lockedDo(&s.fallingMu, func() {
-		for _, it := range s.fallings {
-			if it.w != dim.w || it.fb.Dead {
-				continue
-			}
-			bodies = append(bodies, entity.SpawnBody{
-				MinX: it.fb.X - entity.FallingHalfWidth, MinY: it.fb.Y, MinZ: it.fb.Z - entity.FallingHalfWidth,
-				MaxX: it.fb.X + entity.FallingHalfWidth, MaxY: it.fb.Y + entity.FallingHeight, MaxZ: it.fb.Z + entity.FallingHalfWidth,
-			})
-		}
-	})
-
-	lockedDo(&s.boatsMu, func() {
-		for _, it := range s.boats {
-			if it.w != dim.w || it.boat.Dead {
-				continue
-			}
-			bodies = append(bodies, entity.SpawnBody{
-				MinX: it.boat.X - entity.BoatHalfWidth, MinY: it.boat.Y, MinZ: it.boat.Z - entity.BoatHalfWidth,
-				MaxX: it.boat.X + entity.BoatHalfWidth, MaxY: it.boat.Y + entity.BoatHeight, MaxZ: it.boat.Z + entity.BoatHalfWidth,
-			})
-		}
-	})
-
-	lockedDo(&s.minecartsMu, func() {
-		for _, it := range s.minecarts {
-			if it.w != dim.w || it.cart.Dead {
-				continue
-			}
-			minX, minY, minZ, maxX, maxY, maxZ := it.cart.Box()
-			bodies = append(bodies, entity.SpawnBody{
-				MinX: minX, MinY: minY, MinZ: minZ,
-				MaxX: maxX, MaxY: maxY, MaxZ: maxZ,
-			})
-		}
-	})
-
-	lockedDo(&s.endCrystalsMu, func() {
-		for _, ent := range s.endCrystals {
-			if ent.w != dim.w || ent.crystal.Dead {
-				continue
-			}
-			minX, minY, minZ, maxX, maxY, maxZ := ent.crystal.BlastBox()
-			bodies = append(bodies, entity.SpawnBody{
-				MinX: minX, MinY: minY, MinZ: minZ,
-				MaxX: maxX, MaxY: maxY, MaxZ: maxZ,
-			})
-		}
-	})
+	}
+	// A corpse keeps its box for the twenty ticks its death animation runs.
+	for _, corpse := range dim.mobs.dying {
+		add(corpse.ent.mob)
+	}
 	return bodies
 }
 
-// appendSpawnBodiesNear is appendSpawnBodies restricted to bodies whose box
-// intersects area, reading mobs through the chunk index.
-func (s *Server) appendSpawnBodiesNear(bodies []entity.SpawnBody, dim *dimension, players []entity.SpawnPlayer, area entity.AABB) []entity.SpawnBody {
+// appendSpawnBodies is spawnBodies appending to dst, so a caller can reuse
+// the backing slice. When bounded is true, only bodies whose box intersects
+// area are appended and mobs are read through the chunk index.
+func (s *Server) appendSpawnBodies(bodies []entity.SpawnBody, dim *dimension, players []entity.SpawnPlayer, area entity.AABB, bounded bool) []entity.SpawnBody {
 	add := func(b entity.SpawnBody) {
-		if bodyCrosses(b, area) {
+		if !bounded || bodyCrosses(b, area) {
 			bodies = append(bodies, b)
 		}
 	}
@@ -386,16 +333,7 @@ func (s *Server) appendSpawnBodiesNear(bodies []entity.SpawnBody, dim *dimension
 			MaxX: p.X + hw, MaxY: p.Y + p.Height, MaxZ: p.Z + hw,
 		})
 	}
-	boxes := [1]entity.AABB{area}
-	lockedDo(&s.mobsMu, func() {
-		dim.mobs.mobsNearBoxes(boxes[:], func(m *entity.Mob) bool {
-			add(mobSpawnBody(m))
-			return true
-		})
-		for _, corpse := range dim.mobs.dying {
-			add(mobSpawnBody(corpse.ent.mob))
-		}
-	})
+	bodies = s.appendMobSpawnBodies(bodies, dim, area, bounded, 0, false)
 
 	lockedDo(&s.tntMu, func() {
 		for _, it := range s.tnts {
