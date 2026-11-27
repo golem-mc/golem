@@ -102,7 +102,10 @@ func upgradeForcedTickets(data nbt.Compound, version int32) {
 func ticketPos(tag nbt.Tag) (ChunkPos, bool) {
 	switch v := tag.(type) {
 	case nbt.IntArray:
-		return ChunkPos{X: v[0], Z: v[1]}, len(v) == 2
+		if len(v) != 2 {
+			return ChunkPos{}, false
+		}
+		return ChunkPos{X: v[0], Z: v[1]}, true
 	case nbt.Long:
 		return ChunkPos{X: int32(uint64(v) & 0xFFFFFFFF), Z: int32(uint64(v) >> 32)}, true
 	}

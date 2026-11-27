@@ -77,3 +77,31 @@ func TestOldWorldRaidSurvives(t *testing.T) {
 		t.Errorf("the player near the raid was not shown its bar")
 	}
 }
+
+// A ticket file with a long chunk_pos in a current-version file, a short int
+// array and a non-forced ticket loads without a panic and keeps the good ticket.
+func TestChunkTicketsOddPositionsLoad(t *testing.T) {
+	t.Parallel()
+	cfg := servertest.SurvivalConfig()
+	cfg.LevelName = t.TempDir()
+	packed := int64(uint32(5)) | int64(7)<<32
+	ticket := func(typ string, pos nbt.Tag) nbt.Compound {
+		return nbt.Compound{"type": nbt.String(typ), "level": nbt.Int(31), "ticks_left": nbt.Long(0), "chunk_pos": pos}
+	}
+	writeOldSavedData(t, filepath.Join(cfg.LevelName, "dimensions/minecraft/overworld"), "minecraft/chunk_tickets.dat", 4400, nbt.Compound{
+		"tickets": nbt.List{Elem: nbt.TypeCompound, Items: []nbt.Tag{
+			ticket("minecraft:forced", nbt.Long(packed)),
+			ticket("minecraft:forced", nbt.IntArray{1}),
+			ticket("minecraft:other", nbt.Long(packed)),
+		}},
+	})
+
+	srv, _ := servertest.Start(t, cfg)
+	var out string
+	for _, l := range srv.RunLine("forceload query 80 112") {
+		out += l.Plain() + "\n"
+	}
+	if !strings.Contains(out, "Chunk at [5, 7] in minecraft:overworld is marked for force loading") {
+		t.Errorf("forceload query = %q, want chunk [5, 7] marked", out)
+	}
+}
