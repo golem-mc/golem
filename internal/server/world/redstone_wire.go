@@ -201,13 +201,37 @@ func (p *Physics) wireIncomingSignal(x, y, z int32) int {
 
 // wireWake wakes the six neighbours of the wire's cell and of each of its six
 // neighbours, so a block two steps away (beside the conductor under the wire)
-// hears the change. Vanilla's HashSet iterates the seven in a fixed order, kept
-// here as a list.
-// vanilla: updatePowerStrength
+// hears the change. Vanilla collects the seven into a 16-bucket HashSet<BlockPos>
+// (self, then Direction.values()); its bucket order by Vec3i.hashCode, with ties
+// in insertion order, decides which branch of a decaying line runs first.
+// vanilla: DefaultRedstoneWireEvaluator.updatePowerStrength, Vec3i.hashCode
 func (p *Physics) wireWake(x, y, z int32, changes *[]BlockChange) {
-	p.wireWakeNeighbors(x, y, z, changes)
-	for _, d := range updateNeighborOrder {
-		p.wireWakeNeighbors(x+dirDelta[d][0], y+dirDelta[d][1], z+dirDelta[d][2], changes)
+	type entry struct {
+		x, y, z int32
+		bucket  uint8
+	}
+	bucketOf := func(px, py, pz int32) uint8 {
+		h := uint32((py+pz*31)*31 + px)
+		return uint8((h ^ (h >> 16)) & 15)
+	}
+	var items [7]entry
+	items[0] = entry{x, y, z, bucketOf(x, y, z)}
+	for i, d := range dirDelta {
+		px, py, pz := x+d[0], y+d[1], z+d[2]
+		items[i+1] = entry{px, py, pz, bucketOf(px, py, pz)}
+	}
+	// Stable insertion sort by bucket preserves HashMap's per-bucket tail order.
+	for i := 1; i < len(items); i++ {
+		cur := items[i]
+		j := i - 1
+		for j >= 0 && items[j].bucket > cur.bucket {
+			items[j+1] = items[j]
+			j--
+		}
+		items[j+1] = cur
+	}
+	for _, it := range items {
+		p.wireWakeNeighbors(it.x, it.y, it.z, changes)
 	}
 }
 

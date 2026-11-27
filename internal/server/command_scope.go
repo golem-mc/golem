@@ -1014,6 +1014,10 @@ type fillWake struct {
 	// placed marks a cell the sequential path already shaped and whose
 	// neighbours it already reshaped.
 	placed bool
+	// hooksDone marks a cell whose onPlace hooks already ran during the
+	// placement pass, so the wake pass only runs the neighbour wake.
+	// vanilla: StructureTemplate.placeInWorld
+	hooksDone bool
 }
 
 // FillCells writes a fill's changes at once: section updates, a destroy
@@ -1205,9 +1209,12 @@ func (s *Server) finishCellWrites(w *world.World, sent []world.BlockChange, wake
 			}
 		}
 		for _, wake := range wakes {
-			if wake.handNew {
+			switch {
+			case wake.hooksDone:
+				s.blockPlacedWake(w, wake.x, wake.y, wake.z, wake.old)
+			case wake.handNew:
 				s.blockPlaced(w, wake.x, wake.y, wake.z, wake.old)
-			} else {
+			default:
 				s.blockChanged(w, wake.x, wake.y, wake.z, wake.old)
 			}
 		}
@@ -1515,8 +1522,9 @@ func (ws worldScope) PlaceTemplate(t *world.PlacedTemplate, strict bool) {
 		note(ch)
 		if !strict {
 			reshape(ch.X, ch.Y, ch.Z)
+			s.blockPlacedHooks(w, ch.X, ch.Y, ch.Z, old)
 		}
-		wakes = append(wakes, fillWake{x: ch.X, y: ch.Y, z: ch.Z, old: before})
+		wakes = append(wakes, fillWake{x: ch.X, y: ch.Y, z: ch.Z, old: before, hooksDone: !strict})
 		cells = append(cells, rules.TemplateCell{X: ch.X, Y: ch.Y, Z: ch.Z, WasSource: wasSource})
 		entityType, hasEntity := blockEntityTypeOf(ch.State)
 		if tags[i] == nil || !hasEntity {

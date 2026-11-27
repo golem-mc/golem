@@ -250,3 +250,53 @@ func TestPlaceStructureDesertPyramid(t *testing.T) {
 	servertest.AwaitCommandFailure(t, c, "commands.place.structure.failed")
 	c.Disconnect()
 }
+
+// TestPlaceTemplateRunsOnPlaceBeforeLaterBlocks pins that /place template runs
+// each block's onPlace hook as it lands (before later blocks in the template
+// exist), matching StructureTemplate.placeInWorld. A compare-mode comparator
+// placed before a powered dust schedules its refresh before a subtract-mode
+// comparator placed after the dust, so the subtract comparator never pulses on
+// tick 2.
+// vanilla: StructureTemplate.placeInWorld
+func TestPlaceTemplateRunsOnPlaceBeforeLaterBlocks(t *testing.T) {
+	t.Parallel()
+	palette := nbt.List{Elem: nbt.TypeCompound, Items: []nbt.Tag{
+		paletteEntry("minecraft:stone", nil),
+		paletteEntry("minecraft:redstone_block", nil),
+		paletteEntry("minecraft:comparator", map[string]string{"facing": "west", "mode": "compare", "powered": "true"}),
+		paletteEntry("minecraft:redstone_wire", map[string]string{"east": "side", "north": "none", "power": "15", "south": "none", "west": "side"}),
+		paletteEntry("minecraft:comparator", map[string]string{"facing": "north", "mode": "subtract", "powered": "false"}),
+	}}
+	// Floor at y=0, circuit at y=1. The extra stone at (3,1,2) precedes the
+	// circuit blocks so a deferred wake pass would hit the dust at (3,1,1)
+	// after both comparators exist; running onPlace during placement schedules
+	// the compare comparator at (1,1,1) when the dust lands, before (4,1,1)
+	// exists.
+	blocks := nbt.List{Elem: nbt.TypeCompound, Items: []nbt.Tag{
+		templateBlock(0, 1, 0, 1, nil),
+		templateBlock(0, 3, 0, 1, nil),
+		templateBlock(0, 4, 0, 1, nil),
+		templateBlock(0, 3, 1, 2, nil),
+		templateBlock(1, 0, 1, 1, nil),
+		templateBlock(1, 4, 1, 0, nil),
+		templateBlock(2, 1, 1, 1, nil),
+		templateBlock(0, 2, 1, 1, nil),
+		templateBlock(3, 3, 1, 1, nil),
+		templateBlock(4, 4, 1, 1, nil),
+	}}
+	tpl := nbt.Compound{
+		"size": ints(5, 2, 3), "palette": palette, "blocks": blocks, "DataVersion": nbt.Int(4554),
+	}
+	srv, c := startPlaceWorldWith(t, map[string]nbt.Compound{"comp": tpl})
+	servertest.HoldTicks(t, srv)
+	c.ChatCommand("place template test:comp 10 70 10")
+	servertest.RunTicks(t, srv, 1)
+	expectPlaced(t, c, "commands.place.template.success", "test:comp", 10, 70, 10)
+
+	for range 6 {
+		servertest.RunTicks(t, srv, 1)
+		wantBlock(t, srv, 14, 71, 11, "minecraft:comparator", map[string]string{"powered": "false"})
+	}
+	wantBlock(t, srv, 13, 71, 11, "minecraft:redstone_wire", map[string]string{"power": "15"})
+	c.Disconnect()
+}
