@@ -1,7 +1,6 @@
 package server
 
 import (
-	"github.com/golem-mc/golem/plugin"
 	"slices"
 
 	"github.com/golem-mc/golem/internal/protocol"
@@ -11,6 +10,7 @@ import (
 	"github.com/golem-mc/golem/internal/server/rules"
 	"github.com/golem-mc/golem/internal/server/world"
 	"github.com/golem-mc/golem/nbt"
+	"github.com/golem-mc/golem/plugin"
 	"github.com/golem-mc/golem/registry"
 	"github.com/google/uuid"
 )
@@ -1103,17 +1103,24 @@ func (h *mobHerd) MobUUID(m *entity.Mob) uuid.UUID {
 	return uuid.Nil
 }
 
-// teamCollisionRules is each team's collision rule, nil while there are no teams.
+// teamCollisionRules is each team's collision rule, nil while there are no
+// teams. The map is shared and read-only; it is converted again only when
+// the board hands out a new snapshot.
 func (s *Server) teamCollisionRules() map[string]entity.CollisionRule {
-	rules := s.scoreboard.TeamCollisions()
+	rules, version := s.scoreboard.TeamCollisions()
 	if rules == nil {
 		return nil
 	}
-	out := make(map[string]entity.CollisionRule, len(rules))
-	for name, r := range rules {
-		out[name] = entity.CollisionRule(r)
+	s.collisionCache.Lock()
+	defer s.collisionCache.Unlock()
+	if version != s.collisionCache.version || s.collisionCache.rules == nil {
+		out := make(map[string]entity.CollisionRule, len(rules))
+		for name, r := range rules {
+			out[name] = entity.CollisionRule(r)
+		}
+		s.collisionCache.version, s.collisionCache.rules = version, out
 	}
-	return out
+	return s.collisionCache.rules
 }
 
 // corpseMobs is the bodies of the dimension's dying mobs.

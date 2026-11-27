@@ -33,3 +33,28 @@ func TestMobHerdIllagerCount(t *testing.T) {
 	h.setHerd(entity.Mobs{witch})
 	check(0)
 }
+
+func TestMobHerdColliderCount(t *testing.T) {
+	var h mobHerd
+	pig := &entity.Mob{Type: entity.TypePig}
+	shulker := &entity.Mob{Type: entity.TypeShulker}
+	ghast := &entity.Mob{Type: entity.TypeHappyGhast}
+
+	check := func(want int32) {
+		t.Helper()
+		if h.colliders != want {
+			t.Fatalf("herd with %d mobs has collider count %d, want %d", len(h.herd), h.colliders, want)
+		}
+	}
+
+	h.add(pig, shulker, ghast)
+	check(2)
+	h.remove(shulker)
+	check(1)
+	h.remove(ghast)
+	check(0)
+	h.setHerd(entity.Mobs{pig, shulker, ghast})
+	check(2)
+	h.setHerd(entity.Mobs{pig})
+	check(0)
+}

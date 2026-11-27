@@ -278,6 +278,9 @@ type mobHerd struct {
 	dragons atomic.Int32
 	// illagers lets the banner pass skip this herd. Guarded by mobsMu.
 	illagers int32
+	// colliders counts shulkers and happy ghasts, an upper bound on the bodies
+	// CollidesWithAny accepts. Guarded by mobsMu.
+	colliders int32
 	// vexes lets the owner relink skip this herd. Guarded by mobsMu.
 	vexes int32
 	// leashWaits is the mobs that joined carrying a saved lead, which the
@@ -287,6 +290,7 @@ type mobHerd struct {
 	version uint64
 	// chunks files the live mobs (book) by feet chunk, guarded by mobsMu.
 	chunks        entity.ChunkIndex[*entity.Mob]
+	nearSeen      map[world.ChunkPos]struct{} // scratch of mobsNearBoxes
 	pistonGrid    bodyPistonGrid[*entity.Mob]
 	pistonVersion uint64
 }
@@ -298,6 +302,8 @@ func (h *mobHerd) count(m *entity.Mob, n int32) {
 		h.wardens.Add(n)
 	case entity.TypeEnderDragon:
 		h.dragons.Add(n)
+	case entity.TypeShulker, entity.TypeHappyGhast:
+		h.colliders += n
 	case entity.TypeVex:
 		h.vexes += n
 	default:
@@ -402,6 +408,7 @@ func (h *mobHerd) setHerd(herd entity.Mobs) {
 	h.wardens.Store(0)
 	h.dragons.Store(0)
 	h.illagers = 0
+	h.colliders = 0
 	h.vexes = 0
 	for _, m := range herd {
 		h.count(m, 1)

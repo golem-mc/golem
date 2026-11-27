@@ -249,7 +249,13 @@ type Board struct {
 	// each member player is on.
 	teams  []*Team
 	teamOf map[string]*Team
-	dirty  bool
+	// members and collisions are the read-only MemberTeams and
+	// TeamCollisions snapshots, nil once stale (see membersChanged).
+	members    map[string]string
+	collisions map[string]CollisionRule
+	// version counts membersChanged calls.
+	version uint64
+	dirty   bool
 	// statObjectives is how many objectives count a statistic, so that an
 	// award with none to write takes no lock.
 	statObjectives atomic.Int32
