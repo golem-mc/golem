@@ -276,6 +276,11 @@ type trackedBody[B any, S any] struct {
 	rangeChunks   int
 	broadcastRead bool
 	broadcastPct  int
+	// moved memoizes the last movePacket: a watcher whose baseline is
+	// movedFrom is owed the same packet and moves to movedTo.
+	movedFrom, movedTo trackedPosition
+	movedPkt           outbound
+	movedOK, movedSet  bool
 }
 
 // sees reports whether a watcher at (x, z) seeing radius chunks is in
@@ -559,6 +564,18 @@ func (v *trackedBody[B, S]) movePacket(was *toldBody[S], mt moveTick) (outbound,
 	if !mt.forced && !mt.resync && !mt.dismounted && !mt.teleported && !mt.rotationOnly && position == was.trackedPosition {
 		return outbound{}, false
 	}
+	if v.movedSet && was.trackedPosition == v.movedFrom {
+		was.trackedPosition = v.movedTo
+		return v.movedPkt, v.movedOK
+	}
+	from := was.trackedPosition
+	packet, ok := v.moveFrom(was, mt, position)
+	v.movedFrom, v.movedTo, v.movedPkt, v.movedOK, v.movedSet = from, was.trackedPosition, packet, ok, true
+	return packet, ok
+}
+
+// moveFrom builds the movement for a watcher whose baseline is was.
+func (v *trackedBody[B, S]) moveFrom(was *toldBody[S], mt moveTick, position trackedPosition) (outbound, bool) {
 	p := v.p
 	if v.k.tellPose != nil {
 		p = v.k.tellPose(v.b)
