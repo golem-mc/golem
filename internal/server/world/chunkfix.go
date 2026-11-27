@@ -150,8 +150,8 @@ func fixOldBlockEntity(entry nbt.CompoundTag, version int32) bool {
 		}
 	}
 	fixStoredComponents(entry, version)
-	fixBlockEntityFields(string(id), tag, version)
 	kind, _ := BlockEntityKindByName(string(id))
+	fixBlockEntityFields(string(id), kind, tag, version)
 	switch {
 	case string(id) == suspiciousSandID && version < brushableBlockVersion:
 		// vanilla: BlockEntityRenameFix, EntityBrushableBlockFieldsRenameFix
@@ -179,29 +179,28 @@ func fixOldBlockEntity(entry nbt.CompoundTag, version int32) bool {
 
 // fixBlockEntityFields applies the block entity renames and reshapes of data
 // versions 3813 to 4068, in vanilla's order.
-func fixBlockEntityFields(id string, tag nbt.Compound, version int32) {
+func fixBlockEntityFields(id string, kind BlockEntityKind, tag nbt.Compound, version int32) {
 	if version < blockPosFormatVersion {
-		switch id {
-		case "minecraft:beehive":
+		if kind == KindBeehive {
 			fixBlockPosField(tag, "FlowerPos", "flower_pos")
-		case "minecraft:end_gateway":
+		} else if id == "minecraft:end_gateway" {
 			fixBlockPosField(tag, "ExitPortal", "exit_portal")
 		}
 	}
-	switch id {
-	case "minecraft:beehive":
+	switch kind {
+	case KindBeehive:
 		if version < beehiveRenameVersion {
 			fixBeehive(tag)
 		}
-	case "minecraft:banner":
+	case KindBanner:
 		if version < bannerPatternVersion {
 			fixBannerPatterns(tag)
 		}
-	case "minecraft:skull":
+	case KindSkull:
 		if version < playerHeadProfileVersion {
 			fixSkullProfile(tag)
 		}
-	case "minecraft:jukebox":
+	case KindJukebox:
 		if version < jukeboxSongTicksVersion {
 			fixJukeboxTicks(tag)
 		}

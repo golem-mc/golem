@@ -105,8 +105,8 @@ func TestOldPaletteAndBlockEntityFixes(t *testing.T) {
 	}
 	skull := nbt.Compound{"id": nbt.String("minecraft:skull"), "Owner": nbt.Compound{"Id": nbt.String("00000001-0000-0002-0000-000000000003")}}
 	fixOldBlockEntity(skull, 2230)
-	owner, _ := nbt.Get[nbt.Compound](skull, "SkullOwner")
-	if !nbt.Equal(owner["Id"], nbt.IntArray{1, 2, 0, 3}) {
+	owner, _ := nbt.Get[nbt.Compound](skull, "profile")
+	if !nbt.Equal(owner["id"], nbt.IntArray{1, 2, 0, 3}) {
 		t.Errorf("skull = %v", skull)
 	}
 }
