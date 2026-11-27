@@ -64,17 +64,12 @@ func (s *Server) landingMobStab(strike mobStrike) {
 	}
 	s.mobsMu.Lock()
 	h := s.herdOf(strike.w)
-	var victim *entity.Mob
-	for _, m := range h.herd {
-		if m.ID == strike.victimID {
-			victim = m
-			break
-		}
-	}
-	if victim == nil || victim.Dead {
+	ent := h.byID[strike.victimID]
+	if ent == nil || ent.mob.ID != strike.victimID || ent.mob.Dead {
 		s.mobsMu.Unlock()
 		return
 	}
+	victim := ent.mob
 	defer s.stabEvent(strike)
 	if stab.Knockback {
 		victim.KnockbackAlong(float64(strike.mob.Yaw), rules.StabKnockback)
@@ -82,7 +77,7 @@ func (s *Server) landingMobStab(strike mobStrike) {
 	vx, vy, vz := victim.VX, victim.VY, victim.VZ
 	var seat *seatNews
 	if stab.Dismount {
-		seat = dismountSeat(h.book[victim])
+		seat = dismountSeat(ent)
 	}
 	s.mobsMu.Unlock()
 	if stab.Knockback {

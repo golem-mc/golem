@@ -26,19 +26,6 @@ func deflectedBy(w *world.World, m *entity.Mob) (breezeDeflect, bool) {
 	return breezeDeflect{w: w, id: m.ID, category: mobSoundCategory(m.Type), x: m.X, y: m.Y, z: m.Z}, true
 }
 
-// appendDeflectBy queues the deflect sound of the herd's mob with the id.
-func appendDeflectBy(out []breezeDeflect, w *world.World, herd []*entity.Mob, id int32) []breezeDeflect {
-	for _, m := range herd {
-		if m.ID == id {
-			if d, ok := deflectedBy(w, m); ok {
-				out = append(out, d)
-			}
-			break
-		}
-	}
-	return out
-}
-
 // playBreezeDeflect plays the deflect sound from the breeze, volume and
 // pitch 1.
 func (s *Server) playBreezeDeflect(d breezeDeflect) {

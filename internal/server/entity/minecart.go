@@ -15,13 +15,14 @@ import (
 // Like the boat a plain value: nothing sent or locked, the server reads
 // what the tick leaves.
 
-// Cart numbers: EntityTypes.MINECART's sized(0.98F, 0.7F) box and
+// Cart numbers: EntityTypes.MINECART's sized(0.98F, 0.7F) box (widened from
+// float32 as EntityDimensions.makeBoundingBox does) and
 // passengerAttachments(0.1875F) seat; AbstractMinecart.getDefaultGravity,
 // 0.04 normally and 0.005 in water.
-// vanilla: EntityTypes.MINECART, AbstractMinecart.getDefaultGravity
+// vanilla: EntityTypes.MINECART, EntityDimensions.makeBoundingBox, AbstractMinecart.getDefaultGravity
 const (
-	MinecartHalfWidth = 0.49
-	MinecartHeight    = 0.7
+	MinecartHalfWidth = float64(float32(0.98) / 2)
+	MinecartHeight    = float64(float32(0.7))
 	MinecartSeatY     = 0.1875
 
 	// MINECART's clientTrackingRange(8) and the builder default

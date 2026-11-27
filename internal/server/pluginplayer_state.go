@@ -336,6 +336,7 @@ func (p pluginPlayer) Hide(other plugin.Entity) {
 	held := hidden.seenBy[p.c.player.UUID] == p.c
 	delete(hidden.seenBy, p.c.player.UUID)
 	hidden.trackMu.Unlock()
+	p.c.srv.playerPairEpoch.Add(1)
 	if held {
 		p.c.sendIn(hidden.theWorld(), protocol.IDPlayRemoveEntities, removeEntity(hidden.player))
 	}

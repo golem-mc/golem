@@ -3,6 +3,7 @@ package commands
 import (
 	"bytes"
 	"compress/gzip"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -77,7 +78,7 @@ func startPlaceWorld(t *testing.T) (*server.Server, *servertest.Client) {
 
 // startPlaceWorldWith is startPlaceWorld for the given templates, each saved
 // as test:<name>.
-func startPlaceWorldWith(t *testing.T, templates map[string]nbt.Compound) (*server.Server, *servertest.Client) {
+func startPlaceWorldWith(t *testing.T, templates map[string]nbt.Compound, setup ...func(*server.Server)) (*server.Server, *servertest.Client) {
 	t.Helper()
 	cfg := config.Default()
 	cfg.OnlineMode = false
@@ -104,7 +105,7 @@ func startPlaceWorldWith(t *testing.T, templates map[string]nbt.Compound) (*serv
 			t.Fatal(err)
 		}
 	}
-	srv, c := servertest.Join(t, cfg, "Testificate", servertest.OpsListing(t, "Testificate"))
+	srv, c := servertest.Join(t, cfg, "Testificate", append([]func(*server.Server){servertest.OpsListing(t, "Testificate")}, setup...)...)
 	return srv, c
 }
 
@@ -299,4 +300,61 @@ func TestPlaceTemplateRunsOnPlaceBeforeLaterBlocks(t *testing.T) {
 	}
 	wantBlock(t, srv, 13, 71, 11, "minecraft:redstone_wire", map[string]string{"power": "15"})
 	c.Disconnect()
+}
+
+// dustOnContainerTemplate is a 1x2x1 structure of a block-entity block with
+// redstone dust above it, the two blocks in the given order.
+func dustOnContainerTemplate(container string, props map[string]string, dustFirst bool) nbt.Compound {
+	palette := nbt.List{Elem: nbt.TypeCompound, Items: []nbt.Tag{
+		paletteEntry("minecraft:"+container, props),
+		paletteEntry("minecraft:redstone_wire", map[string]string{"east": "none", "north": "none", "south": "none", "west": "none", "power": "0"}),
+	}}
+	box := templateBlock(0, 0, 0, 0, nbt.Compound{"Items": nbt.List{Elem: nbt.TypeCompound}})
+	dust := templateBlock(1, 0, 1, 0, nil)
+	blocks := []nbt.Tag{box, dust}
+	if dustFirst {
+		blocks = []nbt.Tag{dust, box}
+	}
+	return nbt.Compound{
+		"size": ints(1, 2, 1), "palette": palette, "DataVersion": nbt.Int(4554),
+		"blocks": nbt.List{Elem: nbt.TypeCompound, Items: blocks},
+	}
+}
+
+// TestPlaceTemplateClearsDustOnBlockEntity checks that /place template drops
+// redstone dust standing on a dispenser or hopper, whichever block the
+// template lists first, and that a hopper then reads as unpowered, on the
+// placing tick and on the next one.
+// vanilla: StructureTemplate.placeInWorld
+func TestPlaceTemplateClearsDustOnBlockEntity(t *testing.T) {
+	t.Parallel()
+	down := map[string]string{"facing": "down"}
+	hopper := map[string]string{"facing": "down", "enabled": "false"}
+	srv, c := startPlaceWorldWith(t, map[string]nbt.Compound{
+		"dispenser_dust_first": dustOnContainerTemplate("dispenser", down, true),
+		"dispenser_box_first":  dustOnContainerTemplate("dispenser", down, false),
+		"hopper_dust_first":    dustOnContainerTemplate("hopper", hopper, true),
+		"hopper_box_first":     dustOnContainerTemplate("hopper", hopper, false),
+	}, func(s *server.Server) { servertest.FreezeUntilHeld(t, s) })
+	check := func(when string) {
+		for i, name := range []string{"dispenser_dust_first", "dispenser_box_first", "hopper_dust_first", "hopper_box_first"} {
+			x := int32(10 + 4*i)
+			wantBlock(t, srv, x, 71, 10, "minecraft:air", nil)
+			if i >= 2 {
+				wantBlock(t, srv, x, 70, 10, "minecraft:hopper", map[string]string{"enabled": "true"})
+			}
+			if t.Failed() {
+				t.Fatalf("%s: %s", when, name)
+			}
+		}
+	}
+	for i, name := range []string{"dispenser_dust_first", "dispenser_box_first", "hopper_dust_first", "hopper_box_first"} {
+		x := int64(10 + 4*i)
+		c.ChatCommand(fmt.Sprintf("place template test:%s %d 70 10", name, x))
+		expectPlaced(t, c, "commands.place.template.success", "test:"+name, x, 70, 10)
+	}
+	check("placing tick")
+	c.ChatCommand("tick step 1")
+	servertest.RunTicks(t, srv, 1)
+	check("after one tick")
 }

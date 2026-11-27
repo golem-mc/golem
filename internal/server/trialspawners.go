@@ -42,7 +42,7 @@ func (h *trialHost) CanSpawn() bool {
 
 func (h *trialHost) World() entity.SpawnWorld { return h.dim.w }
 
-func (h *trialHost) Bodies() []entity.SpawnBody { return h.spawn.Bodies() }
+func (h *trialHost) Bodies(area entity.AABB) []entity.SpawnBody { return h.spawn.Bodies(area) }
 
 func (h *trialHost) players() []*client {
 	if !h.read {

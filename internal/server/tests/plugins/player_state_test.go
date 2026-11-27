@@ -393,6 +393,27 @@ func TestPluginPlayerHideShow(t *testing.T) {
 	}
 }
 
+// Two players standing still: hiding one from the other removes it for that
+// viewer alone, and showing it spawns it again, though neither moved.
+// vanilla: ChunkMap.TrackedEntity.updatePlayer
+func TestPluginPlayerHideShowStandingStill(t *testing.T) {
+	t.Parallel()
+	srv, h, run, cs := statePlugin(t, "Looker", "Hidden")
+	looker := cs[0]
+	p, target := handle(t, h, "Looker"), handle(t, h, "Hidden")
+	servertest.HoldTicks(t, srv)
+	looker.ExpectNoneWithinTicks(srv, 20, servertest.PacketIs(protocol.IDPlayRemoveEntities, protocol.IDPlaySpawnEntity))
+	run(func() { p.Hide(target) })
+	looker.ExpectWithinTicks(srv, 2, protocol.IDPlayRemoveEntities)
+	looker.ExpectNoneWithinTicks(srv, 20, servertest.PacketAbout(target.ID(), protocol.IDPlaySpawnEntity))
+	run(func() { p.Show(target) })
+	if !looker.ReadTicks(srv, 5, func(id int32, data []byte) bool {
+		return id == protocol.IDPlaySpawnEntity && protocol.NewReader(data).ReadVarInt() == target.ID()
+	}) {
+		t.Fatal("shown player was not spawned again")
+	}
+}
+
 // vanilla: ServerPlayer.awardRecipes, resetRecipes; ClientboundRecipeBookAddPacket,
 // ClientboundRecipeBookRemovePacket
 func TestPluginPlayerRecipeBook(t *testing.T) {
