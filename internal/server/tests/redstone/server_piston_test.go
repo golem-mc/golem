@@ -571,7 +571,7 @@ func TestAMovedObserverKeepsTheEnginePumping(t *testing.T) {
 // TestAStickyPistonsRetractionKeepsAnAttachedDiode lays a repeater, a
 // comparator and redstone dust on the base of a sticky piston, extends the
 // piston and retracts it: the base turns into a moving piston for the
-// retraction and the wire on it stays, as in vanilla.
+// retraction and the wire on it stays.
 // vanilla: PistonBaseBlock.triggerEvent
 func TestAStickyPistonsRetractionKeepsAnAttachedDiode(t *testing.T) {
 	t.Parallel()
