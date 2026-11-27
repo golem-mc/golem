@@ -149,12 +149,8 @@ func upgradeEntityRecord(root nbt.Compound, _ bool) error {
 	if version != 0 && version < entityDataVersionFloor {
 		return fmt.Errorf("data version %d is below %d", version, entityDataVersionFloor)
 	}
-	if entities, ok := nbt.Get[nbt.List](root, "Entities"); ok && version != 0 && version < equipmentFormatVersion {
-		for _, e := range entities.Items {
-			if c, ok := e.(nbt.CompoundTag); ok {
-				upgradeEquipment(c, int32(version))
-			}
-		}
+	if entities, ok := nbt.Get[nbt.List](root, "Entities"); ok {
+		upgradeEntities(entities, int32(version))
 	}
 	return stampVersion(root)
 }

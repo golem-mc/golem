@@ -1,6 +1,7 @@
 package world
 
 import (
+	"maps"
 	"slices"
 	"strings"
 
@@ -52,17 +53,24 @@ func isLegacyStack(entries nbt.Compound) bool {
 
 // upgradeLegacyStacks rewrites every plain pre-1.20.5 stack under tag to the
 // current shape: Count becomes an int count, a tag becomes components and item
-// names renamed since version follow.
+// names renamed since version follow. It returns the tag to store in place of
+// the one given: a stack that is an ordered compound is replaced by a plain
+// one, as the fixes add and remove keys, which an ordered compound's key list
+// would not follow.
 // vanilla: ItemStackComponentizationFix, ItemRenameFix
-func upgradeLegacyStacks(tag nbt.Tag, version int32) {
+func upgradeLegacyStacks(tag nbt.Tag, version int32) nbt.Tag {
 	switch v := tag.(type) {
 	case nbt.List:
-		for _, item := range v.Items {
-			upgradeLegacyStacks(item, version)
+		for i, item := range v.Items {
+			v.Items[i] = upgradeLegacyStacks(item, version)
 		}
 	case nbt.CompoundTag:
 		entries := v.Entries()
 		if isLegacyStack(entries) {
+			if _, ordered := v.(*nbt.OrderedCompound); ordered {
+				entries = maps.Clone(entries)
+				v = entries
+			}
 			count, _ := nbt.IntValue(entries["Count"])
 			delete(entries, "Count")
 			entries["count"] = nbt.Int(count)
@@ -71,10 +79,12 @@ func upgradeLegacyStacks(tag nbt.Tag, version int32) {
 			entries["id"] = name
 			componentizeTag(entries, string(name))
 		}
-		for _, child := range entries {
-			upgradeLegacyStacks(child, version)
+		for key, child := range entries {
+			entries[key] = upgradeLegacyStacks(child, version)
 		}
+		return v
 	}
+	return tag
 }
 
 // renameOldItem applies the item renames between version and

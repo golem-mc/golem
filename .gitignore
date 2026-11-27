@@ -40,3 +40,6 @@ help.yml
 
 # GoReleaser output
 /dist/
+
+# loadtest output
+/results/
