@@ -160,6 +160,13 @@ type Server struct {
 	// scoreboard is /scoreboard's objectives and scores, saved in
 	// data/minecraft/scoreboard.dat.
 	scoreboard *scoreboard.Board
+	// collisionCache is teamCollisionRules' converted snapshot, valid while
+	// version is the board's current one.
+	collisionCache struct {
+		sync.Mutex
+		version uint64
+		rules   map[string]entity.CollisionRule
+	}
 	// pluginScoreboards publishes immutable snapshots for tick and packet readers.
 	pluginScoreboards atomic.Pointer[[]*scoreboard.Board]
 	// destroyedMu guards destroyed, the UUIDs of non-mob bodies removed
