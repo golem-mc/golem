@@ -78,6 +78,12 @@ func TestSavedStartReadsRegionFile(t *testing.T) {
 		t.Fatalf("loaded chunk, other structure: %v", got)
 	}
 	w.Release(ChunkPos{3, 4})
+	w.Acquire(ChunkPos{5, 6})
+	w.mu.Lock()
+	delete(w.chunks[ChunkPos{5, 6}].chunk.savedRoot(), "structures")
+	w.mu.Unlock()
+	w.chunks[ChunkPos{5, 6}].markDirty()
+	w.Release(ChunkPos{5, 6})
 	if err := w.Close(); err != nil {
 		t.Fatal(err)
 	}
@@ -89,6 +95,9 @@ func TestSavedStartReadsRegionFile(t *testing.T) {
 	}
 	if got := w.savedStart("minecraft:mansion", 3, 4); got != startAbsent {
 		t.Fatalf("saved chunk, other structure: %v", got)
+	}
+	if got := w.savedStart(id, 5, 6); got != startUnknown {
+		t.Fatalf("saved chunk without structures.starts: %v", got)
 	}
 	if got := w.savedStart(id, 40, 40); got != startUnknown {
 		t.Fatalf("never saved chunk: %v", got)

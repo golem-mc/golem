@@ -406,7 +406,13 @@ func (w *World) savedStart(id string, cx, cz int32) startState {
 // errNotFull stops a read of a chunk that loading would generate again.
 var errNotFull = errors.New("chunk is not fully generated")
 
+// startStateOf maps a chunk's valid start ids (nil: the chunk saved no
+// structures.starts) to the state of one structure.
+// vanilla: StructureCheck.loadStructures returns null without structures.starts
 func startStateOf(ids []string, id string) startState {
+	if ids == nil {
+		return startUnknown
+	}
 	if slices.Contains(ids, id) {
 		return startPresent
 	}
@@ -414,11 +420,15 @@ func startStateOf(ids []string, id string) startState {
 }
 
 // validStartIDs lists the structures a chunk root has a start for: the id
-// matches its key and it has pieces.
+// matches its key and it has pieces. It is nil when the root has no
+// structures.starts compound, and empty when that compound holds none.
 func validStartIDs(root nbt.Compound) []string {
 	structures, _ := nbt.Get[nbt.Compound](root, "structures")
-	starts, _ := nbt.Get[nbt.Compound](structures, "starts")
-	var ids []string
+	starts, ok := nbt.Get[nbt.Compound](structures, "starts")
+	if !ok {
+		return nil
+	}
+	ids := []string{}
 	for key, value := range starts {
 		start, _ := nbt.CompoundView(value)
 		savedID, _ := nbt.Get[nbt.String](start, "id")
