@@ -132,7 +132,7 @@ func TestComponentizeItemKinds(t *testing.T) {
 	// A shulker box item keeps its contents as a container and the rest as
 	// block entity data.
 	c := componentsOf("minecraft:shulker_box", nbt.Compound{"BlockEntityTag": nbt.Compound{
-		"id": str("minecraft:shulker_box"), "Lock": str("key"), "LootTable": str("minecraft:x"), "LootTableSeed": nbt.Long(5),
+		"id": str("minecraft:shulker_box"), "Lock": str("key"), "LootTable": str("minecraft:x"), "LootTableSeed": nbt.Long(5), "CustomName": str("n"),
 		"Items": list(nbt.Compound{"Slot": nbt.Byte(-1), "id": str("minecraft:dirt"), "Count": nbt.Byte(2)}),
 	}})
 	container, _ := c["minecraft:container"].(nbt.List)
@@ -146,8 +146,16 @@ func TestComponentizeItemKinds(t *testing.T) {
 	if c["minecraft:lock"] != str("key") || c["minecraft:container_loot"].(nbt.Compound)["seed"] != nbt.Long(5) {
 		t.Errorf("lock %v, loot %v", c["minecraft:lock"], c["minecraft:container_loot"])
 	}
-	if data := c["minecraft:block_entity_data"].(nbt.Compound); len(data) != 1 || data["id"] != str("minecraft:shulker_box") {
+	if data := c["minecraft:block_entity_data"].(nbt.Compound); len(data) != 2 || data["id"] != str("minecraft:shulker_box") {
 		t.Errorf("block_entity_data = %v", data)
+	}
+
+	c = componentsOf("minecraft:shulker_box", nbt.Compound{"BlockEntityTag": nbt.Compound{
+		"id":    str("minecraft:shulker_box"),
+		"Items": list(nbt.Compound{"Slot": nbt.Byte(0), "id": str("minecraft:dirt"), "Count": nbt.Byte(1)}),
+	}})
+	if _, ok := c["minecraft:block_entity_data"]; ok || c["minecraft:container"] == nil {
+		t.Errorf("id-only remainder: components %v", c)
 	}
 
 	c = componentsOf("minecraft:potion", nbt.Compound{"Potion": str("minecraft:swiftness"), "CustomPotionColor": nbt.Int(9)})

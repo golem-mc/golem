@@ -94,7 +94,8 @@ func componentizeBlockEntityTag(c, tag nbt.Compound) {
 			c["minecraft:bees"] = v
 		}
 	}
-	if len(be) > 0 {
+	// An id with nothing else is an empty sub-tag in vanilla and is dropped.
+	if _, hasID := be["id"]; len(be) > 1 || (len(be) == 1 && !hasID) {
 		c["minecraft:block_entity_data"] = be
 	}
 }
