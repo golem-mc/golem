@@ -1,12 +1,17 @@
 package world
 
 import (
+	"strings"
+
 	"github.com/golem-mc/golem/nbt"
 	"github.com/golem-mc/golem/registry"
 )
 
 // Data versions of the entity fixes a 1.20.3 or 1.20.4 record still needs.
 const (
+	horseBodyArmorVersion        = 3808 // vanilla: DataFixers.addFixers (HorseBodyArmorItemFix)
+	chestedHorsesSlotVersion     = 3809 // ChestedHorsesInventoryZeroIndexingFix
+	wolfHealthVersion            = 3812 // FixWolfHealth
 	areaEffectCloudPotionVersion = 3818 // vanilla: DataFixers.addFixers (AreaEffectCloudPotionFix)
 )
 
@@ -38,6 +43,16 @@ func upgradeLegacyEntity(e nbt.CompoundTag, version int32) {
 
 func upgradeLegacyEntityFields(e nbt.CompoundTag, version int32) {
 	entries := e.Entries()
+	typ, known := entityType(entries)
+	if version < horseBodyArmorVersion {
+		upgradeHorseBodyArmor(entries, typ, known)
+	}
+	if version < chestedHorsesSlotVersion {
+		upgradeChestedSlots(entries, typ, known)
+	}
+	if version < wolfHealthVersion && known && typ == registry.EntityTypeWolf {
+		upgradeWolfHealth(entries)
+	}
 	if version < blockPosFormatVersion {
 		id, _ := nbt.Get[nbt.String](entries, "id")
 		for from, to := range blockPosFields[string(id)] {
@@ -59,6 +74,96 @@ func upgradeLegacyEntityFields(e nbt.CompoundTag, version int32) {
 			if c, ok := p.(nbt.CompoundTag); ok {
 				upgradeLegacyEntityFields(c, version)
 			}
+		}
+	}
+}
+
+// entityType is the type of the entity's namespaced id, and false when the id
+// names no entity type. vanilla: NamespacedSchema.ensureNamespaced
+func entityType(entries nbt.Compound) (registry.EntityType, bool) {
+	id, _ := nbt.Get[nbt.String](entries, "id")
+	name := string(id)
+	if !strings.Contains(name, ":") {
+		name = "minecraft:" + name
+	}
+	return registry.EntityTypeByName(name)
+}
+
+// upgradeHorseBodyArmor moves a horse's ArmorItem, or a llama's DecorItem, to
+// body_armor_item, which always drops, and clears the horse's copy in the
+// chest slot of ArmorItems. vanilla: HorseBodyArmorItemFix
+func upgradeHorseBodyArmor(entries nbt.Compound, typ registry.EntityType, known bool) {
+	if !known {
+		return
+	}
+	var from string
+	switch typ {
+	case registry.EntityTypeHorse:
+		from = "ArmorItem"
+	case registry.EntityTypeLlama, registry.EntityTypeTraderLlama:
+		from = "DecorItem"
+	default:
+		return
+	}
+	item, ok := entries[from]
+	if !ok {
+		return
+	}
+	delete(entries, from)
+	entries["body_armor_item"] = item
+	entries["body_armor_drop_chance"] = nbt.Float(2)
+	if typ != registry.EntityTypeHorse {
+		return
+	}
+	if armor, ok := entries["ArmorItems"].(nbt.List); ok && len(armor.Items) > 2 {
+		armor.Items[2] = nbt.Compound{}
+	}
+	if chances, ok := entries["ArmorDropChances"].(nbt.List); ok && len(chances.Items) > 2 {
+		chances.Items[2] = nbt.Float(defaultEquipmentDropOdds)
+	}
+}
+
+// upgradeChestedSlots shifts the Slot of a pack animal's chest down by two:
+// slots 0 and 1 used to be the saddle and armor.
+// vanilla: ChestedHorsesInventoryZeroIndexingFix
+func upgradeChestedSlots(entries nbt.Compound, typ registry.EntityType, known bool) {
+	if !known {
+		return
+	}
+	switch typ {
+	case registry.EntityTypeLlama, registry.EntityTypeTraderLlama, registry.EntityTypeMule, registry.EntityTypeDonkey:
+	default:
+		return
+	}
+	items, _ := entries["Items"].(nbt.List)
+	for _, item := range items.Items {
+		if c, ok := nbt.CompoundView(item); ok {
+			slot := int32(2)
+			if v, ok := nbt.IntValue(c["Slot"]); ok {
+				slot = v
+			}
+			c["Slot"] = nbt.Byte(slot - 2)
+		}
+	}
+}
+
+// upgradeWolfHealth doubles the health of a wolf whose max health is still the
+// old 20. vanilla: FixWolfHealth
+func upgradeWolfHealth(entries nbt.Compound) {
+	attributes, _ := entries["Attributes"].(nbt.List)
+	for _, item := range attributes.Items {
+		a, ok := nbt.CompoundView(item)
+		if !ok {
+			continue
+		}
+		name, _ := a["Name"].(nbt.String)
+		base, isDouble := a["Base"].(nbt.Double)
+		if (name != "minecraft:generic.max_health" && name != "generic.max_health") || !isDouble || base != 20 {
+			continue
+		}
+		a["Base"] = nbt.Double(40)
+		if health, ok := nbt.FloatField(entries, "Health"); ok {
+			entries["Health"] = nbt.Float(health * 2)
 		}
 	}
 }

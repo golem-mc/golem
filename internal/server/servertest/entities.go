@@ -2372,3 +2372,24 @@ func ParseEntityPositionSync(data []byte) EntityPositionSync {
 	p.Yaw, p.Pitch, p.OnGround = r.ReadF32(), r.ReadF32(), r.ReadBool()
 	return p
 }
+
+// ZlibChunkRecord is root as a region record (length, type 2, deflated NBT),
+// the shape EditChunkRecord takes back.
+func ZlibChunkRecord(t *testing.T, root nbt.Compound) []byte {
+	t.Helper()
+	encoded, err := nbt.Encode("", root)
+	if err != nil {
+		t.Fatalf("encode the record: %v", err)
+	}
+	var compressed bytes.Buffer
+	zw := zlib.NewWriter(&compressed)
+	if _, err := zw.Write(encoded); err != nil {
+		t.Fatalf("compress the record: %v", err)
+	}
+	if err := zw.Close(); err != nil {
+		t.Fatalf("compress the record: %v", err)
+	}
+	out := append([]byte{0, 0, 0, 0, 2}, compressed.Bytes()...)
+	binary.BigEndian.PutUint32(out[:4], uint32(len(out)-4))
+	return out
+}
