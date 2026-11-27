@@ -1,6 +1,7 @@
 package server
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/golem-mc/golem/internal/server/entity"
@@ -130,5 +131,30 @@ func BenchmarkMannequinPushInputsMobs(b *testing.B) {
 	b.ResetTimer()
 	for range b.N {
 		s.mannequinPushInputs(teams)
+	}
+}
+
+// BenchmarkTickMannequinsInHerd times one mannequin far from a herd of cows.
+func BenchmarkTickMannequinsInHerd(b *testing.B) {
+	for _, cows := range []int{0, 2000} {
+		b.Run(fmt.Sprint(cows), func(b *testing.B) {
+			s, w := newTrackerBenchServer(b)
+			dim := s.allDims()[0]
+			for i := range cows {
+				s.spawnMobInDim(dim, entity.TypeCow, float64(i%45)-22, float64(world.GroundLevel), float64(i/45)-22, int64(i+1), nil)
+			}
+			s.registerMannequin(&mannequinEntity{
+				mannequin: entity.NewMannequin(s.nextEntity(), 40, float64(world.GroundLevel), 40),
+				w:         w,
+			})
+			for range 20 {
+				s.tickMannequins()
+			}
+			b.ReportAllocs()
+			b.ResetTimer()
+			for range b.N {
+				s.tickMannequins()
+			}
+		})
 	}
 }
