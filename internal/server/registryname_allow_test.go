@@ -113,6 +113,8 @@ var registryNameAllowed = map[string]nameAllowance{
 	"internal/server/traderspawner.go: string block lookup":                         {count: 1, issue: 6380},
 	"internal/server/tridentchanneling.go: comparison with an entity name":          {count: 1, issue: 6380},
 	"internal/server/villagerview.go: string block lookup":                          {count: 1, issue: 6380},
+	"internal/server/world/entities_fixes.go: comparison with an entity name":       {count: 7, boundary: "stored data upgrade of saved entity ids"},
+	"internal/server/world/entities_old.go: comparison with an entity name":         {count: 13, boundary: "stored data upgrade of saved entity ids"},
 	"internal/server/world/blockentity_codec.go: string block lookup":               {count: 1, boundary: "stored data decoding"},
 	"internal/server/world/bonemeal.go: string block lookup":                        {count: 2, issue: 6380},
 	"internal/server/world/bubblecolumn.go: string block lookup":                    {count: 1, issue: 6380},
@@ -211,6 +213,7 @@ var registryItemNameAllowed = map[string]nameAllowance{
 	"internal/server/plugintext_read.go: string item lookup":                          {count: 1, boundary: "plugin hover item decoding"},
 	"internal/server/rules/blockuse.go: string item lookup":                           {count: 2, issue: 6380},
 	"internal/server/servertest_hooks.go: string item lookup":                         {count: 1, boundary: "test inputs"},
+	"internal/server/world/entities_fixes.go: comparison with an item name literal":   {count: 1, boundary: "stored data upgrade of saved item ids"},
 	"internal/server/world/blockentity.go: comparison with an item name literal":      {count: 1, boundary: "stored compound IDs"},
 	"internal/server/world/templatefix_26_3.go: comparison with an item name literal": {count: 2, boundary: "stored item data fixing"},
 }
