@@ -770,3 +770,14 @@ func TestAMobBlowShovesFromTheAttackersPositionAfterTheGate(t *testing.T) {
 		t.Errorf("cow vx = %v, want a shove away from the attacker's new place (+x)", cow.VX)
 	}
 }
+
+func TestAdultFarmAnimalsUseTheirTypesEyeHeight(t *testing.T) {
+	for _, c := range []struct {
+		t    MobType
+		want float64
+	}{{TypeCow, 1.3}, {TypeMooshroom, 1.3}, {TypeSheep, 1.235}, {TypeChicken, 0.644}} {
+		if got := NewMob(c.t, 1, 0, 0, 0, 1).EyeHeight(); got != c.want {
+			t.Errorf("type %v: EyeHeight = %v, want %v", c.t, got, c.want)
+		}
+	}
+}
