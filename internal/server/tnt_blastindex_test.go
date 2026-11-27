@@ -49,6 +49,36 @@ func TestTNTBlastIndexNear(t *testing.T) {
 	}
 }
 
+// TestTNTBlastIndexHeight checks the height cut keeps bodies at cy±radius,
+// drops those beyond, keeps list order, and that ys follows drop and build.
+func TestTNTBlastIndexHeight(t *testing.T) {
+	const cy, radius = 64.0, 4.0
+	ys := []float64{cy + radius + 1, cy + radius, cy, cy - radius, cy - radius - 1, cy + 1, cy - radius - 0.5}
+	var list []*tntEntity
+	for i, y := range ys {
+		list = append(list, &tntEntity{tnt: &entity.TNT{X: 10 + float64(i)*0.25, Y: y, Z: 10}})
+	}
+	var x tntBlastIndex
+	x.build(list)
+	got := x.near(list, 10, cy, 10, radius)
+	want := []*tntEntity{list[1], list[2], list[3], list[5]}
+	if !slices.Equal(got, want) {
+		t.Fatalf("near = %d bodies, want the four within the height range in list order", len(got))
+	}
+	x.drop()
+	if len(x.ys) != 0 {
+		t.Fatalf("ys holds %d after drop", len(x.ys))
+	}
+	list = list[:3]
+	x.build(list)
+	if len(x.ys) != len(list) {
+		t.Fatalf("ys holds %d after rebuild, want %d", len(x.ys), len(list))
+	}
+	if got := x.near(list, 10, cy, 10, radius); !slices.Equal(got, list[1:]) {
+		t.Fatalf("after rebuild near = %d bodies, want 2", len(got))
+	}
+}
+
 func BenchmarkTNTBlastIndex(b *testing.B) {
 	const count = 4096
 	list := make([]*tntEntity, count)
