@@ -457,6 +457,7 @@ func (p *Physics) pistonMoveBlocks(x, y, z int32, dir int, extending, sticky boo
 		rideState := movingPistonStateOf(dir, false)
 		p.writeBlock(dx, dy, dz, rideState)
 		p.shapeUpdateNeighbors(dx, dy, dz, changes)
+		p.rideCells = append(p.rideCells, [3]int32{dx, dy, dz})
 		p.pistonRideCreate([3]int32{dx, dy, dz}, rideState, states[j], dir, extending, false)
 	}
 	if extending {
@@ -464,6 +465,7 @@ func (p *Physics) pistonMoveBlocks(x, y, z int32, dir int, extending, sticky boo
 		rideState := movingPistonStateOf(dir, sticky)
 		p.writeBlock(fx, fy, fz, rideState)
 		p.shapeUpdateNeighbors(fx, fy, fz, changes)
+		p.rideCells = append(p.rideCells, [3]int32{fx, fy, fz})
 		p.pistonRideCreate([3]int32{fx, fy, fz}, rideState, pistonHeadStateOf(dir, sticky), dir, true, true)
 	}
 	// Vacated cells go to air without their own wake (flags 82), in the order
@@ -821,4 +823,13 @@ func (p *Physics) pistonVetoed(x, y, z int32, dir, typ int, sticky bool) bool {
 		}
 	}
 	return p.ask(&d)
+}
+
+// TakeRideCells returns and clears the cells a piston move turned into rides.
+// The ride's write is invisible, so it is no block change; the server reshapes
+// the fences, panes and walls beside it like any other cell's shape pass.
+func (p *Physics) TakeRideCells() [][3]int32 {
+	out := p.rideCells
+	p.rideCells = nil
+	return out
 }
