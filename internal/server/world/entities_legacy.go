@@ -7,7 +7,6 @@ import (
 
 // Data versions of the entity fixes a 1.20.3 or 1.20.4 record still needs.
 const (
-	blockPosFormatVersion        = 3813 // vanilla: DataFixers.addFixers (BlockPosFormatAndRenamesFix)
 	areaEffectCloudPotionVersion = 3818 // vanilla: DataFixers.addFixers (AreaEffectCloudPotionFix)
 	legacyAttributeFormatVersion = attributeModifierIdVersion
 )
