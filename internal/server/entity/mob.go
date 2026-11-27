@@ -238,6 +238,7 @@ var kinds = [registry.EntityTypeCount]*kind{
 		fireAverse: true,
 		width:      0.9,
 		height:     1.4,
+		eyeHeight:  1.3,
 		maxHealth:  10,
 		speed:      0.20000000298023224,
 		// The calf's box, Cow's BABY_DIMENSIONS: scalable(0.45, 0.7),
@@ -264,6 +265,7 @@ var kinds = [registry.EntityTypeCount]*kind{
 		fireAverse: true,
 		width:      0.9,
 		height:     1.4,
+		eyeHeight:  1.3,
 		maxHealth:  10,
 		speed:      0.20000000298023224,
 		// The calf's box, MushroomCow's BABY_DIMENSIONS: scalable(0.45, 0.7), eyes
@@ -314,6 +316,7 @@ var kinds = [registry.EntityTypeCount]*kind{
 		fireAverse: true,
 		width:      0.9,
 		height:     1.3,
+		eyeHeight:  1.235,
 		maxHealth:  8,
 		speed:      0.23000000417232513,
 		// The lamb's box, Sheep's BABY_DIMENSIONS: scalable(0.45, 0.65), eyes
@@ -392,6 +395,7 @@ var kinds = [registry.EntityTypeCount]*kind{
 		fireAverse: true,
 		width:      0.4,
 		height:     0.7,
+		eyeHeight:  0.644,
 		maxHealth:  4,
 		speed:      0.25,
 		// The chick's box, Chicken's BABY_DIMENSIONS: scalable(0.3, 0.4),
@@ -1202,6 +1206,7 @@ var kinds = [registry.EntityTypeCount]*kind{
 		width:      0.6,
 		height:     0.85,
 		eyeHeight:  0.68,
+		babyEye:    0.34375, // Wolf.BABY_DIMENSIONS
 		maxHealth:  8,
 		speed:      float64(float32(0.3)),
 		volume:     0.4, // Wolf.getSoundVolume

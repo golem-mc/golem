@@ -357,6 +357,7 @@ func (s *Server) mannequinSnapshot(ent *mannequinEntity, q *entityQuery) *entity
 	if e == nil {
 		return nil
 	}
+	e.eye = m.EyeHeight()
 	e.bind(&s.mannequinsMu, &ent.tags, &mannequinEntityOps)
 	e.setCustomName(ent.custom.tag())
 	return e
