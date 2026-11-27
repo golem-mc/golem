@@ -237,8 +237,8 @@ func (s *Server) hangFrame(w *world.World, x, y, z, dir int32, glow bool, stack 
 			f = loaded
 		}
 	}
-	if !frameSurvives(f.w, f.x, f.y, f.z, f.dir, f.fixed,
-		s.paintingsOfWorldExceptLocked(w, nil), s.framesOfWorldExceptLocked(w, nil)) {
+	paintings, frames := s.hangingNearCell(w, f.x, f.z)
+	if !frameSurvives(f.w, f.x, f.y, f.z, f.dir, f.fixed, paintings, frames) {
 		s.framesMu.Unlock()
 		s.paintingsMu.Unlock()
 		s.mu.RUnlock()
@@ -383,18 +383,6 @@ func (s *Server) frameTwinAt(f *frameEntity, to *dimension, pos player.Position)
 	tag := frameTag(f)
 	tag.Set("block_pos", nbt.IntArray{rules.BlockOf(pos.X), rules.BlockOf(pos.Y), rules.BlockOf(pos.Z)})
 	return frameOfTag(s, to.w, tag.Entries())
-}
-
-// framesOfWorldExceptLocked collects the world's frames not in excluded
-// (nil: every one). The frame lock is held.
-func (s *Server) framesOfWorldExceptLocked(w *world.World, excluded map[*frameEntity]bool) []*frameEntity {
-	frames := make([]*frameEntity, 0, len(s.frames))
-	for _, f := range s.frames {
-		if f.w == w && !excluded[f] {
-			frames = append(frames, f)
-		}
-	}
-	return frames
 }
 
 // frameByIDLocked finds the frame an entity ID names, nil for one gone.
@@ -752,9 +740,9 @@ func (s *Server) pollFrames() {
 			continue
 		}
 		f.checkInterval = 0
-		if !frameSurvives(f.w, f.x, f.y, f.z, f.dir, f.fixed,
-			s.paintingsOfWorldExceptLocked(f.w, nil),
-			s.framesOfWorldExceptLocked(f.w, map[*frameEntity]bool{f: true})) {
+		paintings, frames := s.hangingNear(f.w, f.minX, f.minZ, f.maxX, f.maxZ)
+		frames = slices.DeleteFunc(frames, func(o *frameEntity) bool { return o == f })
+		if !frameSurvives(f.w, f.x, f.y, f.z, f.dir, f.fixed, paintings, frames) {
 			doomed = append(doomed, f)
 			tells = append(tells, frameTellOf(f))
 		}
