@@ -381,3 +381,73 @@ func TestOldChunkClaimsTheFixedVersion(t *testing.T) {
 		}
 	}
 }
+
+func TestOld1204BlockEntitiesAreUpgraded(t *testing.T) {
+	t.Parallel()
+	be := func(id string, x int32, fields nbt.Compound) nbt.Tag {
+		fields["id"], fields["x"], fields["y"], fields["z"] = nbt.String(id), nbt.Int(16+x), nbt.Int(64), nbt.Int(32)
+		return fields
+	}
+	list := func(items ...nbt.Tag) nbt.List { return nbt.List{Elem: nbt.TypeCompound, Items: items} }
+	w, pos := oldChunkWorld(t, 3700,
+		be("minecraft:banner", 0, nbt.Compound{"Patterns": list(
+			nbt.Compound{"Pattern": nbt.String("cr"), "Color": nbt.Int(14)},
+			nbt.Compound{"Pattern": nbt.String("bo"), "Color": nbt.Int(1)})}),
+		be("minecraft:skull", 1, nbt.Compound{"SkullOwner": nbt.Compound{
+			"Name": nbt.String("Steve"), "Id": nbt.IntArray{1, 2, 3, 4},
+			"Properties": nbt.Compound{"textures": list(nbt.Compound{"Value": nbt.String("v"), "Signature": nbt.String("s")})}}}),
+		be("minecraft:beehive", 2, nbt.Compound{
+			"FlowerPos": nbt.Compound{"X": nbt.Int(1), "Y": nbt.Int(2), "Z": nbt.Int(3)},
+			"Bees":      list(nbt.Compound{"EntityData": nbt.Compound{"id": nbt.String("minecraft:bee")}, "TicksInHive": nbt.Int(10), "MinOccupationTicks": nbt.Int(600)})}),
+		be("minecraft:end_gateway", 3, nbt.Compound{"ExitPortal": nbt.Compound{"X": nbt.Int(1), "Y": nbt.Int(100), "Z": nbt.Int(1)}}),
+		be("minecraft:shulker_box", 4, nbt.Compound{"Lock": nbt.String("key")}),
+		be("minecraft:jukebox", 5, nbt.Compound{"RecordItem": nbt.Compound{"id": nbt.String("minecraft:music_disc_cat"), "Count": nbt.Byte(1)}, "IsPlaying": nbt.Byte(1), "TickCount": nbt.Long(2400), "RecordStartTick": nbt.Long(34)}),
+		be("minecraft:bed", 6, nbt.Compound{}),
+	)
+	w.Acquire(pos)
+	get := func(x int32) nbt.Compound {
+		tag, ok := w.BlockEntityTag(16+x, 64, 32)
+		if !ok {
+			t.Fatalf("block entity %d not loaded", x)
+		}
+		return tag
+	}
+	banner := get(0)
+	layers, _ := nbt.Get[nbt.List](banner, "patterns")
+	if len(layers.Items) != 2 || banner["Patterns"] != nil {
+		t.Fatalf("banner = %v", banner)
+	}
+	first, _ := nbt.CompoundView(layers.Items[0])
+	second, _ := nbt.CompoundView(layers.Items[1])
+	if first["pattern"] != nbt.String("minecraft:cross") || first["color"] != nbt.String("red") ||
+		second["pattern"] != nbt.String("minecraft:border") || second["color"] != nbt.String("orange") {
+		t.Errorf("layers = %v %v", first, second)
+	}
+	head := get(1)
+	profile, _ := nbt.Get[nbt.Compound](head, "profile")
+	props, _ := nbt.Get[nbt.List](profile, "properties")
+	prop, _ := nbt.CompoundView(props.Items[0])
+	if head["SkullOwner"] != nil || profile["name"] != nbt.String("Steve") || prop["name"] != nbt.String("textures") || prop["value"] != nbt.String("v") || prop["signature"] != nbt.String("s") {
+		t.Errorf("head = %v", head)
+	}
+	hive := get(2)
+	bees, _ := nbt.Get[nbt.List](hive, "bees")
+	bee, _ := nbt.CompoundView(bees.Items[0])
+	if !nbt.Equal(hive["flower_pos"], nbt.IntArray{1, 2, 3}) || hive["FlowerPos"] != nil || hive["Bees"] != nil ||
+		bee["entity_data"] == nil || bee["ticks_in_hive"] != nbt.Int(10) || bee["min_ticks_in_hive"] != nbt.Int(600) {
+		t.Errorf("hive = %v", hive)
+	}
+	if gw := get(3); !nbt.Equal(gw["exit_portal"], nbt.IntArray{1, 100, 1}) || gw["ExitPortal"] != nil {
+		t.Errorf("gateway = %v", gw)
+	}
+	box := get(4)
+	if lock, _ := nbt.Get[nbt.Compound](box, "lock"); !nbt.Equal(lock, nbt.Compound{"components": nbt.Compound{"minecraft:custom_name": nbt.String(`"key"`)}}) || box["Lock"] != nil {
+		t.Errorf("box = %v", box)
+	}
+	if jb := get(5); jb["ticks_since_song_started"] != nbt.Long(2366) || jb["TickCount"] != nil || jb["IsPlaying"] != nil {
+		t.Errorf("jukebox = %v", jb)
+	}
+	if _, ok := w.BlockEntityTag(16+6, 64, 32); ok {
+		t.Error("the bed block entity was kept")
+	}
+}

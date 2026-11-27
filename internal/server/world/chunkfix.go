@@ -121,12 +121,21 @@ var potShardRenames = map[string]string{
 
 // fixOldBlockEntity applies the block entity fixes between a chunk's data
 // version and the one decodeChunkNBT reads.
-func fixOldBlockEntity(entry nbt.CompoundTag, version int32) {
-	if version == 0 || version >= tooltipDisplayVersion {
-		return
-	}
+//
+// It reports false for a block entity the current version no longer has.
+func fixOldBlockEntity(entry nbt.CompoundTag, version int32) bool {
 	tag := entry.Entries()
 	id, _ := nbt.Get[nbt.String](tag, "id")
+	if version == 0 {
+		return true
+	}
+	if version < bedBlockEntityVersion && string(id) == "minecraft:bed" {
+		// vanilla: RemoveBlockEntityTagFix
+		return false
+	}
+	if version >= tooltipDisplayVersion {
+		return true
+	}
 	if version < storedItemVersion {
 		upgradeLegacyStacks(entry, version)
 	}
@@ -141,6 +150,7 @@ func fixOldBlockEntity(entry nbt.CompoundTag, version int32) {
 		}
 	}
 	fixStoredComponents(entry, version)
+	fixBlockEntityFields(string(id), tag, version)
 	kind, _ := BlockEntityKindByName(string(id))
 	switch {
 	case string(id) == suspiciousSandID && version < brushableBlockVersion:
@@ -163,6 +173,41 @@ func fixOldBlockEntity(entry nbt.CompoundTag, version int32) {
 	}
 	if version < textComponentVersion {
 		unflattenBlockEntityText(tag)
+	}
+	return true
+}
+
+// fixBlockEntityFields applies the block entity renames and reshapes of data
+// versions 3813 to 4068, in vanilla's order.
+func fixBlockEntityFields(id string, tag nbt.Compound, version int32) {
+	if version < blockPosFormatVersion {
+		switch id {
+		case "minecraft:beehive":
+			fixBlockPosField(tag, "FlowerPos", "flower_pos")
+		case "minecraft:end_gateway":
+			fixBlockPosField(tag, "ExitPortal", "exit_portal")
+		}
+	}
+	switch id {
+	case "minecraft:beehive":
+		if version < beehiveRenameVersion {
+			fixBeehive(tag)
+		}
+	case "minecraft:banner":
+		if version < bannerPatternVersion {
+			fixBannerPatterns(tag)
+		}
+	case "minecraft:skull":
+		if version < playerHeadProfileVersion {
+			fixSkullProfile(tag)
+		}
+	case "minecraft:jukebox":
+		if version < jukeboxSongTicksVersion {
+			fixJukeboxTicks(tag)
+		}
+	}
+	if version < lockPredicateVersion {
+		fixContainerLock(tag)
 	}
 }
 

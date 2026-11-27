@@ -187,16 +187,20 @@ func upgradeChunkRecord(root nbt.Compound, erase bool) error {
 		}
 	}
 	if be, ok := nbt.Get[nbt.List](root, "block_entities"); ok && version != 0 {
+		kept := be.Items[:0]
 		for _, entry := range be.Items {
-			c, ok := entry.(nbt.CompoundTag)
-			if !ok {
-				continue
+			if c, ok := entry.(nbt.CompoundTag); ok {
+				if !fixOldBlockEntity(c, int32(version)) {
+					continue
+				}
+				if version < furnaceBurnTimeVersion {
+					fixFurnaceBurnTime(c)
+				}
 			}
-			fixOldBlockEntity(c, int32(version))
-			if version < furnaceBurnTimeVersion {
-				fixFurnaceBurnTime(c)
-			}
+			kept = append(kept, entry)
 		}
+		be.Items = kept
+		root["block_entities"] = be
 	}
 	if erase {
 		// LightData and lightCorrect are this server's own light cache.
