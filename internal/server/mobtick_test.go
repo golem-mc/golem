@@ -68,28 +68,15 @@ func BenchmarkLeaveUnloadedAfterRevisits(b *testing.B) {
 			s := revisitServer(b)
 			s.SetSpawning(false)
 			if stale {
-				// 10 000 chunks as in the issue; a 10x10 square is cycled 100 times
-				// over shifted origins.
-				w := s.allDims()[0].w
-				for ox := range int32(100) {
-					for cycle := range 3 {
-						_ = cycle
-						var held []world.ChunkPos
-						for x := range int32(10) {
-							for z := range int32(10) {
-								pos := world.ChunkPos{X: 1000 + ox*10 + x, Z: z}
-								w.Acquire(pos)
-								held = append(held, pos)
-							}
-						}
-						s.tickMobs()
-						for _, pos := range held {
-							w.Release(pos)
-						}
-						w.FlushSaves()
-						s.tickMobs()
+				// The records 10 000 revisited chunks left: woken, unlisted, unloaded.
+				h := s.allDims()[0].mobs
+				s.mobsMu.Lock()
+				for x := range int32(100) {
+					for z := range int32(100) {
+						h.woken[world.ChunkPos{X: 1000 + x, Z: z}] = struct{}{}
 					}
 				}
+				s.mobsMu.Unlock()
 			}
 			w := s.allDims()[0].w
 			var held []world.ChunkPos
@@ -105,6 +92,7 @@ func BenchmarkLeaveUnloadedAfterRevisits(b *testing.B) {
 					w.Release(pos)
 				}
 			})
+			s.mobTickForce = true
 			s.tickMobs()
 			b.ReportAllocs()
 			b.ResetTimer()

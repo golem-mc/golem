@@ -1,6 +1,7 @@
 package server
 
 import (
+	"maps"
 	"slices"
 
 	"github.com/golem-mc/golem/internal/protocol"
@@ -587,14 +588,24 @@ func (t *mobDimTick) leaveUnloadedChunks(fx *mobEffects, in *mobTickInputs) {
 	}
 	// An unlisted woken chunk that unloaded has nothing to write; forgetting it
 	// keeps the woken set to loaded chunks. The next load wakes it from disk.
+	forgotten := 0
 	for pos := range h.woken {
 		if _, ok := gone[pos]; ok || h.listed[pos] || !unloaded(pos) {
 			continue
 		}
+		forgotten++
 		delete(h.woken, pos)
 		delete(h.wokenForWrite, pos)
 		delete(h.carried, pos)
 		delete(h.listed, pos)
+	}
+	// A map keeps its buckets after deletes, and every tick ranges over woken.
+	if forgotten >= 256 && len(h.woken)*4 < forgotten {
+		woken := make(map[world.ChunkPos]struct{}, len(h.woken))
+		maps.Copy(woken, h.woken)
+		listed := make(map[world.ChunkPos]bool, len(h.listed))
+		maps.Copy(listed, h.listed)
+		h.woken, h.listed = woken, listed
 	}
 	// An unwoken leaving chunk is read first so its saved mobs leave with it.
 	var live map[uuid.UUID]bool
