@@ -4,6 +4,7 @@ import (
 	"math"
 	"slices"
 	"sync"
+	"sync/atomic"
 
 	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/internal/server/command"
@@ -48,6 +49,8 @@ type paintingEntity struct {
 
 	// checkInterval counts ticks toward the periodic survives poll.
 	checkInterval int
+	// neighboursGen is the hangingGen at which the last poll found no body in the way.
+	neighboursGen uint64
 	// invulnerable is the Invulnerable tag, which turns away every hurt but
 	// a creative player's.
 	invulnerable bool
@@ -69,6 +72,7 @@ var paintingTracker = trackedKind[*paintingEntity, struct{}]{
 	chunks:      func(s *Server) *entity.ChunkIndex[*paintingEntity] { return &s.paintingChunks },
 	filing:      func(it *paintingEntity) *entity.Filing { return &it.Filing },
 	uuid:        func(it *paintingEntity) uuid.UUID { return it.uuid },
+	listed:      hangingChanged,
 	anchor:      func(it *paintingEntity) (float64, float64) { return paintingCentreX(it), paintingCentreZ(it) },
 	track:       func(p *paintingEntity) *bodyTrack[struct{}] { return &p.bodyTrack },
 	world:       func(p *paintingEntity) *world.World { return p.w },
@@ -191,7 +195,8 @@ func (s *Server) hangPaintingWhere(w *world.World, x, y, z, dir int32, stack pro
 
 	s.paintingsMu.Lock()
 	s.framesMu.Lock()
-	chosen, ok := choose(id, s.paintingsOfWorldExceptLocked(w, nil), s.framesOfWorldExceptLocked(w, nil))
+	others, frames := s.hangingNearCell(w, x, z)
+	chosen, ok := choose(id, others, frames)
 	if !ok {
 		s.framesMu.Unlock()
 		s.paintingsMu.Unlock()
@@ -203,8 +208,8 @@ func (s *Server) hangPaintingWhere(w *world.World, x, y, z, dir int32, stack pro
 		if loaded := paintingOfTag(s, w, tag); loaded != nil {
 			loaded.id = id
 			p = loaded
-			if !paintingSurvives(w, p.x, p.y, p.z, p.dir, p.width, p.height,
-				s.paintingsOfWorldExceptLocked(w, nil), s.framesOfWorldExceptLocked(w, nil)) {
+			others, frames := s.hangingNearCell(w, p.x, p.z)
+			if !paintingSurvives(w, p.x, p.y, p.z, p.dir, p.width, p.height, others, frames) {
 				s.framesMu.Unlock()
 				s.paintingsMu.Unlock()
 				s.mu.RUnlock()
@@ -272,16 +277,46 @@ func (s *Server) registerPaintingLocked(p *paintingEntity) {
 	paintingTracker.file(s, p)
 }
 
-// paintingsOfWorldExceptLocked collects the world's paintings not in
-// excluded (nil: every one). The painting lock is held.
-func (s *Server) paintingsOfWorldExceptLocked(w *world.World, excluded map[*paintingEntity]bool) []*paintingEntity {
-	paintings := make([]*paintingEntity, 0, len(s.paintings))
-	for _, p := range s.paintings {
-		if p.w == w && !excluded[p] {
-			paintings = append(paintings, p)
+// hangingGen counts the changes to the set or the boxes of listed frames and
+// paintings. A survives poll that found no neighbour in the way at generation g
+// has the same answer for its neighbours until the count moves, so it skips
+// the neighbour scan.
+var hangingGen atomic.Uint64
+
+// hangingChanged records that a listed body appeared or moved.
+func hangingChanged() { hangingGen.Add(1) }
+
+// hangingNear collects the listed paintings and frames of w filed in the
+// chunks covering the box widened by 2 blocks for paintings (a 4x4 painting's
+// centre, the point it is filed under, is at most 2 blocks from any cell it
+// covers) and by half a block for frames (a frame
+// is at most 1 block wide). Both kind locks are held. The slices returned are
+// reused by the next call: use them before it, and keep neither. Only those whose box overlaps the box in x and z are
+// returned. Bodies a listener still holds are not listed yet.
+// vanilla: Level.hasEntities(EntityTypeTest.forClass(HangingEntity.class), ...)
+func (s *Server) hangingNear(w *world.World, minX, minZ, maxX, maxZ float64) ([]*paintingEntity, []*frameEntity) {
+	paintings, frames := s.hangingScratchP[:0], s.hangingScratchF[:0]
+	for pos := range s.paintingChunks.ChunksIn(entity.ChunkAt(minX-2, minZ-2), entity.ChunkAt(maxX+2, maxZ+2)) {
+		for p := range s.paintingChunks.In(pos) {
+			if p.w == w && p.maxX >= minX && p.minX <= maxX && p.maxZ >= minZ && p.minZ <= maxZ && !p.held && !paintingTracker.dead(p) {
+				paintings = append(paintings, p)
+			}
 		}
 	}
-	return paintings
+	for pos := range s.frameChunks.ChunksIn(entity.ChunkAt(minX-0.5, minZ-0.5), entity.ChunkAt(maxX+0.5, maxZ+0.5)) {
+		for f := range s.frameChunks.In(pos) {
+			if f.w == w && f.maxX >= minX && f.minX <= maxX && f.maxZ >= minZ && f.minZ <= maxZ && !f.held && !frameTracker.dead(f) {
+				frames = append(frames, f)
+			}
+		}
+	}
+	s.hangingScratchP, s.hangingScratchF = paintings, frames
+	return paintings, frames
+}
+
+// hangingNearCell is hangingNear around the cell and the widest painting.
+func (s *Server) hangingNearCell(w *world.World, x, z int32) ([]*paintingEntity, []*frameEntity) {
+	return s.hangingNear(w, float64(x-4), float64(z-4), float64(x+5), float64(z+5))
 }
 
 // placePainting handles a use of the painting item on a face. A stack's
@@ -429,6 +464,7 @@ func (s *Server) teleportPainting(p *paintingEntity, to player.Position, by stri
 		p.x, p.y, p.z = x, y, z
 		p.minX, p.minY, p.minZ, p.maxX, p.maxY, p.maxZ = rules.PaintingBox(x, y, z, p.dir, p.width, p.height)
 		p.Refile(entity.ChunkAt(paintingCentreX(p), paintingCentreZ(p)))
+		hangingChanged()
 	})
 }
 
@@ -581,9 +617,16 @@ func (s *Server) pollPaintings() {
 			continue
 		}
 		p.checkInterval = 0
-		if !paintingSurvives(p.w, p.x, p.y, p.z, p.dir, p.width, p.height,
-			s.paintingsOfWorldExceptLocked(p.w, map[*paintingEntity]bool{p: true}),
-			s.framesOfWorldExceptLocked(p.w, nil)) {
+		var others []*paintingEntity
+		var frames []*frameEntity
+		gen := hangingGen.Load()
+		if p.neighboursGen != gen {
+			others, frames = s.hangingNear(p.w, p.minX, p.minZ, p.maxX, p.maxZ)
+			others = slices.DeleteFunc(others, func(o *paintingEntity) bool { return o == p })
+		}
+		if paintingSurvives(p.w, p.x, p.y, p.z, p.dir, p.width, p.height, others, frames) {
+			p.neighboursGen = gen
+		} else {
 			doomed = append(doomed, p)
 			tells = append(tells, paintingTellOf(p))
 		}

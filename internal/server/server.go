@@ -692,6 +692,10 @@ type Server struct {
 	paintingsMu    sync.Mutex
 	paintings      []*paintingEntity
 	paintingChunks entity.ChunkIndex[*paintingEntity]
+	// hangingScratchP and hangingScratchF back hangingNear's results; held
+	// under both kind locks.
+	hangingScratchP []*paintingEntity
+	hangingScratchF []*frameEntity
 
 	// framesMu guards frames and frameCells, the frames indexed by the two
 	// cells whose change might unhang them (their own and the support behind).
