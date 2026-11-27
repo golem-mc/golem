@@ -395,3 +395,23 @@ func BenchmarkTickMobsWatched(b *testing.B) {
 		s.tickMobs()
 	}
 }
+
+// BenchmarkTickMobsFoxAmongItems times the mob tick over 500 cows and 2000
+// dropped items with no pickup delay, spread over 94 blocks, beside one pig, one
+// fox or ten dolphins: the items a mob cannot reach should cost nothing.
+func BenchmarkTickMobsFoxAmongItems(b *testing.B) {
+	for _, extra := range []mobMix{{entity.TypePig, 1}, {entity.TypeFox, 1}, {entity.TypeDolphin, 10}} {
+		b.Run(extra.kind.Name(), func(b *testing.B) {
+			mix := []mobMix{{entity.TypeCow, 500}, extra}
+			s := benchMobHerd(b, mix, 94, 500, benchMobSpectator(b), func(s *Server, rng *rand.Rand) {
+				for range 2000 {
+					s.SpawnItemEntityDelay((rng.Float64()-0.5)*94, float64(world.GroundLevel), (rng.Float64()-0.5)*94, "dirt", 1, 0)
+				}
+			})
+			b.ReportAllocs()
+			for b.Loop() {
+				s.tickMobs()
+			}
+		})
+	}
+}
