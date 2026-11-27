@@ -121,19 +121,28 @@ type golemChests struct {
 	w       *world.World
 	dim     *dimension
 	clients []*client
+	scratch []*world.BlockEntity // one chunk's candidates, reused across searches
 }
 
 var _ entity.ChestAccess = (*golemChests)(nil)
 
-// ChestsIn lists the chests' cells in the box.
+// ChestsIn lists the chests' cells in the box, walking the chunks around its
+// centre in ChunkPos.rangeClosed order.
+// vanilla: TransportItemsBetweenContainers.getTransportTarget
 func (c *golemChests) ChestsIn(x0, y0, z0, x1, y1, z1 int32, into [][3]int32) [][3]int32 {
-	for _, kind := range [...]world.BlockEntityKind{world.KindChest, world.KindTrappedChest} {
-		for _, be := range c.w.BlockEntitiesOfKind(kind) {
-			if be.X >= x0 && be.X <= x1 && be.Y >= y0 && be.Y <= y1 && be.Z >= z0 && be.Z <= z1 {
-				into = append(into, [3]int32{be.X, be.Y, be.Z})
+	cx, cz := ((x0+x1)>>1)>>4, ((z0+z1)>>1)>>4
+	r := (x1-x0)/2/16 + 1
+	for z := cz - r; z <= cz+r; z++ {
+		for x := cx - r; x <= cx+r; x++ {
+			c.scratch = c.w.AppendChunkBlockEntities(c.scratch[:0], world.ChunkPos{X: x, Z: z}, world.KindChest, world.KindTrappedChest)
+			for _, be := range c.scratch {
+				if be.X >= x0 && be.X <= x1 && be.Y >= y0 && be.Y <= y1 && be.Z >= z0 && be.Z <= z1 {
+					into = append(into, [3]int32{be.X, be.Y, be.Z})
+				}
 			}
 		}
 	}
+	clear(c.scratch)
 	return into
 }
 

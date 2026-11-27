@@ -2143,6 +2143,25 @@ func (w *World) BlockEntitiesOfKind(kind BlockEntityKind) []*BlockEntity {
 	return out
 }
 
+// AppendChunkBlockEntities appends the block entities of the given kinds in
+// one loaded chunk to dst, in the chunk's insertion order; an unloaded chunk
+// adds none. Locks are not held.
+func (w *World) AppendChunkBlockEntities(dst []*BlockEntity, pos ChunkPos, kinds ...BlockEntityKind) []*BlockEntity {
+	w.mu.RLock()
+	defer w.mu.RUnlock()
+	loaded, ok := w.loadedAt(pos)
+	if !ok {
+		return dst
+	}
+	c := loaded.chunk
+	for _, key := range c.entityOrder {
+		if b := c.entities[key]; b != nil && slices.Contains(kinds, b.Kind) {
+			dst = append(dst, b)
+		}
+	}
+	return dst
+}
+
 // SculkCatalystEntities returns the catalysts' entities in insertion order.
 func (w *World) SculkCatalystEntities() []*BlockEntity {
 	w.mu.RLock()

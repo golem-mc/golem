@@ -44,7 +44,8 @@ const priorityTransport = 2
 // ever holds one for the tick it runs in. A cell is a chest block's.
 type ChestAccess interface {
 	// ChestsIn appends to into the chest cells with a block entity in the
-	// inclusive box.
+	// inclusive box, chunk by chunk around its centre in ChunkPos.rangeClosed
+	// order, so the first of two equally near chests is the earlier chunk's.
 	ChestsIn(x0, y0, z0, x1, y1, z1 int32, into [][3]int32) [][3]int32
 	// ChestBlocked is ChestBlock.isChestBlockedAt.
 	ChestBlocked(x, y, z int32) bool
