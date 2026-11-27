@@ -113,7 +113,7 @@ func fixStackComponents(stack, components nbt.CompoundTag, version int32) {
 	if version < explorerMapVersion {
 		// vanilla: ExplorerMapItemFix, MapColorComponentRemovalFix
 		components.Delete("minecraft:map_color")
-		if id == "minecraft:filled_map" {
+		if string(id) == registry.ItemFilledMap.Name() {
 			templateExplorerMap(stack)
 			id, _ = stack.Entries()["id"].(nbt.String)
 		}
@@ -126,7 +126,7 @@ func fixStackComponents(stack, components nbt.CompoundTag, version int32) {
 	if version < blockTransformerVersion {
 		components.Delete("minecraft:block_transformer")
 	}
-	if version < buriedTreasureMapVersion && id == "minecraft:map" {
+	if version < buriedTreasureMapVersion && string(id) == registry.ItemMap.Name() {
 		// vanilla: UnfilledBuriedTreasureMapFix
 		if name, ok := components.Entries()["minecraft:item_name"].(nbt.CompoundTag); ok && templatePlainTranslation(name) == "filled_map.buried_treasure" {
 			name.Set("translate", nbt.String("item.minecraft.buried_treasure_map"))
