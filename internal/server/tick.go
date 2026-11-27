@@ -543,19 +543,63 @@ type trackingWatcher struct {
 	c           *client
 	x, z        float64
 	chunkRadius int32
+	// changedAt is the tick (trackingTick) of the latest snapshot that read
+	// a different place, world, radius, hidden set or broadcast range than
+	// the one before it, or that follows a pairing dropped outside a pass.
+	changedAt uint64
+}
+
+// trackingStamp is the inputs of a client's range checks as the last
+// snapshot read them.
+type trackingStamp struct {
+	mu          sync.Mutex
+	set         bool
+	w           *world.World
+	x, z        float64
+	chunkRadius int32
+	hidden      *map[int32]struct{}
+	pct         int32
+	changedAt   uint64
+}
+
+// trackingTick numbers the tick a tracking pass runs in: the value ticksRun
+// takes when the tick ends, the same for every pass of a tick.
+func (s *Server) trackingTick() uint64 { return s.ticksRun.Load() + 1 }
+
+// read stores the inputs and returns the tick they last changed in.
+func (t *trackingStamp) read(w *world.World, x, z float64, chunkRadius int32, hidden *map[int32]struct{}, pct int32, tick uint64) uint64 {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if !t.set || t.w != w || t.x != x || t.z != z || t.chunkRadius != chunkRadius || t.hidden != hidden || t.pct != pct {
+		t.set, t.w, t.x, t.z, t.chunkRadius, t.hidden, t.pct = true, w, x, z, chunkRadius, hidden, pct
+		t.changedAt = tick
+	}
+	return t.changedAt
+}
+
+// invalidate makes the next snapshot count as a change, for a player whose
+// pairings were rewritten outside a pass.
+func (t *trackingStamp) invalidate() {
+	t.mu.Lock()
+	t.set = false
+	t.mu.Unlock()
 }
 
 // trackingWatchersLocked lists every player's place; s.mu is read-locked by
 // the caller.
 func (s *Server) trackingWatchersLocked() []trackingWatcher {
 	watchers := make([]trackingWatcher, 0, len(s.clients))
+	tick := s.trackingTick()
+	pct := s.entityBroadcastRange.Load()
 	for _, c := range s.clients {
 		if c.player == nil {
 			continue
 		}
 		pos := c.player.Position()
+		radius := c.chunkRadius()
 		watchers = append(watchers, trackingWatcher{
-			c: c, x: pos.X, z: pos.Z, chunkRadius: c.chunkRadius(),
+			c: c, x: pos.X, z: pos.Z, chunkRadius: radius,
+			changedAt: c.tracking.read(c.theWorld(), pos.X, pos.Z, radius, c.hidden.Load(), pct, tick),
 		})
 	}
 	return watchers

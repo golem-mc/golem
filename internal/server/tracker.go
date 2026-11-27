@@ -77,6 +77,18 @@ type bodyTrack[S any] struct {
 
 	sentVX, sentVY, sentVZ float64
 	origin                 entityOrigin
+
+	// settled is what the body's last pass settled its watchers against.
+	settled settledBody
+}
+
+// settledBody is the body-side inputs of a range check with the tick of the
+// pass that read them (0: never).
+type settledBody struct {
+	tick  uint64
+	w     *world.World
+	x, z  float64
+	reach int
 }
 
 func (t *bodyTrack[S]) entityOrigin() entityOrigin { return t.origin }
@@ -844,6 +856,8 @@ func (k *trackedKind[B, S]) sendJoin(c *client) error {
 		shown = append(shown, k.pairing(b)...)
 	}
 	mu.Unlock()
+	// After the pairings it rewrote, so no snapshot between them is kept.
+	c.tracking.invalidate()
 	return c.writeAll(shown)
 }
 
@@ -852,6 +866,7 @@ func (k *trackedKind[B, S]) forget(s *Server, c *client) {
 	mu := k.lock(s)
 	mu.Lock()
 	defer mu.Unlock()
+	defer c.tracking.invalidate()
 	for b := range k.bodies(s) {
 		k.track(b).tracked.delete(c)
 	}
@@ -910,7 +925,7 @@ func (k *trackedKind[B, S]) dormantPass(s *Server, held []B) {
 	s.lockTick(mu)
 	for _, b := range held {
 		if !k.dead(b) {
-			k.settleBody(b, watchers, near, false, &out)
+			k.settleBody(b, watchers, near, false, s.trackingTick(), &out)
 		}
 	}
 	s.unlockTick(mu)
@@ -926,7 +941,7 @@ func (k *trackedKind[B, S]) pass(s *Server, watchers []trackingWatcher, running 
 	s.lockTick(mu)
 	for _, b := range *k.list(s) {
 		if !k.dead(b) {
-			k.settleBody(b, watchers, near, running, &out)
+			k.settleBody(b, watchers, near, running, s.trackingTick(), &out)
 		}
 	}
 	s.unlockTick(mu)
@@ -934,7 +949,7 @@ func (k *trackedKind[B, S]) pass(s *Server, watchers []trackingWatcher, running 
 }
 
 // settleBody runs one live body's share of a pass, under the kind lock.
-func (k *trackedKind[B, S]) settleBody(b B, watchers []trackingWatcher, near *nearbyPlayers, running bool, out *trackSends) {
+func (k *trackedKind[B, S]) settleBody(b B, watchers []trackingWatcher, near *nearbyPlayers, running bool, tick uint64, out *trackSends) {
 	v := k.body(b)
 	var metadata, attributes []byte
 	if k.delta != nil {
@@ -959,13 +974,27 @@ func (k *trackedKind[B, S]) settleBody(b B, watchers []trackingWatcher, near *ne
 		vx, vy, vz := k.motion(b)
 		motionDue = v.t.motionDue(vx, vy, vz, true)
 	}
+	// A pair whose inputs the previous tick's pass already read has the
+	// same answer, so only a watcher told of the body has anything left to do.
+	now := settledBody{tick: tick, w: v.w, x: v.p.x, z: v.p.z, reach: k.effectiveRange(b)}
+	prev := v.t.settled
+	still := prev.tick+1 == tick && prev.w == now.w && prev.x == now.x && prev.z == now.z && prev.reach == now.reach
+	v.t.settled = now
 	for _, i := range v.watchers(near) {
 		wt := watchers[i]
 		if wt.c.theWorld() != v.w {
 			continue // crossed to another dimension since the snapshot
 		}
 		paired := len(out.showTos)
-		was, seen := v.settle(wt.c, wt.x, wt.z, wt.chunkRadius, out)
+		var was *toldBody[S]
+		var seen bool
+		if still && wt.changedAt < prev.tick {
+			if was, seen = v.t.tracked.get(wt.c); !seen {
+				continue
+			}
+		} else {
+			was, seen = v.settle(wt.c, wt.x, wt.z, wt.chunkRadius, out)
+		}
 		if !seen {
 			continue
 		}
