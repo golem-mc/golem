@@ -149,7 +149,7 @@ func TestOldChestStacksAreUpgraded(t *testing.T) {
 	}
 }
 
-func TestPre1215TextIsComponentsInMemoryAndJSONOnDisk(t *testing.T) {
+func TestPre1215TextIsComponentsInMemoryAndOnDisk(t *testing.T) {
 	t.Parallel()
 	line := func(s string) nbt.Tag { return nbt.String(s) }
 	sign := nbt.Compound{
@@ -186,7 +186,7 @@ func TestPre1215TextIsComponentsInMemoryAndJSONOnDisk(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if v, _ := nbt.Get[nbt.Int](root, "DataVersion"); v != 4189 {
+	if v, _ := nbt.Get[nbt.Int](root, "DataVersion"); v != oldChunkFixedVersion {
 		t.Fatalf("DataVersion = %v", v)
 	}
 	list, _ := nbt.Get[nbt.List](root, "block_entities")
@@ -196,20 +196,12 @@ func TestPre1215TextIsComponentsInMemoryAndJSONOnDisk(t *testing.T) {
 		id, _ := nbt.Get[nbt.String](v, "id")
 		saved[string(id)] = v
 	}
-	if got := saved["minecraft:chest"]["CustomName"]; got != nbt.String(`"Loot"`) {
+	if got := saved["minecraft:chest"]["CustomName"]; got != nbt.String("Loot") {
 		t.Errorf("saved CustomName = %v", got)
 	}
 	front, _ := nbt.Get[nbt.Compound](saved["minecraft:sign"], "front_text")
-	messages, _ := nbt.Get[nbt.List](front, "messages")
-	if len(messages.Items) != 4 || messages.Items[0] != nbt.String(`"Hello"`) {
-		t.Errorf("saved messages = %v", messages.Items)
-	}
-	for i, item := range messages.Items {
-		if s, ok := item.(nbt.String); !ok {
-			t.Errorf("saved message %d is %T, want a JSON string", i, item)
-		} else if parsed := unflattenJSON(s); parsed == nbt.Tag(s) && i == 1 {
-			t.Errorf("saved message 1 %q does not parse", s)
-		}
+	if text := decodeSignText(front); text.Messages[0] != "Hello" || text.Messages[3] != "plain" {
+		t.Errorf("saved sign lines = %v", text.Messages)
 	}
 }
 

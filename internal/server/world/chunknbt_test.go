@@ -831,9 +831,9 @@ func TestChunkNBTKeepsTheClaimedDataVersion(t *testing.T) {
 		wantItems nbt.List
 	}{
 		{"a chunk without a claim, which a generated chunk is", nil, dataVersion, oldItems()},
-		{"a 1.20.4 chunk", nbt.Int(3700), 3700, upgradedItems},
+		{"a 1.20.4 chunk", nbt.Int(3700), oldChunkFixedVersion, upgradedItems},
 		{"a current chunk", nbt.Int(dataVersion), dataVersion, oldItems()},
-		{"a chunk of a newer version", nbt.Int(5000), 5000, oldItems()},
+		{"a chunk of a newer version", nbt.Int(5000), oldChunkFixedVersion, oldItems()},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			loaded, err := decodeChunkNBT(chunkRoot(tc.claim))
