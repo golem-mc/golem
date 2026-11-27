@@ -2190,6 +2190,10 @@ type Mob struct {
 	// preyKnown is false where no tick built it. Set for one tick.
 	prey      []*Mob
 	preyKnown bool
+	// villagers is the tick's villagers in herd order; villagersKnown is false
+	// where no tick built it. Set for one tick.
+	villagers      []*Mob
+	villagersKnown bool
 	// stands is the tick's visible armor stands of the world, which a goat's
 	// ram may target. Set for one tick.
 	stands []StandTarget
@@ -5322,7 +5326,7 @@ func (m *Mob) tickInto(out []MobEvent, tick *tickView, w World, players []Player
 	if m.Type == TypeFox {
 		events = m.foxStep(w, events)
 	}
-	*tick = tickView{w: w, players: players, others: others, prey: m.prey, preyKnown: m.preyKnown, stands: m.stands, corpses: m.corpses, events: tick.events[:0]}
+	*tick = tickView{w: w, players: players, others: others, prey: m.prey, preyKnown: m.preyKnown, villagers: m.villagers, villagersKnown: m.villagersKnown, stands: m.stands, corpses: m.corpses, events: tick.events[:0]}
 	if m.push != nil {
 		tick.byID = m.push.byID
 	}

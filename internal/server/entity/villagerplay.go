@@ -21,8 +21,8 @@ func (m *Mob) yieldJobSite(t *tickView) {
 	if kind == rules.POINone {
 		return
 	}
-	for _, o := range t.others {
-		if o == m || o.Type != TypeVillager || !o.Alive() || o.vb.potentialJobSite != nil ||
+	for _, o := range t.villagerMobs() {
+		if o == m || !o.Alive() || o.vb.potentialJobSite != nil ||
 			Dist2(m.X, m.Y, m.Z, o.X, o.Y, o.Z) > 256 || !heldJobSite(o.Villager.Profession, kind) {
 			continue
 		}

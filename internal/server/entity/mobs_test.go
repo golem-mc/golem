@@ -3,6 +3,7 @@ package entity
 import (
 	"math"
 	"math/rand"
+	"slices"
 	"sort"
 	"testing"
 
@@ -210,16 +211,22 @@ func BenchmarkPushCandidates4000(b *testing.B) {
 
 // BenchmarkMobsTickVillage steps a village of beds, job sites and a bell
 // with homeless and jobless villagers, employed ones and other mobs around.
-func BenchmarkMobsTickVillage(b *testing.B) { benchmarkMobsTickVillage(b, nil) }
+func BenchmarkMobsTickVillage(b *testing.B) { benchmarkMobsTickVillage(b, nil, 100, 40) }
 
 func BenchmarkMobsTickVillageWithPlayer(b *testing.B) {
-	benchmarkMobsTickVillage(b, []Player{{EntityID: 1000, X: 0.5, Y: 64, Z: 0.5}})
+	benchmarkMobsTickVillage(b, []Player{{EntityID: 1000, X: 0.5, Y: 64, Z: 0.5}}, 100, 40)
 }
 
-func benchmarkMobsTickVillage(b *testing.B, players []Player) {
+// BenchmarkMobsTickVillageBesideHerd steps the village beside 2000 cows on a
+// 240x240 floor.
+func BenchmarkMobsTickVillageBesideHerd(b *testing.B) {
+	benchmarkMobsTickVillage(b, []Player{{EntityID: 1000, X: 0.5, Y: 64, Z: 0.5}}, 2000, 120)
+}
+
+func benchmarkMobsTickVillage(b *testing.B, players []Player, cows int, halfFloor int32) {
 	stone := defaultState(b, "minecraft:stone")
 	w := newTestWorld()
-	floor(w, -40, -40, 40, 40, 63, stone)
+	floor(w, -halfFloor, -halfFloor, halfFloor, halfFloor, 63, stone)
 	bed, ok := registry.FindState("minecraft:red_bed", map[string]string{"part": "head", "facing": "north", "occupied": "false"})
 	if !ok {
 		b.Fatal("no red bed head state")
@@ -239,7 +246,7 @@ func benchmarkMobsTickVillage(b *testing.B, players []Player) {
 	village := indexedVillage{w: w, idx: rules.NewVillageIndex(benchChunks{w}), tick: new(int64)}
 
 	rng := rand.New(rand.NewSource(2162))
-	mobs := make(Mobs, 0, 160)
+	mobs := make(Mobs, 0, 60+cows)
 	var id int32
 	for i := range 60 {
 		m := NewMob(TypeVillager, id, -30+rng.Float64()*60, 64, -5+rng.Float64()*10, int64(id))
@@ -250,8 +257,9 @@ func benchmarkMobsTickVillage(b *testing.B, players []Player) {
 		}
 		mobs = append(mobs, m)
 	}
-	for range 100 {
-		mobs = append(mobs, NewMob(TypeCow, id, -35+rng.Float64()*70, 64, -35+rng.Float64()*70, int64(id)))
+	spread := float64(halfFloor - 5)
+	for range cows {
+		mobs = append(mobs, NewMob(TypeCow, id, -spread+rng.Float64()*2*spread, 64, -spread+rng.Float64()*2*spread, int64(id)))
 		id++
 	}
 	b.ReportAllocs()
@@ -289,4 +297,29 @@ func (v indexedVillage) POIs(match func(rules.POIKind) bool, x, y, z int32, radi
 		return manhattan3(out[i], Waypoint{x, y, z}) < manhattan3(out[j], Waypoint{x, y, z})
 	})
 	return out
+}
+
+func TestTickViewVillagerMobs(t *testing.T) {
+	v1 := NewMob(TypeVillager, 1, 0, 64, 0, 1)
+	cow := NewMob(TypeCow, 2, 1, 64, 0, 2)
+	v2 := NewMob(TypeVillager, 3, 2, 64, 0, 3)
+	cat := NewMob(TypeCat, 4, 3, 64, 0, 4)
+	other := NewMob(TypeVillager, 5, 4, 64, 0, 5)
+	herd := []*Mob{v1, cow, v2, cat}
+
+	fallback := tickView{others: herd}
+	if got := fallback.villagerMobs(); !slices.Equal(got, []*Mob{v1, v2}) {
+		t.Fatalf("fallback villagerMobs = %v, want [%v %v]", got, v1, v2)
+	}
+	if !fallback.containsMob(v2) || !fallback.containsMob(cat) || fallback.containsMob(other) {
+		t.Fatal("fallback containsMob mismatch")
+	}
+
+	known := tickView{others: herd, villagers: []*Mob{v1, v2}, villagersKnown: true}
+	if got := known.villagerMobs(); !slices.Equal(got, []*Mob{v1, v2}) {
+		t.Fatalf("known villagerMobs = %v, want [%v %v]", got, v1, v2)
+	}
+	if !known.containsMob(v1) || !known.containsMob(cat) || known.containsMob(other) {
+		t.Fatal("known containsMob mismatch")
+	}
 }
