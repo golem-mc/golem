@@ -1233,7 +1233,9 @@ func (s *Server) observerRemovals(c *client) []int32 {
 // dimension change's Respawn, which clears the whole world the client
 // had — its bodies along with its chunks.
 func (s *Server) forgetBodies(traveler *client) {
-	s.playerPairEpoch.Add(1)
+	// The epoch moves after the record does: a pass that read the new epoch
+	// early would otherwise go incremental over a record changed later.
+	defer s.playerPairEpoch.Add(1)
 	s.mu.RLock()
 	for _, other := range s.clients {
 		other.trackMu.Lock()
@@ -1252,7 +1254,7 @@ func (s *Server) forgetBodies(traveler *client) {
 // sent is what the record says; the tick's settle takes the out-of-range
 // holders back out.
 func (s *Server) recordBody(w *world.World, arrived *client) {
-	s.playerPairEpoch.Add(1)
+	defer s.playerPairEpoch.Add(1)
 	s.mu.RLock()
 	arrived.trackMu.Lock()
 	for _, other := range s.clients {
@@ -1365,81 +1367,84 @@ func (s *Server) tickPlayerTracking() {
 	}
 	var settles []settle
 	pairing := false
-	for i := range present {
-		present[i].c.trackIdx = i
-	}
-	told := make([]bool, len(present))
-	rng := int(pct)
-	for j := range present {
-		body := &present[j]
-		// A player held on the end credits was removed from the
-		// dimension's sight when the credits went on; the pass leaves
-		// their body out until the credits' respawn moves them home.
-		if body.wonGame {
-			continue
+	// An unchanged pass over unchanged inputs has nothing to settle.
+	if !incremental || len(changed) > 0 {
+		for i := range present {
+			present[i].c.trackIdx = i
 		}
-		// The record that changes hands is under the mover's lock, which
-		// forgetBodies and move() take too.
-		body.c.trackMu.Lock()
-		if incremental && body.changedAt != tick {
-			for _, i := range changed {
+		told := make([]bool, len(present))
+		rng := int(pct)
+		for j := range present {
+			body := &present[j]
+			// A player held on the end credits was removed from the
+			// dimension's sight when the credits went on; the pass leaves
+			// their body out until the credits' respawn moves them home.
+			if body.wonGame {
+				continue
+			}
+			// The record that changes hands is under the mover's lock, which
+			// forgetBodies and move() take too.
+			body.c.trackMu.Lock()
+			if incremental && body.changedAt != tick {
+				for _, i := range changed {
+					viewer := &present[i]
+					if !viewer.joined || i == j || viewer.w != body.w {
+						continue
+					}
+					seen := inTrackingRange(viewer.x, viewer.z, body.x, body.z,
+						entity.PlayerTrackingRange, rng, viewer.radius) && bodyVisibleToSnap(body, viewer)
+					held := body.c.seenBy[viewer.c.player.UUID] == viewer.c
+					switch {
+					case seen && !held:
+						body.c.seenBy[viewer.c.player.UUID] = viewer.c
+						settles = append(settles, settle{viewer: viewer.c, body: body.c, w: viewer.w, pair: true})
+						pairing = true
+					case !seen && held:
+						delete(body.c.seenBy, viewer.c.player.UUID)
+						settles = append(settles, settle{viewer: viewer.c, body: body.c, w: viewer.w})
+					}
+				}
+				body.c.trackMu.Unlock()
+				continue
+			}
+			clear(told)
+			stale := false
+			for id, holder := range body.c.seenBy {
+				// A record left by a reconnect names the old connection, so
+				// only a holder still present under its own UUID counts.
+				if i := holder.trackIdx; i < len(present) && present[i].c == holder && holder.player.UUID == id {
+					told[i] = true
+				} else {
+					stale = true
+				}
+			}
+			for i := range present {
 				viewer := &present[i]
+				// A viewer still in its join is left to the join: sendPlayerInfo
+				// sends its whole view of the others, once, and the tick pairing
+				// it in between would send the same bodies a second time.
 				if !viewer.joined || i == j || viewer.w != body.w {
 					continue
 				}
 				seen := inTrackingRange(viewer.x, viewer.z, body.x, body.z,
 					entity.PlayerTrackingRange, rng, viewer.radius) && bodyVisibleToSnap(body, viewer)
-				held := body.c.seenBy[viewer.c.player.UUID] == viewer.c
+				if stale && !told[i] {
+					if held, ok := body.c.seenBy[viewer.c.player.UUID]; ok && held != viewer.c {
+						delete(body.c.seenBy, viewer.c.player.UUID)
+					}
+				}
 				switch {
-				case seen && !held:
+				case seen && !told[i]:
 					body.c.seenBy[viewer.c.player.UUID] = viewer.c
 					settles = append(settles, settle{viewer: viewer.c, body: body.c, w: viewer.w, pair: true})
 					pairing = true
-				case !seen && held:
+				case !seen && told[i]:
 					delete(body.c.seenBy, viewer.c.player.UUID)
 					settles = append(settles, settle{viewer: viewer.c, body: body.c, w: viewer.w})
 				}
 			}
 			body.c.trackMu.Unlock()
-			continue
 		}
-		clear(told)
-		stale := false
-		for id, holder := range body.c.seenBy {
-			// A record left by a reconnect names the old connection, so
-			// only a holder still present under its own UUID counts.
-			if i := holder.trackIdx; i < len(present) && present[i].c == holder && holder.player.UUID == id {
-				told[i] = true
-			} else {
-				stale = true
-			}
-		}
-		for i := range present {
-			viewer := &present[i]
-			// A viewer still in its join is left to the join: sendPlayerInfo
-			// sends its whole view of the others, once, and the tick pairing
-			// it in between would send the same bodies a second time.
-			if !viewer.joined || i == j || viewer.w != body.w {
-				continue
-			}
-			seen := inTrackingRange(viewer.x, viewer.z, body.x, body.z,
-				entity.PlayerTrackingRange, rng, viewer.radius) && bodyVisibleToSnap(body, viewer)
-			if stale && !told[i] {
-				if held, ok := body.c.seenBy[viewer.c.player.UUID]; ok && held != viewer.c {
-					delete(body.c.seenBy, viewer.c.player.UUID)
-				}
-			}
-			switch {
-			case seen && !told[i]:
-				body.c.seenBy[viewer.c.player.UUID] = viewer.c
-				settles = append(settles, settle{viewer: viewer.c, body: body.c, w: viewer.w, pair: true})
-				pairing = true
-			case !seen && told[i]:
-				delete(body.c.seenBy, viewer.c.player.UUID)
-				settles = append(settles, settle{viewer: viewer.c, body: body.c, w: viewer.w})
-			}
-		}
-		body.c.trackMu.Unlock()
 	}
 
 	s.mu.RLock()
