@@ -199,39 +199,45 @@ func (p *Physics) wireIncomingSignal(x, y, z int32) int {
 	return 0
 }
 
+// wireWakeBucket is Java HashMap's bucket index (capacity 16) for a BlockPos
+// using Vec3i.hashCode = (y + z*31)*31 + x.
+// vanilla: DefaultRedstoneWireEvaluator.updatePowerStrength, Vec3i.hashCode
+func wireWakeBucket(x, y, z int32) uint8 {
+	h := uint32((y+z*31)*31 + x)
+	return uint8((h ^ (h >> 16)) & 15)
+}
+
 // wireWake wakes the six neighbours of the wire's cell and of each of its six
 // neighbours, so a block two steps away (beside the conductor under the wire)
-// hears the change. Vanilla collects the seven into a 16-bucket HashSet<BlockPos>
-// (self, then Direction.values()); its bucket order by Vec3i.hashCode, with ties
-// in insertion order, decides which branch of a decaying line runs first.
-// vanilla: DefaultRedstoneWireEvaluator.updatePowerStrength, Vec3i.hashCode
+// hears the change. Vanilla collects the seven in a capacity-16 HashSet
+// (pos then Direction.values(): down, up, north, south, west, east), so the
+// wake order follows their HashMap bucket indices and is locational.
+// vanilla: DefaultRedstoneWireEvaluator.updatePowerStrength
 func (p *Physics) wireWake(x, y, z int32, changes *[]BlockChange) {
-	type entry struct {
+	type wakeCell struct {
 		x, y, z int32
 		bucket  uint8
 	}
-	bucketOf := func(px, py, pz int32) uint8 {
-		h := uint32((py+pz*31)*31 + px)
-		return uint8((h ^ (h >> 16)) & 15)
+	cells := [7]wakeCell{
+		{x, y, z, wireWakeBucket(x, y, z)},
+		{x, y - 1, z, wireWakeBucket(x, y-1, z)},
+		{x, y + 1, z, wireWakeBucket(x, y+1, z)},
+		{x, y, z - 1, wireWakeBucket(x, y, z-1)},
+		{x, y, z + 1, wireWakeBucket(x, y, z+1)},
+		{x - 1, y, z, wireWakeBucket(x-1, y, z)},
+		{x + 1, y, z, wireWakeBucket(x+1, y, z)},
 	}
-	var items [7]entry
-	items[0] = entry{x, y, z, bucketOf(x, y, z)}
-	for i, d := range dirDelta {
-		px, py, pz := x+d[0], y+d[1], z+d[2]
-		items[i+1] = entry{px, py, pz, bucketOf(px, py, pz)}
-	}
-	// Stable insertion sort by bucket preserves HashMap's per-bucket tail order.
-	for i := 1; i < len(items); i++ {
-		cur := items[i]
+	for i := 1; i < len(cells); i++ {
+		c := cells[i]
 		j := i - 1
-		for j >= 0 && items[j].bucket > cur.bucket {
-			items[j+1] = items[j]
+		for j >= 0 && cells[j].bucket > c.bucket {
+			cells[j+1] = cells[j]
 			j--
 		}
-		items[j+1] = cur
+		cells[j+1] = c
 	}
-	for _, it := range items {
-		p.wireWakeNeighbors(it.x, it.y, it.z, changes)
+	for _, c := range cells {
+		p.wireWakeNeighbors(c.x, c.y, c.z, changes)
 	}
 }
 
