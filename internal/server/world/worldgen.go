@@ -170,7 +170,7 @@ func flatSettingsOf(preset nbt.Compound) (*FlatGenerator, bool) {
 			return nil, false
 		}
 		block, ok := nbt.Get[nbt.String](layer, "block")
-		height, okH := nbt.Get[nbt.Int](layer, "height")
+		height, okH := nbt.IntValue(layer["height"])
 		if !ok || !okH {
 			return nil, false
 		}

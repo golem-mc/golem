@@ -52,8 +52,9 @@ func startOldWorld(t *testing.T, dir string) (cfg *config.Config) {
 func TestAFlatWorldSavedBeforeThe116KeepsItsLayers(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
-	layer := func(block string, height int32) nbt.Tag {
-		return nbt.Compound{"block": nbt.String(block), "height": nbt.Int(height)}
+	layer := func(block string, height int8) nbt.Tag {
+		// 1.14 and 1.15 wrote the height as a byte.
+		return nbt.Compound{"block": nbt.String(block), "height": nbt.Byte(height)}
 	}
 	writeOldLevelDat(t, dir, "flat", nbt.Compound{
 		"layers": nbt.List{Elem: nbt.TypeCompound, Items: []nbt.Tag{layer("minecraft:bedrock", 1), layer("minecraft:stone", 3)}},
