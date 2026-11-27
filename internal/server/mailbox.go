@@ -23,6 +23,9 @@ type outbound struct {
 	shared     *protocol.CachedPacket
 	// raw skips compression: set for a body deflate cannot shrink.
 	raw bool
+	// lazy: queued without waking the writer; it goes with the next flush
+	// (the tick end or any other wake).
+	lazy bool
 }
 
 // mailbox is a client's queue of packets from goroutines other than its
@@ -227,10 +230,17 @@ func (c *client) queueIn(w *world.World, p outbound) bool {
 	m.mu.Unlock()
 	// Read after enqueue: a racing tick-end sweep either sees the packet or
 	// leaves wakes enabled for this send.
-	if !c.srv.deferWakes.Load() {
+	if !c.srv.deferWakes.Load() && (!p.lazy || !c.srv.tickFlushSoon()) {
 		m.signal()
 	}
 	return true
+}
+
+// tickFlushSoon reports whether a tick end will flush the queues within a
+// tick: the loop runs on the wall clock. A stopped loop or a test clock
+// may never tick.
+func (s *Server) tickFlushSoon() bool {
+	return s.loopRunning() && !s.hasTickClock()
 }
 
 // sendAllIn queues packets about world w, in order; see sendIn.
