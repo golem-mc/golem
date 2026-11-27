@@ -624,6 +624,8 @@ func (p *Physics) pistonTriggerEvent(x, y, z int32, sticky bool, eventDir, typ i
 		p.pistonForceFinalize(fx, fy, fz, changes)
 	}
 	movingState := movingPistonStateOf(dir, sticky)
+	// vanilla: PistonBaseBlock.triggerEvent, setBlock flags 276, then
+	// updateNeighborsAt and updateNeighbourShapes
 	p.writeBlock(x, y, z, movingState)
 	p.pistonRideCreate([3]int32{x, y, z}, movingState, pistonStateOf(sticky, eventDir, false), dir, false, true)
 	p.wakeNeighbors(x, y, z, movingState, movingState, changes)
