@@ -9,6 +9,7 @@ import (
 	"net"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -35,9 +36,11 @@ type playerTrackingBenchConn struct {
 	sentinel  chan struct{}
 	done      chan struct{}
 	closeOnce sync.Once
+	writes    atomic.Int64
 }
 
 func (c *playerTrackingBenchConn) Write(p []byte) (int, error) {
+	c.writes.Add(1)
 	if bytes.Contains(p, playerTrackingBenchMarker) {
 		c.sentinel <- struct{}{}
 	}

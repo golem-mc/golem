@@ -52,7 +52,8 @@ func benchChunkViewMoves(b *testing.B, asked int32, settle bool) {
 			w.Release(p)
 		}
 	})
-	c := &client{srv: s, player: &player.Player{}, conn: protocol.NewConn(new(playerTrackingBenchConn)), log: slog.New(slog.DiscardHandler)}
+	bconn := new(playerTrackingBenchConn)
+	c := &client{srv: s, player: &player.Player{}, conn: protocol.NewConn(bconn), log: slog.New(slog.DiscardHandler)}
 	c.viewDistance.Store(radius)
 	c.dim.Store(s.allDims()[0])
 	b.Cleanup(func() { c.forgetChunks(nil) })
@@ -90,6 +91,8 @@ func benchChunkViewMoves(b *testing.B, asked int32, settle bool) {
 	c.pendingSend = nil
 	b.ReportAllocs()
 	b.ResetTimer()
+	writes := bconn.writes.Load()
+	defer func() { b.ReportMetric(float64(bconn.writes.Load()-writes)/float64(b.N), "writes/op") }()
 	for i := range b.N {
 		c.player.SetPosition(player.Position{X: float64((i+1)%2) * 16, Y: 64})
 		if err := c.updateChunks(); err != nil {
