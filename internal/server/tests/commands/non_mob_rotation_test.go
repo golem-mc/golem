@@ -63,6 +63,7 @@ func TestRotateKeepsBodyMotion(t *testing.T) {
 		{"experience_orb", ""},
 		{"item", `,Item:{id:"minecraft:stick",count:1}`},
 		{"tnt", ",fuse:200"},
+		{"eye_of_ender", ""},
 	} {
 		t.Run(tc.kind, func(t *testing.T) {
 			srv.RunLine(`summon minecraft:` + tc.kind + ` 5.5 64 5.5 {Tags:["t"],NoGravity:1b,Motion:[0.0,0.5,0.0]` + tc.extra + `}`)

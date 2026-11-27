@@ -1066,7 +1066,7 @@ func (e *entitySnapshot) Rotate(yaw, pitch float32) {
 	case *endCrystalEntity:
 		endCrystalTracker.rotate(e.srv, ref, func() { ref.look.yaw, ref.look.pitch = yaw, pitch })
 	case *eyeEntity:
-		e.srv.teleportEye(ref, command.Move{Pos: to, DeltaX: true, DeltaY: true, DeltaZ: true})
+		eyeTracker.rotate(e.srv, ref, func() { ref.yaw, ref.pitch = yaw, pitch })
 	case *mannequinEntity:
 		e.srv.teleportMannequin(ref, command.Move{Pos: to, DeltaX: true, DeltaY: true, DeltaZ: true}, "rotate")
 	case *fixtureEntity:
