@@ -364,12 +364,39 @@ func BenchmarkTickSurvivalIdleGeared(b *testing.B) {
 func BenchmarkTickPlayerTrackingIdle(b *testing.B) {
 	s, _ := newIdlePlayersBenchServer(b, idleBenchPlayers)
 	for range 20 {
+		s.ticksRun.Add(1)
 		s.tickPlayerTracking()
 	}
 	b.ReportAllocs()
 	b.ResetTimer()
 	for range b.N {
+		s.ticksRun.Add(1)
 		s.tickPlayerTracking()
+	}
+}
+
+// BenchmarkTickPlayerTrackingOneWalker is BenchmarkTickPlayerTrackingIdle
+// with one of the players moving half a block a tick.
+func BenchmarkTickPlayerTrackingOneWalker(b *testing.B) {
+	s, clients := newIdlePlayersBenchServer(b, idleBenchPlayers)
+	walker := clients[0]
+	pos := walker.player.Position()
+	step := func() {
+		pos.X += 0.5
+		if pos.X > 8 {
+			pos.X -= 8
+		}
+		walker.player.SetPosition(pos)
+		s.ticksRun.Add(1)
+		s.tickPlayerTracking()
+	}
+	for range 20 {
+		step()
+	}
+	b.ReportAllocs()
+	b.ResetTimer()
+	for range b.N {
+		step()
 	}
 }
 

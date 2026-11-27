@@ -662,6 +662,7 @@ func (c *client) expireCorpse() {
 		viewer.sendIn(w, protocol.IDPlayRemoveEntities, removeEntity(c.player))
 	}
 	clear(c.seenBy)
+	c.srv.playerPairEpoch.Add(1)
 	var trigger mobEffectTrigger
 	if !wasGone {
 		trigger = c.takeDeathEffects()
@@ -1232,6 +1233,7 @@ func (s *Server) observerRemovals(c *client) []int32 {
 // dimension change's Respawn, which clears the whole world the client
 // had — its bodies along with its chunks.
 func (s *Server) forgetBodies(traveler *client) {
+	s.playerPairEpoch.Add(1)
 	s.mu.RLock()
 	for _, other := range s.clients {
 		other.trackMu.Lock()
@@ -1250,6 +1252,7 @@ func (s *Server) forgetBodies(traveler *client) {
 // sent is what the record says; the tick's settle takes the out-of-range
 // holders back out.
 func (s *Server) recordBody(w *world.World, arrived *client) {
+	s.playerPairEpoch.Add(1)
 	s.mu.RLock()
 	arrived.trackMu.Lock()
 	for _, other := range s.clients {
@@ -1277,6 +1280,27 @@ type pairedPlayer struct {
 	gone        bool
 	wonGame     bool
 	joined      bool
+
+	// changedAt is the tick these inputs last differed from the pass before.
+	changedAt uint64
+}
+
+// pairingInputs is everything tickPlayerTracking reads of a player.
+type pairingInputs struct {
+	w                      *world.World
+	x, z                   float64
+	radius                 int32
+	spectator, onOwnCamera bool
+	gone, wonGame, joined  bool
+	hidden                 *map[int32]struct{}
+	pct                    int32
+}
+
+// pairingStamp is a player's pairingInputs as the last pass read them.
+type pairingStamp struct {
+	in        pairingInputs
+	set       bool
+	changedAt uint64
 }
 
 // tickPlayerTracking settles which players each client holds the body of,
@@ -1289,19 +1313,42 @@ type pairedPlayer struct {
 // sides looking straight through each other.
 func (s *Server) tickPlayerTracking() {
 	s.mu.RLock()
+	tick := s.trackingTick()
+	epoch := s.playerPairEpoch.Load()
+	pct := s.entityBroadcastRange.Load()
 	present := make([]pairedPlayer, 0, len(s.clients))
 	for _, c := range s.clients {
 		pos := c.player.Position()
-		present = append(present, pairedPlayer{
+		p := pairedPlayer{
 			c: c, w: c.theWorld(), x: pos.X, z: pos.Z, radius: c.chunkRadius(),
 			spectator:   c.player.GameMode() == protocol.GameModeSpectator,
 			onOwnCamera: c.camera.Load() == nil,
 			gone:        c.bodyGone.Load(),
 			wonGame:     c.wonGame.Load(),
 			joined:      c.joined(),
-		})
+		}
+		in := pairingInputs{p.w, p.x, p.z, p.radius, p.spectator, p.onOwnCamera,
+			p.gone, p.wonGame, p.joined, c.hidden.Load(), pct}
+		if !c.pairing.set || c.pairing.in != in {
+			c.pairing.set, c.pairing.in, c.pairing.changedAt = true, in, tick
+		}
+		p.changedAt = c.pairing.changedAt
+		present = append(present, p)
 	}
 	s.mu.RUnlock()
+
+	// Unchanged records and unchanged inputs on the pass before: only the
+	// pairs with a changed player can have changed their answer.
+	incremental := s.prevPass.ok && s.prevPass.tick+1 == tick && s.prevPass.epoch == epoch
+	s.prevPass.tick, s.prevPass.epoch, s.prevPass.ok = tick, epoch, true
+	var changed []int
+	if incremental {
+		for i := range present {
+			if present[i].changedAt == tick {
+				changed = append(changed, i)
+			}
+		}
+	}
 
 	s.mu.RLock()
 	trackSeam := s.playerTrackSeam
@@ -1322,6 +1369,7 @@ func (s *Server) tickPlayerTracking() {
 		present[i].c.trackIdx = i
 	}
 	told := make([]bool, len(present))
+	rng := int(pct)
 	for j := range present {
 		body := &present[j]
 		// A player held on the end credits was removed from the
@@ -1333,6 +1381,28 @@ func (s *Server) tickPlayerTracking() {
 		// The record that changes hands is under the mover's lock, which
 		// forgetBodies and move() take too.
 		body.c.trackMu.Lock()
+		if incremental && body.changedAt != tick {
+			for _, i := range changed {
+				viewer := &present[i]
+				if !viewer.joined || i == j || viewer.w != body.w {
+					continue
+				}
+				seen := inTrackingRange(viewer.x, viewer.z, body.x, body.z,
+					entity.PlayerTrackingRange, rng, viewer.radius) && bodyVisibleToSnap(body, viewer)
+				held := body.c.seenBy[viewer.c.player.UUID] == viewer.c
+				switch {
+				case seen && !held:
+					body.c.seenBy[viewer.c.player.UUID] = viewer.c
+					settles = append(settles, settle{viewer: viewer.c, body: body.c, w: viewer.w, pair: true})
+					pairing = true
+				case !seen && held:
+					delete(body.c.seenBy, viewer.c.player.UUID)
+					settles = append(settles, settle{viewer: viewer.c, body: body.c, w: viewer.w})
+				}
+			}
+			body.c.trackMu.Unlock()
+			continue
+		}
 		clear(told)
 		stale := false
 		for id, holder := range body.c.seenBy {
@@ -1353,7 +1423,7 @@ func (s *Server) tickPlayerTracking() {
 				continue
 			}
 			seen := inTrackingRange(viewer.x, viewer.z, body.x, body.z,
-				entity.PlayerTrackingRange, int(s.entityBroadcastRange.Load()), viewer.radius) && bodyVisibleToSnap(body, viewer)
+				entity.PlayerTrackingRange, rng, viewer.radius) && bodyVisibleToSnap(body, viewer)
 			if stale && !told[i] {
 				if held, ok := body.c.seenBy[viewer.c.player.UUID]; ok && held != viewer.c {
 					delete(body.c.seenBy, viewer.c.player.UUID)
@@ -1403,6 +1473,8 @@ func (s *Server) tickPlayerTracking() {
 		if st.body.theWorld() != st.w || st.viewer.theWorld() != st.w ||
 			st.body.traveling.Load() || st.viewer.traveling.Load() {
 			delete(st.body.seenBy, st.viewer.player.UUID)
+			// The pair is undecided, not settled: the next pass redecides it.
+			s.playerPairEpoch.Add(1)
 			st.body.trackMu.Unlock()
 			continue
 		}
@@ -1694,6 +1766,7 @@ func (c *client) sendPlayerInfo(others []*client) error {
 		other.trackMu.Lock()
 		held := other.seenBy[c.player.UUID] == c
 		other.seenBy[c.player.UUID] = c
+		c.srv.playerPairEpoch.Add(1)
 		spawn := spawnPlayerAt(p, other.tracked)
 		other.trackMu.Unlock()
 		if held {
