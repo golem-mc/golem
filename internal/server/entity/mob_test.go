@@ -427,7 +427,7 @@ func TestAKnockbackShovesAMobAwayFromTheHit(t *testing.T) {
 // age is poked to.
 func TestABabyIsTheSmallerBoxItsKindGrowsOutOf(t *testing.T) {
 	hen := NewMob(TypeChicken, 1, 0.5, 64, 0.5, 1)
-	if hen.width() != 0.4 || hen.height() != 0.7 || !closeEnough(hen.eyeHeight(), 0.7*0.85) {
+	if hen.width() != 0.4 || hen.height() != 0.7 || !closeEnough(hen.eyeHeight(), 0.644) {
 		t.Fatalf("the grown chicken's measures are not the grown ones: %v %v %v",
 			hen.width(), hen.height(), hen.eyeHeight())
 	}
@@ -440,7 +440,7 @@ func TestABabyIsTheSmallerBoxItsKindGrowsOutOf(t *testing.T) {
 			hen.width(), hen.height(), hen.eyeHeight())
 	}
 	hen.SetBaby(false)
-	if hen.IsBaby() || hen.width() != 0.4 || !closeEnough(hen.eyeHeight(), 0.7*0.85) {
+	if hen.IsBaby() || hen.width() != 0.4 || !closeEnough(hen.eyeHeight(), 0.644) {
 		t.Error("a grown hen did not come back to the grown measures")
 	}
 
@@ -768,5 +768,16 @@ func TestAMobBlowShovesFromTheAttackersPositionAfterTheGate(t *testing.T) {
 	}
 	if cow.VX <= 0 {
 		t.Errorf("cow vx = %v, want a shove away from the attacker's new place (+x)", cow.VX)
+	}
+}
+
+func TestAdultFarmAnimalsUseTheirTypesEyeHeight(t *testing.T) {
+	for _, c := range []struct {
+		t    MobType
+		want float64
+	}{{TypeCow, 1.3}, {TypeMooshroom, 1.3}, {TypeSheep, 1.235}, {TypeChicken, 0.644}} {
+		if got := NewMob(c.t, 1, 0, 0, 0, 1).EyeHeight(); got != c.want {
+			t.Errorf("type %v: EyeHeight = %v, want %v", c.t, got, c.want)
+		}
 	}
 }
