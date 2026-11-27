@@ -1,6 +1,9 @@
 package world
 
-import "github.com/golem-mc/golem/nbt"
+import (
+	"github.com/golem-mc/golem/nbt"
+	"github.com/golem-mc/golem/registry"
+)
 
 // Data versions of the entity fixes a 1.20.3 or 1.20.4 record still needs.
 const (
@@ -40,7 +43,8 @@ func upgradeLegacyEntity(e nbt.CompoundTag, version int32) {
 		upgradeLegacyStacks(e, version)
 	}
 	if version < areaEffectCloudPotionVersion {
-		if id, _ := nbt.Get[nbt.String](entries, "id"); id == "minecraft:area_effect_cloud" {
+		id, _ := nbt.Get[nbt.String](entries, "id")
+		if typ, ok := registry.EntityTypeByName(string(id)); ok && typ == registry.EntityTypeAreaEffectCloud {
 			upgradeCloudPotion(entries)
 		}
 	}
