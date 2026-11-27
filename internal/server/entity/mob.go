@@ -1441,8 +1441,24 @@ type Mob struct {
 	Health, MaxHealth float64
 	// damagedEvent marks a hurt not yet told as entity_damage.
 	damagedEvent bool
-	// recordSlot fits the padding before LivingEffects, preserving the hot field offsets.
-	recordSlot int32
+	// The spawn-cap walk (CountsForSpawnCap) reads these fields for every mob
+	// each tick, so they sit in the padding near Type and the offsets of the
+	// hot fields after it do not move.
+	// Persistence is PersistenceRequired, which spares a mob the distance and
+	// idleness despawns.
+	Persistence bool
+	// RidesVehicle marks a body whose vehicle places it instead of its own
+	// travel. Its tick still runs, including goals and pushing.
+	// vanilla: Entity.rideTick
+	RidesVehicle bool
+	// InRaid is a raider counted by a raid, which never despawns.
+	// vanilla: Raider.requiresCustomPersistence
+	InRaid bool
+	// LeashHolderID is the entity ID of the player or leash knot holding the
+	// lead, 0 when unleashed. The tick drops it when the holder is gone or out
+	// of reach.
+	// vanilla: Leashable.LeashData.leashHolder
+	LeashHolderID int32
 	LivingEffects
 	// AirSupply is the breath left in ticks: rules.MaxAirSupply out of water,
 	// spent a tick at a time with the eyes under it. Metadata index 1.
@@ -1545,9 +1561,6 @@ type Mob struct {
 	// vanilla: Animal.loveCause
 	LoveCause    uuid.UUID
 	HasLoveCause bool
-	// Persistence is PersistenceRequired, which spares a mob the distance and
-	// idleness despawns.
-	Persistence bool
 	// Life is the endermite's age in ticks, the Lifetime tag; it is
 	// discarded at endermiteMaxLife unless persistent.
 	// vanilla: Endermite.life
@@ -1595,10 +1608,6 @@ type Mob struct {
 	// LeftHanded is Mob.leftHanded: Mob metadata bit 0x02 and the saved
 	// LeftHanded tag. A finalize rolls it 5 in 100.
 	LeftHanded bool
-	// RidesVehicle marks a body whose vehicle places it instead of its own
-	// travel. Its tick still runs, including goals and pushing.
-	// vanilla: Entity.rideTick
-	RidesVehicle bool
 	// BoardingCooldown is the ticks left before a minecart or boat may pick the
 	// body up again, 60 on leaving a vehicle; not saved.
 	// vanilla: Entity.boardingCooldown, Entity.removePassenger
@@ -1738,9 +1747,6 @@ type Mob struct {
 	// Johnny is a vindicator that was ever named "Johnny": it attacks every
 	// living body.
 	Johnny bool
-	// InRaid is a raider counted by a raid, which never despawns.
-	// vanilla: Raider.requiresCustomPersistence
-	InRaid bool
 	// PatrolLeader is Raider.patrolLeader, set when the raider takes the
 	// captain's post.
 	PatrolLeader bool
@@ -1872,11 +1878,7 @@ type Mob struct {
 	// 0 for none. Target goals revalidate it against the tick's player list.
 	TargetID int32
 
-	// LeashHolderID is the entity ID of the player or leash knot holding the
-	// lead, 0 when unleashed. The tick drops it when the holder is gone or out
-	// of reach.
-	// vanilla: Leashable.LeashData.leashHolder
-	LeashHolderID int32
+	recordSlot int32
 
 	// alerted is the attacker another mob's HurtByTargetGoal.alertOthers named.
 	// The mob's own goal adopts it on its next selection and drops it when the
