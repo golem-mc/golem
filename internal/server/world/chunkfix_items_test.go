@@ -73,3 +73,137 @@ func TestFixComponentShapes(t *testing.T) {
 		t.Errorf("modifier = %v", m)
 	}
 }
+
+func TestComponentizeTag(t *testing.T) {
+	t.Parallel()
+	stack := func(id string, tag nbt.Compound) nbt.Compound {
+		return nbt.Compound{"id": nbt.String(id), "Count": nbt.Byte(1), "tag": tag}
+	}
+	entries := stack("minecraft:diamond_pickaxe", nbt.Compound{
+		"Damage": nbt.Int(7), "RepairCost": nbt.Int(0), "HideFlags": nbt.Int(1 | 4), "Unbreakable": nbt.Byte(1),
+		"Enchantments": nbt.List{Elem: nbt.TypeCompound, Items: []nbt.Tag{
+			nbt.Compound{"id": nbt.String("minecraft:efficiency"), "lvl": nbt.Short(3)},
+			nbt.Compound{"id": nbt.String("minecraft:unbreaking"), "lvl": nbt.Short(0)},
+		}},
+		"display": nbt.Compound{"Name": nbt.String(`{"text":"Pick"}`), "Lore": nbt.List{Elem: nbt.TypeString, Items: []nbt.Tag{nbt.String("plain")}}, "color": nbt.Int(255), "Other": nbt.Byte(1)},
+		"Mine":    nbt.String("x"),
+	})
+	componentizeTag(entries, "minecraft:diamond_pickaxe")
+	c := entries["components"].(nbt.Compound)
+	if _, ok := entries["tag"]; ok {
+		t.Error("the tag was kept")
+	}
+	if c["minecraft:damage"] != nbt.Int(7) || c["minecraft:repair_cost"] != nil {
+		t.Errorf("damage %v, repair cost %v", c["minecraft:damage"], c["minecraft:repair_cost"])
+	}
+	ench := c["minecraft:enchantments"].(nbt.Compound)
+	if lv := ench["levels"].(nbt.Compound); len(lv) != 1 || lv["minecraft:efficiency"] != nbt.Int(3) || ench["show_in_tooltip"] != nbt.Byte(0) {
+		t.Errorf("enchantments = %v", ench)
+	}
+	if u := c["minecraft:unbreakable"].(nbt.Compound); u["show_in_tooltip"] != nbt.Byte(0) {
+		t.Errorf("unbreakable = %v", u)
+	}
+	if c["minecraft:custom_name"] != nbt.String(`{"text":"Pick"}`) {
+		t.Errorf("custom_name = %v", c["minecraft:custom_name"])
+	}
+	if lore := c["minecraft:lore"].(nbt.List); len(lore.Items) != 0 {
+		t.Errorf("a lore line that is not JSON was kept: %v", lore)
+	}
+	if dye := c["minecraft:dyed_color"].(nbt.Compound); dye["rgb"] != nbt.Int(255) {
+		t.Errorf("dyed_color = %v", dye)
+	}
+	data := c["minecraft:custom_data"].(nbt.Compound)
+	if data["Mine"] != nbt.String("x") || data["display"].(nbt.Compound)["Other"] != nbt.Byte(1) || len(data) != 2 {
+		t.Errorf("custom_data = %v", data)
+	}
+}
+
+func TestComponentizeItemKinds(t *testing.T) {
+	t.Parallel()
+	str := func(s string) nbt.Tag { return nbt.String(s) }
+	list := func(items ...nbt.Tag) nbt.List { return nbt.ListOf(items) }
+	componentsOf := func(id string, tag nbt.Compound) nbt.Compound {
+		entries := nbt.Compound{"id": str(id), "Count": nbt.Byte(1), "tag": tag}
+		componentizeTag(entries, id)
+		c, _ := entries["components"].(nbt.Compound)
+		return c
+	}
+
+	// A shulker box item keeps its contents as a container and the rest as
+	// block entity data.
+	c := componentsOf("minecraft:shulker_box", nbt.Compound{"BlockEntityTag": nbt.Compound{
+		"id": str("minecraft:shulker_box"), "Lock": str("key"), "LootTable": str("minecraft:x"), "LootTableSeed": nbt.Long(5), "CustomName": str("n"),
+		"Items": list(nbt.Compound{"Slot": nbt.Byte(-1), "id": str("minecraft:dirt"), "Count": nbt.Byte(2)}),
+	}})
+	container, _ := c["minecraft:container"].(nbt.List)
+	if len(container.Items) != 1 {
+		t.Fatalf("container = %v", c["minecraft:container"])
+	}
+	slot := container.Items[0].(nbt.Compound)
+	if slot["slot"] != nbt.Int(255) || slot["item"].(nbt.Compound)["id"] != str("minecraft:dirt") {
+		t.Errorf("container slot = %v", slot)
+	}
+	if c["minecraft:lock"] != str("key") || c["minecraft:container_loot"].(nbt.Compound)["seed"] != nbt.Long(5) {
+		t.Errorf("lock %v, loot %v", c["minecraft:lock"], c["minecraft:container_loot"])
+	}
+	if data := c["minecraft:block_entity_data"].(nbt.Compound); len(data) != 2 || data["id"] != str("minecraft:shulker_box") {
+		t.Errorf("block_entity_data = %v", data)
+	}
+
+	c = componentsOf("minecraft:shulker_box", nbt.Compound{"BlockEntityTag": nbt.Compound{
+		"id":    str("minecraft:shulker_box"),
+		"Items": list(nbt.Compound{"Slot": nbt.Byte(0), "id": str("minecraft:dirt"), "Count": nbt.Byte(1)}),
+	}})
+	if _, ok := c["minecraft:block_entity_data"]; ok || c["minecraft:container"] == nil {
+		t.Errorf("id-only remainder: components %v", c)
+	}
+
+	c = componentsOf("minecraft:potion", nbt.Compound{"Potion": str("minecraft:swiftness"), "CustomPotionColor": nbt.Int(9)})
+	if p := c["minecraft:potion_contents"].(nbt.Compound); p["potion"] != str("minecraft:swiftness") || p["custom_color"] != nbt.Int(9) {
+		t.Errorf("potion_contents = %v", p)
+	}
+	if c = componentsOf("minecraft:potion", nbt.Compound{"Potion": str("minecraft:empty")}); c != nil {
+		t.Errorf("an empty potion left components %v", c)
+	}
+
+	c = componentsOf("minecraft:written_book", nbt.Compound{
+		"title": str("T"), "author": str("A"), "generation": nbt.Int(1),
+		"pages": list(str("p0"), str("p1")), "filtered_pages": nbt.Compound{"1": str("f1")},
+	})
+	book := c["minecraft:written_book_content"].(nbt.Compound)
+	pages := book["pages"].(nbt.List).Items
+	if book["title"].(nbt.Compound)["raw"] != str("T") || book["author"] != str("A") || len(pages) != 2 ||
+		pages[1].(nbt.Compound)["filtered"] != str("f1") || pages[0].(nbt.Compound)["filtered"] != nil {
+		t.Errorf("written_book_content = %v", book)
+	}
+
+	c = componentsOf("minecraft:firework_rocket", nbt.Compound{"Fireworks": nbt.Compound{
+		"Flight": nbt.Byte(2), "Explosions": list(nbt.Compound{"Type": nbt.Byte(3), "Colors": nbt.IntArray{1}, "Trail": nbt.Byte(1)}),
+	}})
+	fw := c["minecraft:fireworks"].(nbt.Compound)
+	explosion := fw["explosions"].(nbt.List).Items[0].(nbt.Compound)
+	if fw["flight_duration"] != nbt.Byte(2) || explosion["shape"] != str("creeper") || explosion["has_trail"] != nbt.Byte(1) || explosion["colors"] == nil {
+		t.Errorf("fireworks = %v", fw)
+	}
+
+	c = componentsOf("minecraft:filled_map", nbt.Compound{"map": nbt.Int(4), "display": nbt.Compound{"MapColor": nbt.Int(7)}, "Decorations": list(
+		nbt.Compound{"id": str("d"), "type": nbt.Byte(1), "x": nbt.Double(1.5), "z": nbt.Double(2), "rot": nbt.Double(90)},
+	)})
+	deco := c["minecraft:map_decorations"].(nbt.Compound)["d"].(nbt.Compound)
+	if c["minecraft:map_id"] != nbt.Int(4) || c["minecraft:map_color"] != nbt.Int(7) || deco["type"] != str("frame") || deco["rotation"] != nbt.Float(90) {
+		t.Errorf("map components = %v", c)
+	}
+
+	c = componentsOf("minecraft:stone_pickaxe", nbt.Compound{"HideFlags": nbt.Int(8), "CanDestroy": list(str("minecraft:stone[facing=north,lit=true]{a:1}"))})
+	pred := c["minecraft:can_break"].(nbt.Compound)
+	first := pred["predicates"].(nbt.List).Items[0].(nbt.Compound)
+	if pred["show_in_tooltip"] != nbt.Byte(0) || first["blocks"] != str("minecraft:stone") ||
+		first["state"].(nbt.Compound)["lit"] != str("true") || first["nbt"] != str("{a:1}") {
+		t.Errorf("can_break = %v", pred)
+	}
+
+	c = componentsOf("minecraft:player_head", nbt.Compound{"SkullOwner": str("Steve")})
+	if c["minecraft:profile"].(nbt.Compound)["name"] != str("Steve") {
+		t.Errorf("profile = %v", c["minecraft:profile"])
+	}
+}

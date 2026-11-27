@@ -460,11 +460,6 @@ func checkChunkFormat(root nbt.Compound) error {
 	if status, ok := nbt.Get[nbt.String](root, "Status"); ok && !strings.Contains(string(status), ":") && (version == 0 || version >= chunkStatusVersion) {
 		return fmt.Errorf("chunk status %q has no namespace", status)
 	}
-	if version != 0 && version < storedItemVersion {
-		if be, ok := nbt.Get[nbt.List](root, "block_entities"); ok && holdsUnfixableItem(be) {
-			return &unsupportedVersionError{version: int32(version)}
-		}
-	}
 	return nil
 }
 
