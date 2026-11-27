@@ -80,8 +80,8 @@ func storedGenerator(dir string) (levelType string, flat *FlatGenerator, ok bool
 }
 
 // legacyGenerator is the level-type and flat generator a pre-1.16 level.dat's
-// generatorName (lower-cased) and generatorOptions name; buffet and every
-// other name is the normal overworld.
+// generatorName (lower-cased) and generatorOptions name; buffet (logged)
+// and every other name is the normal overworld.
 // vanilla: WorldGenSettingsFix.fix
 func legacyGenerator(name string, level nbt.Compound) (string, *FlatGenerator) {
 	switch name {
@@ -107,6 +107,8 @@ func legacyGenerator(name string, level nbt.Compound) (string, *FlatGenerator) {
 		return levelTypeLargeBiomes, nil
 	case "debug_all_block_states":
 		return levelTypeDebug, nil
+	case "buffet":
+		slog.Warn("the world was saved with the buffet generator, which is not supported; using the normal overworld")
 	}
 	return levelTypeNormal, nil
 }
