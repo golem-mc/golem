@@ -47,8 +47,8 @@ func startOldWorld(t *testing.T, dir string) (cfg *config.Config) {
 
 // TestAFlatWorldSavedBeforeThe116KeepsItsLayers loads a 1.15 superflat
 // level.dat with the default level-type: a chunk never generated is still
-// the saved layers.
-// vanilla: WorldGenSettingsFix.fix
+// the saved layers, from y=0 as before 1.18.
+// vanilla: WorldGenSettingsFix.fix, WorldGenSettingsHeightAndBiomeFix
 func TestAFlatWorldSavedBeforeThe116KeepsItsLayers(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
@@ -62,11 +62,13 @@ func TestAFlatWorldSavedBeforeThe116KeepsItsLayers(t *testing.T) {
 	})
 	srv, _ := servertest.Start(t, startOldWorld(t, dir))
 	servertest.StopTicking(t, srv)
-	stone := registry.BlockStone.DefaultState()
-	if got := srv.LoadBlockAt(5000, -61, 5000); got != uint16(stone) {
-		t.Errorf("top layer = %d, want stone %d", got, stone)
-	}
-	if got := srv.LoadBlockAt(5000, -60, 5000); got != uint16(registry.BlockAir.DefaultState()) {
-		t.Errorf("block above the layers = %d, want air", got)
+	air := uint16(registry.BlockAir.DefaultState())
+	for y, want := range map[int32]uint16{
+		-64: air, -1: air, 0: uint16(registry.BlockBedrock.DefaultState()),
+		1: uint16(registry.BlockStone.DefaultState()), 3: uint16(registry.BlockStone.DefaultState()), 4: air,
+	} {
+		if got := srv.LoadBlockAt(5000, y, 5000); got != want {
+			t.Errorf("y=%d: block %d, want %d", y, got, want)
+		}
 	}
 }

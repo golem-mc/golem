@@ -63,6 +63,9 @@ func storedGenerator(dir string) (levelType string, flat *FlatGenerator, ok bool
 	if settings, ok := nbt.Get[nbt.Compound](level.raw, "WorldGenSettings"); ok {
 		if gen, ok := overworldGenerator(settings); ok {
 			levelType, flat = storedLevelType(settings, gen)
+			if flat != nil && flatBelowOldGround(level.raw, settings) {
+				flat.raiseToOldGround()
+			}
 			return levelType, flat, true
 		}
 	}
@@ -100,6 +103,10 @@ func legacyGenerator(name string, level nbt.Compound) (string, *FlatGenerator) {
 			biome = "minecraft:plains"
 		}
 		flat, _ := flatSettingsOf(nbt.Compound{"layers": layers, "biome": biome})
+		if flat != nil {
+			// The settings this builds carry no has_increased_height_already.
+			flat.raiseToOldGround()
+		}
 		return levelTypeFlat, flat
 	case "amplified":
 		return levelTypeAmplified, nil
@@ -111,6 +118,30 @@ func legacyGenerator(name string, level nbt.Compound) (string, *FlatGenerator) {
 		slog.Warn("the world was saved with the buffet generator, which is not supported; using the normal overworld")
 	}
 	return levelTypeNormal, nil
+}
+
+// flatBelowOldGround reports whether a level.dat's WorldGenSettings is from a
+// flat world saved before the overworld reached down to y=-64 (DataVersion
+// 2832), which raiseToOldGround keeps at its old height. No DataVersion is a
+// level.dat this server wrote.
+// vanilla: WorldGenSettingsHeightAndBiomeFix, AddFlagIfNotPresentFix (2693, 2707, 2825)
+func flatBelowOldGround(level, settings nbt.Compound) bool {
+	v, _ := nbt.Get[nbt.Int](level, "DataVersion")
+	if v == 0 || v >= 2832 {
+		return false
+	}
+	if _, ok := settings["has_increased_height_already"]; ok {
+		return !nbt.BoolField(settings, "has_increased_height_already")
+	}
+	return v < 2693 || v >= 2707 && v < 2825
+}
+
+// raiseToOldGround puts 64 blocks of air under the layers, so a pre-1.18 flat
+// world's ground still starts at y=0.
+// vanilla: WorldGenSettingsHeightAndBiomeFix.updateLayers
+func (g *FlatGenerator) raiseToOldGround() {
+	air := flatLayer{state: registry.BlockAir.DefaultState(), height: 64}
+	g.layers = append([]flatLayer{air}, g.layers...)
 }
 
 // storedLevelType is storedGenerator's reading of one world-gen settings

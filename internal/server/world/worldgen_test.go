@@ -7,6 +7,7 @@ import (
 
 	"github.com/golem-mc/golem/internal/server/world/terrain"
 	"github.com/golem-mc/golem/nbt"
+	"github.com/golem-mc/golem/registry"
 )
 
 // TestNewWorldWritesWhatVanillaNeedsToOpenIt checks the files a world this
@@ -338,5 +339,55 @@ func TestStoredGeneratorReadsAPre116GeneratorName(t *testing.T) {
 		if !ok || got != want || (got == levelTypeFlat) != (flat != nil) {
 			t.Errorf("%s: storedGenerator = %q, %v, %v; want %q", name, got, flat, ok, want)
 		}
+	}
+}
+
+// TestAPre118FlatWorldKeepsItsGroundAtY0 checks which saved flat worlds get
+// 64 blocks of air under their layers.
+// vanilla: WorldGenSettingsHeightAndBiomeFix, AddFlagIfNotPresentFix
+func TestAPre118FlatWorldKeepsItsGroundAtY0(t *testing.T) {
+	t.Parallel()
+	raised := func(t *testing.T, flat *FlatGenerator) bool {
+		t.Helper()
+		if flat == nil || len(flat.layers) == 0 {
+			t.Fatalf("flat generator = %v", flat)
+		}
+		return flat.layers[0] == flatLayer{state: registry.BlockAir.DefaultState(), height: 64}
+	}
+	for _, tc := range []struct {
+		version int32
+		flag    nbt.Tag
+		want    bool
+	}{
+		{2586, nil, true}, {2692, nil, true}, {2700, nil, false}, {2724, nil, true},
+		{2826, nil, false}, {2832, nil, false}, {2586, nbt.Byte(1), false}, {2724, nbt.Byte(0), true},
+		{2860, nbt.Byte(0), false}, {0, nil, false},
+	} {
+		settings := nbt.Compound{"seed": nbt.Long(1), "dimensions": nbt.Compound{DimensionName: nbt.Compound{
+			"generator": nbt.Compound{"type": nbt.String("minecraft:flat"), "settings": nbt.Compound{
+				"biome": nbt.String("minecraft:plains"),
+				"layers": nbt.List{Elem: nbt.TypeCompound, Items: []nbt.Tag{
+					nbt.Compound{"block": nbt.String("minecraft:bedrock"), "height": nbt.Int(1)},
+				}},
+			}},
+		}}}
+		if tc.flag != nil {
+			settings["has_increased_height_already"] = tc.flag
+		}
+		level := nbt.Compound{"WorldGenSettings": settings}
+		if tc.version != 0 {
+			level["DataVersion"] = nbt.Int(tc.version)
+		}
+		dir := t.TempDir()
+		writeLevelDat(t, dir, level)
+		_, flat, _ := storedGenerator(dir)
+		if got := raised(t, flat); got != tc.want {
+			t.Errorf("DataVersion %d, flag %v: raised = %v, want %v", tc.version, tc.flag, got, tc.want)
+		}
+	}
+	dir := t.TempDir()
+	writeLevelDat(t, dir, nbt.Compound{"generatorName": nbt.String("flat"), "DataVersion": nbt.Int(2230)})
+	if _, flat, _ := storedGenerator(dir); !raised(t, flat) || len(flat.layers) != 4 {
+		t.Errorf("1.15 default flat layers = %v, want 64 air under the default preset", flat.layers)
 	}
 }
