@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/golem-mc/golem/internal/server/world/terrain"
 	"github.com/golem-mc/golem/nbt"
@@ -71,7 +72,43 @@ func storedGenerator(dir string) (levelType string, flat *FlatGenerator, ok bool
 		}
 		return levelTypeNormal, nil, true
 	}
+	if name, ok := nbt.Get[nbt.String](level.raw, "generatorName"); ok {
+		levelType, flat = legacyGenerator(strings.ToLower(string(name)), level.raw)
+		return levelType, flat, true
+	}
 	return "", nil, false
+}
+
+// legacyGenerator is the level-type and flat generator a pre-1.16 level.dat's
+// generatorName (lower-cased) and generatorOptions name; buffet and every
+// other name is the normal overworld.
+// vanilla: WorldGenSettingsFix.fix
+func legacyGenerator(name string, level nbt.Compound) (string, *FlatGenerator) {
+	switch name {
+	case "flat":
+		options, _ := nbt.Get[nbt.Compound](level, "generatorOptions")
+		layers, ok := nbt.Get[nbt.List](options, "layers")
+		if !ok {
+			layers = nbt.List{Elem: nbt.TypeCompound, Items: []nbt.Tag{
+				nbt.Compound{"block": nbt.String("minecraft:bedrock"), "height": nbt.Int(1)},
+				nbt.Compound{"block": nbt.String("minecraft:dirt"), "height": nbt.Int(2)},
+				nbt.Compound{"block": nbt.String("minecraft:grass_block"), "height": nbt.Int(1)},
+			}}
+		}
+		biome, ok := nbt.Get[nbt.String](options, "biome")
+		if !ok {
+			biome = "minecraft:plains"
+		}
+		flat, _ := flatSettingsOf(nbt.Compound{"layers": layers, "biome": biome})
+		return levelTypeFlat, flat
+	case "amplified":
+		return levelTypeAmplified, nil
+	case "largebiomes":
+		return levelTypeLargeBiomes, nil
+	case "debug_all_block_states":
+		return levelTypeDebug, nil
+	}
+	return levelTypeNormal, nil
 }
 
 // storedLevelType is storedGenerator's reading of one world-gen settings

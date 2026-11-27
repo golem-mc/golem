@@ -321,3 +321,22 @@ func TestWorldGenSettingsKeepAFixedBiomeAndItsTerrain(t *testing.T) {
 		t.Errorf("saved settings = %q, want %s", settings, levelTypeAmplified)
 	}
 }
+
+// TestStoredGeneratorReadsAPre116GeneratorName checks the level-type a
+// pre-1.16 level.dat's generatorName maps to.
+// vanilla: WorldGenSettingsFix.fix
+func TestStoredGeneratorReadsAPre116GeneratorName(t *testing.T) {
+	t.Parallel()
+	for name, want := range map[string]string{
+		"amplified": levelTypeAmplified, "largeBiomes": levelTypeLargeBiomes, "flat": levelTypeFlat,
+		"debug_all_block_states": levelTypeDebug, "default": levelTypeNormal, "default_1_1": levelTypeNormal,
+		"customized": levelTypeNormal, "buffet": levelTypeNormal,
+	} {
+		dir := t.TempDir()
+		writeLevelDat(t, dir, nbt.Compound{"generatorName": nbt.String(name), "DataVersion": nbt.Int(2230)})
+		got, flat, ok := storedGenerator(dir)
+		if !ok || got != want || (got == levelTypeFlat) != (flat != nil) {
+			t.Errorf("%s: storedGenerator = %q, %v, %v; want %q", name, got, flat, ok, want)
+		}
+	}
+}
