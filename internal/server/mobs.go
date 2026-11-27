@@ -1593,30 +1593,23 @@ func (s *Server) landingMobBlow(strike mobStrike) {
 	}
 	s.mobsMu.Lock()
 	h := s.herdOf(strike.w)
-	var victim *entity.Mob
-	for _, m := range h.herd {
-		if m.ID == strike.victimID {
-			victim = m
-			break
-		}
-	}
-	if victim == nil || victim.Dead {
+	ent := h.byID[strike.victimID]
+	if ent == nil || ent.mob.ID != strike.victimID || ent.mob.Dead {
 		s.mobsMu.Unlock()
 		return
 	}
+	victim := ent.mob
 	oldVX, oldVY, oldVZ, oldImpulse := victim.VX, victim.VY, victim.VZ, victim.Impulse
-	var ent *mobEntity
 	refused := false
 	if strike.teamGated() {
-		ent = h.book[victim]
-		refused = ent != nil && !s.scoreboard.CanHarm(ent.uuidText, strike.uuidText)
+		refused = !s.scoreboard.CanHarm(ent.uuidText, strike.uuidText)
 	}
 	if strike.dragonContact {
 		if strike.contactPush != [3]float64{} {
 			victim.Push(strike.contactPush[0], strike.contactPush[1], strike.contactPush[2])
 		}
 		if strike.damage == 0 || refused {
-			kb := s.holdMobKnockback(h.book[victim], strike.uuid, oldVX, oldVY, oldVZ, oldImpulse)
+			kb := s.holdMobKnockback(ent, strike.uuid, oldVX, oldVY, oldVZ, oldImpulse)
 			s.mobsMu.Unlock()
 			if kb != nil {
 				s.applyMobKnockback(kb)
@@ -1659,27 +1652,25 @@ func (s *Server) landingMobBlow(strike mobStrike) {
 	var health []byte
 	var effectTell splashMobTell
 	if landed {
-		if ent := h.book[victim]; ent != nil {
-			// Recorded in each watcher's view so the metadata pass does not resend it.
-			health = ent.syncHealth()
-			// A venomous blow applies its effect to a mob as to a player.
-			// vanilla: CaveSpider.doHurtTarget, Husk.doHurtTarget
-			effective := s.effectiveDifficultyAt(strike.w, strike.x, strike.z)
-			if secs := entity.BlowIgniteSeconds(effective, strike.mob.Rand.Float32()); strike.mob.IgnitesBlow() && secs > 0 {
-				var by plugin.Entity
-				if attacker := h.book[strike.mob]; attacker != nil {
-					by = pendingMob{id: attacker.uuid}
-				}
-				victim.IgniteForTicksBy(int(secs)*20, entity.CombustSource{By: by})
+		// Recorded in each watcher's view so the metadata pass does not resend it.
+		health = ent.syncHealth()
+		// A venomous blow applies its effect to a mob as to a player.
+		// vanilla: CaveSpider.doHurtTarget, Husk.doHurtTarget
+		effective := s.effectiveDifficultyAt(strike.w, strike.x, strike.z)
+		if secs := entity.BlowIgniteSeconds(effective, strike.mob.Rand.Float32()); strike.mob.IgnitesBlow() && secs > 0 {
+			var by plugin.Entity
+			if attacker := h.book[strike.mob]; attacker != nil {
+				by = pendingMob{id: attacker.uuid}
 			}
-			name, ticks, ok := strike.mob.BlowEffect(strike.w.Difficulty(), effective)
-			if strike.puff > 0 {
-				name, ticks, ok = "minecraft:poison", int32(60*strike.puff), true
-			}
-			if ok {
-				if ch, ok := victim.AddEffect(blowEffect(registry.MustMobEffect(name), ticks, 0)); ok {
-					effectTell = mobEffectTellOf(ent, []effect.Change{ch})
-				}
+			victim.IgniteForTicksBy(int(secs)*20, entity.CombustSource{By: by})
+		}
+		name, ticks, ok := strike.mob.BlowEffect(strike.w.Difficulty(), effective)
+		if strike.puff > 0 {
+			name, ticks, ok = "minecraft:poison", int32(60*strike.puff), true
+		}
+		if ok {
+			if ch, ok := victim.AddEffect(blowEffect(registry.MustMobEffect(name), ticks, 0)); ok {
+				effectTell = mobEffectTellOf(ent, []effect.Change{ch})
 			}
 		}
 	}
@@ -1688,7 +1679,7 @@ func (s *Server) landingMobBlow(strike mobStrike) {
 	mx, my, mz := victim.X, victim.Y, victim.Z
 	vx, vy, vz := victim.VX, victim.VY, victim.VZ
 	yaw := mobHurtYaw(entity.Player{X: strike.x, Y: strike.y, Z: strike.z}, victim)
-	kb := s.holdMobKnockback(h.book[victim], strike.uuid, oldVX, oldVY, oldVZ, oldImpulse)
+	kb := s.holdMobKnockback(ent, strike.uuid, oldVX, oldVY, oldVZ, oldImpulse)
 	s.mobsMu.Unlock()
 	if kb != nil {
 		vx, vy, vz = s.applyMobKnockback(kb)
