@@ -255,37 +255,33 @@ func (s *Server) pickUpMobs(pickups []minecartPickup) {
 			wc.list = wc.list[:0]
 		}
 	}()
-	// reach is the box around a world's pickup carts; a mob outside it is
-	// nobody's candidate.
-	reach := make(map[*world.World]entity.AABB, 1)
+	boxes := make(map[*world.World][]entity.AABB, 1)
 	for _, p := range pickups {
-		if r, ok := reach[p.it.w]; ok {
-			reach[p.it.w] = r.Union(p.box)
-		} else {
-			reach[p.it.w] = p.box
-		}
+		boxes[p.it.w] = append(boxes[p.it.w], p.box)
 	}
 	s.mobsMu.Lock()
-	for _, p := range pickups {
-		r, ok := reach[p.it.w]
-		if !ok {
-			continue
-		}
-		delete(reach, p.it.w)
-		wc := cands[p.it.w]
+	for w, list := range boxes {
+		wc := cands[w]
 		if wc == nil {
 			wc = &pickupCands{}
-			cands[p.it.w] = wc
+			cands[w] = wc
 		}
 		wc.grid.Reset()
-		for m, ent := range s.herdOf(p.it.w).book {
-			if ent.seated() || !entity.MinecartBoardable(m) {
-				continue
+		h := s.herdOf(w)
+		h.mobsNearBoxes(list, func(m *entity.Mob) bool {
+			ent := h.record(m)
+			if ent == nil || ent.seated() || !entity.MinecartBoardable(m) {
+				return true
 			}
-			if box := entity.NewAABB(m.BlastBox()); r.Crosses(box) {
-				wc.list = append(wc.list, pickupCandidate{ent: ent, id: m.ID, box: box})
+			box := entity.NewAABB(m.BlastBox())
+			for _, r := range list {
+				if r.Crosses(box) {
+					wc.list = append(wc.list, pickupCandidate{ent: ent, id: m.ID, box: box})
+					break
+				}
 			}
-		}
+			return true
+		})
 		for i, c := range wc.list {
 			wc.grid.Add(int32(i), c.box)
 		}
