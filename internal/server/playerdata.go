@@ -691,12 +691,11 @@ func migrateEnteredNether(root nbt.Compound) {
 		return
 	}
 	delete(root, "enteredNetherPosition")
-	x, xok := nbt.Get[nbt.Double](old, "x")
-	y, yok := nbt.Get[nbt.Double](old, "y")
-	z, zok := nbt.Get[nbt.Double](old, "z")
-	if xok && yok && zok {
-		root["entered_nether_pos"] = nbt.ListOf([]nbt.Tag{x, y, z})
-	}
+	root["entered_nether_pos"] = nbt.ListOf([]nbt.Tag{
+		nbt.Double(nbt.DoubleFieldOr(old, "x", 0)),
+		nbt.Double(nbt.DoubleFieldOr(old, "y", 0)),
+		nbt.Double(nbt.DoubleFieldOr(old, "z", 0)),
+	})
 }
 
 // migrateRespawnAngle is PlayerRespawnDataFix: the compound's angle becomes
