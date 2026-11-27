@@ -497,6 +497,29 @@ func canSupportCenter(state uint16, d int) bool {
 	return registry.FaceSturdy(state, d, registry.SupportCenter)
 }
 
+// supportingState is the state whose shape a neighbour offers for support: a
+// retracting piston's base keeps its extended shape while it rides home; any
+// other moving piston stays as it is, which supports nothing. A moved block's
+// own shape is left out, as it only reaches a face when the ride is at rest.
+// vanilla: PistonMovingBlockEntity.getCollisionShape
+func supportingState(w BlockReader, x, y, z int32, state uint16) uint16 {
+	if registry.BlockOf(state) != registry.BlockMovingPiston {
+		return state
+	}
+	rides, ok := w.(interface {
+		pistonRideAt(x, y, z int32) (pistonRide, bool)
+	})
+	if !ok {
+		return state
+	}
+	r, ok := rides.pistonRideAt(x, y, z)
+	if !ok || r.extending || !r.isSource || !pistonBlocks[registry.BlockOf(r.movedState)] {
+		return state
+	}
+	base, _ := registry.WithBool(r.movedState, registry.PropExtended, true)
+	return base
+}
+
 // canSurvive is the vanilla canSurvive of state at (x, y, z). A reader that is
 // not a World has no light, so the light rules read 0.
 func canSurvive(w BlockReader, x, y, z int32, state uint16) bool {
@@ -505,7 +528,8 @@ func canSurvive(w BlockReader, x, y, z int32, state uint16) bool {
 		return true
 	}
 	d := int(s.dir)
-	n := w.BlockAt(x+dirDelta[d][0], y+dirDelta[d][1], z+dirDelta[d][2])
+	nx, ny, nz := x+dirDelta[d][0], y+dirDelta[d][1], z+dirDelta[d][2]
+	n := supportingState(w, nx, ny, nz, w.BlockAt(nx, ny, nz))
 	face := blocklogic.Opposite(d)
 	switch s.kind {
 	case surviveSturdy:

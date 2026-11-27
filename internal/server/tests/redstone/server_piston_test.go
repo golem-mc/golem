@@ -567,3 +567,36 @@ func TestAMovedObserverKeepsTheEnginePumping(t *testing.T) {
 			turns, awayDark, homeDark)
 	}
 }
+
+// TestAStickyPistonsRetractionKeepsAnAttachedDiode lays a repeater, a
+// comparator and redstone dust on the base of a sticky piston, extends the
+// piston and retracts it: the base turns into a moving piston for the
+// retraction and the wire on it stays.
+// vanilla: PistonBaseBlock.triggerEvent
+func TestAStickyPistonsRetractionKeepsAnAttachedDiode(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct{ name, block, kept string }{
+		{"repeater", "repeater[facing=north]", "repeater"},
+		{"comparator", "comparator[facing=north]", "comparator"},
+		{"dust", "redstone_wire", "redstone_wire"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			srv, c := servertest.AttachActor(t)
+			servertest.Setblock(t, c, 2, 70, 0, "sticky_piston[facing=down]")
+			servertest.Setblock(t, c, 2, 71, 0, tc.block)
+			servertest.Setblock(t, c, 2, 70, 1, "redstone_block")
+			c.Settle()
+			servertest.AwaitTicks(t, srv, 8)
+			servertest.ExpectBlockNamed(t, srv, 2, 70, 0, "minecraft:sticky_piston",
+				map[string]string{"facing": "down", "extended": "true"})
+			servertest.ExpectBlockNamed(t, srv, 2, 71, 0, "minecraft:"+tc.kept, nil)
+			servertest.Setblock(t, c, 2, 70, 1, "air")
+			c.Settle()
+			servertest.AwaitTicks(t, srv, 8)
+			servertest.ExpectBlockNamed(t, srv, 2, 70, 0, "minecraft:sticky_piston",
+				map[string]string{"facing": "down", "extended": "false"})
+			servertest.ExpectBlockNamed(t, srv, 2, 71, 0, "minecraft:"+tc.kept, nil)
+		})
+	}
+}

@@ -9,7 +9,7 @@ const wireNone = 0
 
 // wireCanSurvive tests the wire's floor support.
 func (p *Physics) wireCanSurvive(x, y, z int32) bool {
-	return blocklogic.WireCanSupport(p.w.BlockAt(x, y-1, z))
+	return blocklogic.WireCanSupport(supportingState(p.w, x, y-1, z, p.w.BlockAt(x, y-1, z)))
 }
 
 // wireUpdateShape checks support or applies the shared wire shape rule.
