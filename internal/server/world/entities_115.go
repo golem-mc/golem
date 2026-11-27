@@ -42,7 +42,7 @@ var uuidKinds = func() map[string]uuidKind {
 			"slime snow_golem spider squid stray tropical_fish vex villager iron_golem vindicator pillager wandering_trader " +
 			"witch wither wither_skeleton zombie zombie_villager phantom ravager piglin",
 	} {
-		for _, id := range strings.Fields(ids) {
+		for id := range strings.FieldsSeq(ids) {
 			m["minecraft:"+id] = kind
 		}
 	}
@@ -52,7 +52,7 @@ var uuidKinds = func() map[string]uuidKind {
 // vanilla: EntityUUIDFix.PROJECTILES
 var uuidProjectiles = func() map[string]bool {
 	m := map[string]bool{}
-	for _, id := range strings.Fields("arrow dragon_fireball firework_rocket fireball llama_spit small_fireball snowball " +
+	for id := range strings.FieldsSeq("arrow dragon_fireball firework_rocket fireball llama_spit small_fireball snowball " +
 		"spectral_arrow egg ender_pearl experience_bottle potion trident wither_skull") {
 		m["minecraft:"+id] = true
 	}
