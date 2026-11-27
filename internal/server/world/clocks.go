@@ -89,6 +89,7 @@ func (w *World) ReloadClocks() {
 	w.timeMu.Lock()
 	defer w.timeMu.Unlock()
 	w.clocks = loadClocks(w.dir, w.level)
+	w.envSeq.Add(1)
 }
 
 // readClockEntry reads one clock's world_clocks.dat entry into state.
@@ -163,6 +164,7 @@ func (w *World) TickTime() {
 	if !w.ruleOf(RuleAdvanceTime) {
 		return
 	}
+	moved := false
 	for i := range w.clocks {
 		c := &w.clocks[i].state
 		if c.paused || c.rate <= 0 {
@@ -173,7 +175,13 @@ func (w *World) TickTime() {
 		c.fractional += c.rate
 		advance := int64(c.fractional)
 		c.fractional -= float32(advance)
-		c.total += advance
+		if advance != 0 {
+			c.total += advance
+			moved = true
+		}
+	}
+	if moved {
+		w.envSeq.Add(1)
 	}
 }
 
@@ -206,6 +214,7 @@ func (w *World) SetClockTime(clock string, ticks int64) bool {
 	}
 	c.total = ticks
 	c.fractional = 0
+	w.envSeq.Add(1)
 	return true
 }
 
@@ -216,7 +225,10 @@ func (w *World) AddClockTime(clock string, ticks int64) {
 	w.timeMu.Lock()
 	defer w.timeMu.Unlock()
 	if c := w.clock(clock); c != nil {
-		c.total = max(c.total+ticks, 0)
+		if next := max(c.total+ticks, 0); next != c.total {
+			c.total = next
+			w.envSeq.Add(1)
+		}
 	}
 }
 
@@ -237,6 +249,7 @@ func (w *World) MoveClockToMarker(clock string, ticks, period int64) bool {
 	// durationToNext is always positive, so the total only grows.
 	c.total += durationToNext(period, c.total%period, ticks)
 	c.fractional = 0
+	w.envSeq.Add(1)
 	return true
 }
 
@@ -266,6 +279,7 @@ func (w *World) SetClockPaused(clock string, paused bool) bool {
 		return false
 	}
 	c.paused = paused
+	w.envSeq.Add(1)
 	return true
 }
 
@@ -282,6 +296,7 @@ func (w *World) SetClockRate(clock string, rate float32) bool {
 	}
 	c.rate = rate
 	c.fractional = 0
+	w.envSeq.Add(1)
 	return true
 }
 
