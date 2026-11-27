@@ -1,6 +1,7 @@
 package redstone
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/golem-mc/golem/internal/server/servertest"
@@ -166,5 +167,83 @@ func TestSetblockWireSidesFollowTheNeighboursAndTheGivenProperties(t *testing.T)
 		if got := wireSides(t, srv, x, 64, 5); got != tc.want {
 			t.Errorf("%s placed as %s, want %s", tc.block, got, tc.want)
 		}
+	}
+}
+
+// TestWirePowerDecayFollowsVanillaHashSetOrder checks that replacing a redstone
+// block with dust beside a powered wire and a lower dust line follows vanilla's
+// DefaultRedstoneWireEvaluator HashSet wake order: at (110,-58,99) the east
+// branch decays before the west step wakes so the observer watching the west
+// note block stays quiet, while at (16,-57,11) the west step wakes first and
+// the observer pulses on ticks 2 and 3.
+// vanilla: DefaultRedstoneWireEvaluator.updatePowerStrength, Vec3i.hashCode
+func TestWirePowerDecayFollowsVanillaHashSetOrder(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name       string
+		ox, oy, oz int32
+		wantPulse  [6]bool
+	}{
+		{"quiet_at_110_-58_99", 104, -60, 98, [6]bool{false, false, false, false, false, false}},
+		{"pulses_at_16_-57_11", 10, -59, 10, [6]bool{false, false, true, true, false, false}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			srv, c := servertest.AttachActor(t)
+
+			ox, oy, oz := tc.ox, tc.oy, tc.oz
+			c.ChatCommand(fmt.Sprintf("forceload add %d %d %d %d", ox, oz, ox+13, oz+2))
+			c.ChatCommand(fmt.Sprintf("fill %d %d %d %d %d %d air", ox, oy, oz, ox+13, oy+4, oz+2))
+			c.Settle()
+
+			set := func(dx, dy, dz int32, spec string) {
+				servertest.Setblock(t, c, ox+dx, oy+dy, oz+dz, spec)
+			}
+
+			set(7, 1, 1, "blue_concrete")
+			set(6, 1, 1, "blue_concrete")
+			set(5, 0, 1, "blue_concrete")
+			set(4, 0, 1, "blue_concrete")
+			set(3, 0, 1, "blue_concrete")
+			set(2, 0, 1, "note_block")
+			set(1, 0, 1, "observer[facing=east]")
+			set(8, 0, 1, "blue_concrete")
+			set(9, 0, 1, "blue_concrete")
+			set(10, 0, 1, "blue_concrete")
+			set(11, 0, 1, "note_block")
+
+			set(7, 2, 1, "redstone_wire")
+			set(6, 2, 1, "redstone_wire")
+			set(5, 1, 1, "redstone_wire")
+			set(4, 1, 1, "redstone_wire")
+			set(3, 1, 1, "redstone_wire")
+			set(2, 1, 1, "redstone_wire")
+			set(8, 1, 1, "redstone_wire")
+			set(9, 1, 1, "redstone_wire")
+			set(10, 1, 1, "redstone_wire")
+			set(11, 1, 1, "redstone_wire")
+			c.Settle()
+
+			set(6, 2, 1, "redstone_block")
+			c.Settle()
+			servertest.HoldTicks(t, srv)
+			servertest.RunTicks(t, srv, 5)
+			servertest.ExpectBlockNamed(t, srv, ox+7, oy+2, oz+1, "minecraft:redstone_wire", map[string]string{"power": "15"})
+			servertest.ExpectBlockNamed(t, srv, ox+1, oy+0, oz+1, "minecraft:observer", map[string]string{"powered": "false"})
+
+			set(6, 2, 1, "redstone_wire[east=side,north=none,power=0,south=none,west=side]")
+			for tick, wantObs := range tc.wantPulse {
+				if tick > 0 {
+					servertest.RunTicks(t, srv, 1)
+				}
+				obsWant := "false"
+				if wantObs {
+					obsWant = "true"
+				}
+				servertest.ExpectBlockNamed(t, srv, ox+2, oy+0, oz+1, "minecraft:note_block", map[string]string{"powered": "false"})
+				servertest.ExpectBlockNamed(t, srv, ox+1, oy+0, oz+1, "minecraft:observer", map[string]string{"powered": obsWant})
+			}
+		})
 	}
 }
