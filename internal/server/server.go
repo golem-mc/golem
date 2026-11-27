@@ -2822,12 +2822,12 @@ func (s *Server) obstructed(w *world.World, x, y, z int32, state uint16) bool {
 	return false
 }
 
-// mobOverlapsPlaced tests one mob's box (the baby's if it is one) against
-// the placed state's shape.
 // mobIndexMargin is how far past a query box a mob's position may sit while
 // its box still reaches in: above the widest half width of any indexed mob.
 const mobIndexMargin = 3
 
+// mobOverlapsPlaced tests one mob's box (the baby's if it is one) against
+// the placed state's shape.
 func mobOverlapsPlaced(x, y, z int32, state uint16, m *entity.Mob) bool {
 	hw := m.BbWidth() / 2
 	return boxOverlapsPlaced(x, y, z, state,

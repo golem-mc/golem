@@ -2352,7 +2352,7 @@ func (c *client) sweepHurt(w *world.World, held protocol.ItemStack, attackDamage
 		}
 		return true
 	})
-	// Hurts apply in spawn order, as the herd book was walked.
+	// Hurts apply in spawn order, sorted by ID so the order is deterministic.
 	slices.SortFunc(reached, func(a, b *entity.Mob) int { return cmp.Compare(a.ID, b.ID) })
 	for _, m := range reached {
 		ent := herd.record(m)
