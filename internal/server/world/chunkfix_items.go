@@ -211,10 +211,14 @@ func fixAttributeModifierIDs(c nbt.Compound) {
 	if !ok {
 		return
 	}
-	modifiers, ok := wrapper["modifiers"].(nbt.List)
-	if !ok {
-		return
+	if modifiers, ok := wrapper["modifiers"].(nbt.List); ok {
+		wrapper["modifiers"] = fixModifierIDs(modifiers)
 	}
+}
+
+// fixModifierIDs gives each modifier of the list an id in place of its uuid
+// and name, merging the ones that share a named id.
+func fixModifierIDs(modifiers nbt.List) nbt.List {
 	var out []nbt.Tag
 	index := map[string]int{}
 	for _, item := range modifiers.Items {
@@ -258,7 +262,7 @@ func fixAttributeModifierIDs(c nbt.Compound) {
 			out = append(out, m)
 		}
 	}
-	wrapper["modifiers"] = nbt.List{Elem: nbt.TypeCompound, Items: out}
+	return nbt.List{Elem: nbt.TypeCompound, Items: out}
 }
 
 func uuidString(u [4]int32) string {
