@@ -10,41 +10,49 @@ import (
 // drops that side in the tick of the pull.
 func TestAConnectingBlockLosesTheSideAPistonPullsAway(t *testing.T) {
 	t.Parallel()
-	for _, tc := range []struct{ name, block, off, on string }{
-		{"paneBehind", "glass_pane", "east=false,north=false,south=false,waterlogged=false,west=false", "east=false,north=false,south=false,waterlogged=false,west=true"},
-		{"pane", "glass_pane", "east=false,north=false,south=false,waterlogged=false,west=false", "east=false,north=true,south=false,waterlogged=false,west=false"},
-		{"bars", "iron_bars", "east=false,north=false,south=false,waterlogged=false,west=false", "east=false,north=true,south=false,waterlogged=false,west=false"},
-		{"fence", "oak_fence", "east=false,north=false,south=false,waterlogged=false,west=false", "east=false,north=true,south=false,waterlogged=false,west=false"},
-		{"wall", "cobblestone_wall", "east=none,north=none,south=none,up=true,waterlogged=false,west=none", "east=none,north=low,south=none,up=true,waterlogged=false,west=none"},
+	type pos = [3]int32
+	// facing east: the pulled block at (4,64,0) rides into the head cell (3,64,0).
+	// facing down: the pulled block at (2,62,0) rides up into the head cell
+	// (2,63,0); the world below y=64 is stone, so the pane's other sides stay
+	// connected and only the named side is compared.
+	for _, tc := range []struct {
+		name, block, side, gone, pulled, facing string
+		pane, at, ride                          pos
+	}{
+		{"paneBehind", "glass_pane", "west", "false", "stone", "east", pos{5, 64, 0}, pos{4, 64, 0}, pos{3, 64, 0}},
+		{"pane", "glass_pane", "north", "false", "stone", "east", pos{4, 64, 1}, pos{4, 64, 0}, pos{3, 64, 0}},
+		{"bars", "iron_bars", "north", "false", "stone", "east", pos{4, 64, 1}, pos{4, 64, 0}, pos{3, 64, 0}},
+		{"fence", "oak_fence", "north", "false", "stone", "east", pos{4, 64, 1}, pos{4, 64, 0}, pos{3, 64, 0}},
+		{"wall", "cobblestone_wall", "north", "none", "stone", "east", pos{4, 64, 1}, pos{4, 64, 0}, pos{3, 64, 0}},
+		{"paneBesideVerticalPull", "glass_pane", "south", "false", "target", "down", pos{2, 62, -1}, pos{2, 62, 0}, pos{2, 63, 0}},
+		{"barsBesideVerticalPull", "iron_bars", "south", "false", "target", "down", pos{2, 62, -1}, pos{2, 62, 0}, pos{2, 63, 0}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			srv, connect := servertest.Start(t, servertest.BlockTestConfig(), servertest.OpsListing(t, "Actor"))
 			actor := connect().Join("Actor")
 			servertest.HoldTicks(t, srv)
-			standExtendedPiston(t, srv, true)
-			servertest.Setblock(t, actor, 4, 64, 0, "stone")
-			pz, px := int32(1), int32(4)
-			if tc.name == "paneBehind" {
-				pz, px = 0, 5
+			standExtendedPistonFacing(t, srv, true, tc.facing)
+			servertest.Setblock(t, actor, tc.at[0], tc.at[1], tc.at[2], tc.pulled)
+			servertest.Setblock(t, actor, tc.pane[0], tc.pane[1], tc.pane[2], "minecraft:"+tc.block)
+			sideAt := func(p pos) string {
+				_, props := servertest.StateProps(srv.BlockAt(p[0], p[1], p[2]))
+				return props[tc.side]
 			}
-			servertest.Setblock(t, actor, px, 64, pz, "minecraft:"+tc.block)
-			on := servertest.BlockStateWith(t, "minecraft:"+tc.block, tc.on)
-			if got := srv.BlockAt(px, 64, pz); got != on {
-				t.Fatalf("setup: %s = %d, want connected %d", tc.block, got, on)
+			if got := sideAt(tc.pane); got == tc.gone {
+				t.Fatalf("setup: %s %s = %q, want connected", tc.block, tc.side, got)
 			}
 			servertest.Setblock(t, actor, 2, 64, -1, "redstone_block")
 			servertest.RunTicks(t, srv, 1)
 			servertest.Setblock(t, actor, 2, 64, -1, "air")
-			off := servertest.BlockStateWith(t, "minecraft:"+tc.block, tc.off)
 			// The side drops in the tick the pull turns the pulled block's
 			// cell into its ride, not a tick later.
 			servertest.UntilTicks(t, srv, 6, "the pull's ride appears", func() bool {
-				name, _ := servertest.StateProps(srv.BlockAt(3, 64, 0))
+				name, _ := servertest.StateProps(srv.BlockAt(tc.ride[0], tc.ride[1], tc.ride[2]))
 				return name == "minecraft:moving_piston"
 			})
-			if got := srv.BlockAt(px, 64, pz); got != off {
-				t.Errorf("%s = %d when the pull began, want the side dropped %d", tc.block, got, off)
+			if got := sideAt(tc.pane); got != tc.gone {
+				t.Errorf("%s %s = %q when the pull began, want %q", tc.block, tc.side, got, tc.gone)
 			}
 		})
 	}
