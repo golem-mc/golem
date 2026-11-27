@@ -98,8 +98,12 @@ func MannequinDimensions(pose int32) (width, height float64) {
 // vanilla: LivingEntity.getDimensions, getScale
 func (m *Mannequin) Dimensions() (width, height float64) {
 	width, height = MannequinDimensions(m.Pose)
-	scale := float64(float32(m.Attributes.Value(registry.AttributeScale)))
-	return width * scale, height * scale
+	if m.Pose == protocol.PoseSleeping || m.Pose == protocol.PoseDying {
+		// fixed dimensions: EntityDimensions.scale returns itself
+		return width, height
+	}
+	scale := float32(m.Attributes.Value(registry.AttributeScale))
+	return float64(float32(width) * scale), float64(float32(height) * scale)
 }
 
 // CapFall is Entity.checkFallDistanceAccumulation.
