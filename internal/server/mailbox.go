@@ -216,25 +216,24 @@ func (c *client) dropsHiddenSystemChat(p outbound) bool {
 	return p.id == protocol.IDPlaySystemChat && c.chatMode.Load() == protocol.ChatModeHidden && len(p.data) > 0 && p.data[len(p.data)-1] == 0
 }
 
-// sendOutboundsIn queues entries[i] for each i in idx, all bound for c, in
-// order under one mailbox lock, with the filters, world check and limit of
+// sendOutboundsIn queues the entries, all bound for c, in order under one mailbox lock, with the filters, world check and limit of
 // sendOutboundIn.
-func (c *client) sendOutboundsIn(entries []sendEntry, idx []int32) {
+func (c *client) sendOutboundsIn(entries []sendEntry) {
 	m := c.out
 	if m == nil {
 		return
 	}
 	if c.sky.Load() != nil {
 		// skyFilter may take other locks, so it runs outside the mailbox's.
-		for _, i := range idx {
-			c.sendOutboundIn(entries[i].w, entries[i].p)
+		for _, e := range entries {
+			c.sendOutboundIn(e.w, e.p)
 		}
 		return
 	}
 	wake := false
 	soon := c.srv.tickFlushSoon()
 	m.mu.Lock()
-	for _, i := range idx {
+	for i := range entries {
 		e := &entries[i]
 		if c.dropsPlayerChat(e.p) || c.dropsHiddenSystemChat(e.p) {
 			continue
