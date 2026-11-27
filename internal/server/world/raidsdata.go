@@ -14,7 +14,7 @@ const raidsFile = "data/minecraft/raids.dat"
 // ReadRaids returns the data compound of the dimension's raids.dat, false
 // when none is saved or it does not read.
 func (w *World) ReadRaids() (nbt.Compound, bool) {
-	data, version, err := readSavedDataVersioned(w.storage, raidsFile, MaxSavedData, false)
+	data, version, err := readSavedDataVersion(w.storage, raidsFile, MaxSavedData, false)
 	switch {
 	case err == nil:
 		upgradeRaids(data, version)

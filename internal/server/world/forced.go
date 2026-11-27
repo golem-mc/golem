@@ -43,7 +43,7 @@ type forcedChunks struct {
 // one reads as no tickets.
 func (w *World) loadForcedChunks() {
 	w.forced = &forcedChunks{set: map[ChunkPos]struct{}{}}
-	data, version, err := readSavedDataVersioned(w.storage, chunkTicketsFile, MaxSavedData, false)
+	data, version, err := readSavedDataVersion(w.storage, chunkTicketsFile, MaxSavedData, false)
 	switch {
 	case errors.Is(err, errNoSavedData):
 		return
