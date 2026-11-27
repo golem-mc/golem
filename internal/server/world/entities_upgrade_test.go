@@ -96,3 +96,77 @@ func TestOlderEntityFilesAreUpgradedOnLoad(t *testing.T) {
 		t.Error("saving no entities over a refused entity file erased it")
 	}
 }
+
+// TestPre1205HorsesLlamasDonkeysAndWolvesAreUpgradedOnLoad checks a record at
+// 3700 has its horse armor moved to the body slot, a llama's carpet likewise,
+// a donkey's chest slots shifted down by two and a wolf's health doubled.
+// vanilla: HorseBodyArmorItemFix, ChestedHorsesInventoryZeroIndexingFix, FixWolfHealth
+func TestPre1205HorsesLlamasDonkeysAndWolvesAreUpgradedOnLoad(t *testing.T) {
+	w, err := NewWorld(t.TempDir(), NewFlatGenerator())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = w.Close() })
+	stack := func(id string) nbt.Compound { return nbt.Compound{"id": nbt.String(id), "Count": nbt.Byte(1)} }
+	list := func(items ...nbt.Tag) nbt.List { return nbt.List{Elem: items[0].Type(), Items: items} }
+	slotted := func(slot int8, id string) nbt.Tag {
+		s := stack(id)
+		s["Slot"] = nbt.Byte(slot)
+		return s
+	}
+	armor := stack("minecraft:iron_horse_armor")
+	horse := nbt.Compound{
+		"id":               nbt.String("horse"),
+		"ArmorItem":        armor,
+		"ArmorItems":       list(nbt.Compound{}, nbt.Compound{}, stack("minecraft:iron_horse_armor"), nbt.Compound{}),
+		"ArmorDropChances": list(nbt.Float(0.085), nbt.Float(0.085), nbt.Float(0.085), nbt.Float(0.085)),
+	}
+	llama := nbt.Compound{"id": nbt.String("minecraft:llama"), "DecorItem": stack("minecraft:white_carpet")}
+	donkey := nbt.Compound{
+		"id":    nbt.String("minecraft:donkey"),
+		"Items": list(slotted(2, "minecraft:stick"), slotted(16, "minecraft:apple")),
+	}
+	wolf := nbt.Compound{
+		"id":     nbt.String("minecraft:wolf"),
+		"Health": nbt.Float(15),
+		"Attributes": list(nbt.Compound{
+			"Name": nbt.String("minecraft:generic.max_health"), "Base": nbt.Double(20),
+		}),
+	}
+	plantEntityRoot(t, w, ChunkPos{}, nbt.Compound{
+		"DataVersion": nbt.Int(3700),
+		"Entities":    list(horse, llama, donkey, wolf),
+	})
+	got, _, err := w.LoadChunkEntities(ChunkPos{})
+	if err != nil || len(got) != 4 {
+		t.Fatalf("entities = %v, %v", got, err)
+	}
+	view := func(tag nbt.Tag) nbt.Compound {
+		c, ok := nbt.CompoundView(tag)
+		if !ok {
+			t.Fatalf("%v is not a compound", tag)
+		}
+		return c
+	}
+	equipment := func(e nbt.Tag) nbt.Compound { return view(view(e)["equipment"]) }
+	if eq := equipment(got[0]); eq["body"] == nil || eq["chest"] != nil {
+		t.Errorf("horse equipment = %v, want body armor and no chest item", eq)
+	}
+	if eq := equipment(got[1]); eq["body"] == nil {
+		t.Errorf("llama equipment = %v, want a body carpet", eq)
+	}
+	items, _ := nbt.Get[nbt.List](view(got[2]), "Items")
+	for i, want := range []nbt.Byte{0, 14} {
+		if s, _ := nbt.Get[nbt.Byte](view(items.Items[i]), "Slot"); s != want {
+			t.Errorf("donkey item %d slot = %d, want %d", i, s, want)
+		}
+	}
+	e := view(got[3])
+	if h, _ := nbt.Get[nbt.Float](e, "Health"); h != 30 {
+		t.Errorf("wolf Health = %v, want 30", h)
+	}
+	attributes, _ := nbt.Get[nbt.List](e, "attributes")
+	if len(attributes.Items) != 1 || nbt.DoubleFieldOr(view(attributes.Items[0]), "base", 0) != 40 {
+		t.Errorf("wolf attributes = %v, want max health base 40", attributes)
+	}
+}
