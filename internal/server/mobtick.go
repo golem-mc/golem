@@ -1,8 +1,6 @@
 package server
 
 import (
-	"github.com/golem-mc/golem/plugin"
-	"reflect"
 	"slices"
 
 	"github.com/golem-mc/golem/internal/protocol"
@@ -12,6 +10,7 @@ import (
 	"github.com/golem-mc/golem/internal/server/rules"
 	"github.com/golem-mc/golem/internal/server/world"
 	"github.com/golem-mc/golem/nbt"
+	"github.com/golem-mc/golem/plugin"
 	"github.com/golem-mc/golem/registry"
 	"github.com/google/uuid"
 )
@@ -1108,18 +1107,18 @@ func (h *mobHerd) MobUUID(m *entity.Mob) uuid.UUID {
 // teams. The map is shared and read-only; it is converted again only when
 // the board hands out a new snapshot.
 func (s *Server) teamCollisionRules() map[string]entity.CollisionRule {
-	rules := s.scoreboard.TeamCollisions()
+	rules, version := s.scoreboard.TeamCollisions()
 	if rules == nil {
 		return nil
 	}
 	s.collisionCache.Lock()
 	defer s.collisionCache.Unlock()
-	if reflect.ValueOf(rules).UnsafePointer() != reflect.ValueOf(s.collisionCache.src).UnsafePointer() {
+	if version != s.collisionCache.version || s.collisionCache.rules == nil {
 		out := make(map[string]entity.CollisionRule, len(rules))
 		for name, r := range rules {
 			out[name] = entity.CollisionRule(r)
 		}
-		s.collisionCache.src, s.collisionCache.rules = rules, out
+		s.collisionCache.version, s.collisionCache.rules = version, out
 	}
 	return s.collisionCache.rules
 }

@@ -253,7 +253,9 @@ type Board struct {
 	// TeamCollisions snapshots, nil once stale (see membersChanged).
 	members    map[string]string
 	collisions map[string]CollisionRule
-	dirty      bool
+	// version counts membersChanged calls.
+	version uint64
+	dirty   bool
 	// statObjectives is how many objectives count a statistic, so that an
 	// award with none to write takes no lock.
 	statObjectives atomic.Int32

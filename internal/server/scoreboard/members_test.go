@@ -9,15 +9,15 @@ import (
 // TeamCollisions snapshots are rebuilt after every write that changes them.
 func TestMemberSnapshotsFollowWrites(t *testing.T) {
 	b := New(func(Event) {})
-	if b.MemberTeams() != nil || b.TeamCollisions() != nil {
+	if b.MemberTeams() != nil || teamCollisionsOf(b) != nil {
 		t.Fatal("snapshots not nil on an empty board")
 	}
 	b.AddTeam("red", nil)
-	if got := b.TeamCollisions(); got["red"] != CollideAlways {
+	if got := teamCollisionsOf(b); got["red"] != CollideAlways {
 		t.Fatalf("collisions = %v", got)
 	}
 	b.UpdateTeam("red", func(tm *Team) { tm.Collision = CollideNever })
-	if got := b.TeamCollisions(); got["red"] != CollideNever {
+	if got := teamCollisionsOf(b); got["red"] != CollideNever {
 		t.Fatalf("collisions after update = %v", got)
 	}
 	b.JoinTeam("red", []string{"a", "b"})
@@ -37,7 +37,7 @@ func TestMemberSnapshotsFollowWrites(t *testing.T) {
 	if b.MemberTeams() != nil {
 		t.Fatalf("members after remove = %v", b.MemberTeams())
 	}
-	if got := b.TeamCollisions(); len(got) != 1 {
+	if got := teamCollisionsOf(b); len(got) != 1 {
 		t.Fatalf("collisions after remove = %v", got)
 	}
 }
@@ -55,6 +55,11 @@ func BenchmarkMemberTeams(b *testing.B) {
 	b.ResetTimer()
 	for range b.N {
 		board.MemberTeams()
-		board.TeamCollisions()
+		teamCollisionsOf(board)
 	}
+}
+
+func teamCollisionsOf(b *Board) map[string]CollisionRule {
+	rules, _ := b.TeamCollisions()
+	return rules
 }

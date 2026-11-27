@@ -233,12 +233,12 @@ func (b *Board) MemberTeams() map[string]string {
 
 // TeamCollisions maps each team's name to its collision rule, nil while there
 // are no teams. The map is a snapshot shared until the next change: callers
-// must not modify it.
-func (b *Board) TeamCollisions() map[string]CollisionRule {
+// must not modify it. The version changes whenever a new snapshot is built.
+func (b *Board) TeamCollisions() (map[string]CollisionRule, uint64) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	if len(b.teams) == 0 {
-		return nil
+		return nil, b.version
 	}
 	if b.collisions == nil {
 		b.collisions = make(map[string]CollisionRule, len(b.teams))
@@ -246,12 +246,15 @@ func (b *Board) TeamCollisions() map[string]CollisionRule {
 			b.collisions[t.Name] = t.Collision
 		}
 	}
-	return b.collisions
+	return b.collisions, b.version
 }
 
 // membersChanged drops the MemberTeams and TeamCollisions snapshots; every
 // write to teams, teamOf or a team's collision rule calls it.
-func (b *Board) membersChanged() { b.members, b.collisions = nil, nil }
+func (b *Board) membersChanged() {
+	b.members, b.collisions = nil, nil
+	b.version++
+}
 
 // AddTeam adds a team with a display name, answering false when the name is
 // taken. Clients are told the team under its own name first, then the

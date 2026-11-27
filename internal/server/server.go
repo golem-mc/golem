@@ -161,11 +161,11 @@ type Server struct {
 	// data/minecraft/scoreboard.dat.
 	scoreboard *scoreboard.Board
 	// collisionCache is teamCollisionRules' converted snapshot, valid while
-	// src is the board's current one.
+	// version is the board's current one.
 	collisionCache struct {
 		sync.Mutex
-		src   map[string]scoreboard.CollisionRule
-		rules map[string]entity.CollisionRule
+		version uint64
+		rules   map[string]entity.CollisionRule
 	}
 	// pluginScoreboards publishes immutable snapshots for tick and packet readers.
 	pluginScoreboards atomic.Pointer[[]*scoreboard.Board]
