@@ -2973,7 +2973,8 @@ type mobMovement struct {
 	seated   bool
 	head     uint8
 	headRead bool
-	// vel and headPkt are shared by every watcher that needs them.
+	// vel and headPkt are shared by every watcher that needs them; a
+	// mobMovement is declared fresh for each mob on each tracking tick.
 	vel, headPkt []byte
 }
 

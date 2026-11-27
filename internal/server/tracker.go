@@ -277,7 +277,9 @@ type trackedBody[B any, S any] struct {
 	broadcastRead bool
 	broadcastPct  int
 	// moved memoizes the last movePacket: a watcher whose baseline is
-	// movedFrom is owed the same packet and moves to movedTo.
+	// movedFrom is owed the same packet and moves to movedTo. A trackedBody
+	// is built by body() for one tracking tick, so the memo never outlives
+	// the tick's mt and position, which are fixed for every watcher.
 	movedFrom, movedTo trackedPosition
 	movedPkt           outbound
 	movedOK, movedSet  bool
