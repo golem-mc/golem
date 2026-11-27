@@ -88,6 +88,49 @@ func (h *mobHerd) mobsInArea(area chunkArea, indexed bool, yield func(*entity.Mo
 	}
 }
 
+// mobsNearBoxes yields each live mob filed within the padded chunk area of any
+// box once, or the whole herd when the areas cover more than 256 chunks. The
+// caller holds mobsMu and tests each mob against the boxes itself.
+func (h *mobHerd) mobsNearBoxes(boxes []entity.AABB, yield func(*entity.Mob) bool) {
+	var areas [8]chunkArea
+	areaList := areas[:0]
+	total := int64(0)
+	for i := range boxes {
+		b := boxes[i].Bounds()
+		a, ok := chunkAreaOf(&b)
+		if !ok {
+			h.mobsInArea(chunkArea{}, false, yield)
+			return
+		}
+		total += int64(a.maxX-a.minX+1) * int64(a.maxZ-a.minZ+1)
+		if total > 256 {
+			h.mobsInArea(chunkArea{}, false, yield)
+			return
+		}
+		areaList = append(areaList, a)
+	}
+	if h.nearSeen == nil {
+		h.nearSeen = make(map[world.ChunkPos]struct{})
+	}
+	defer clear(h.nearSeen)
+	for _, a := range areaList {
+		stop := false
+		a.each(func(pos world.ChunkPos) bool {
+			if _, dup := h.nearSeen[pos]; dup {
+				return true
+			}
+			h.nearSeen[pos] = struct{}{}
+			if !h.chunks.Visit(pos, yield) {
+				stop = true
+			}
+			return !stop
+		})
+		if stop {
+			return
+		}
+	}
+}
+
 func newEntityQuery(filters *command.EntityQuery) entityQuery {
 	return entityQuery{EntityQuery: filters, before: math.MaxInt32 + 1, after: math.MinInt32 - 1}
 }

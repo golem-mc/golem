@@ -134,18 +134,24 @@ var potShardRenames = map[string]string{
 
 // fixOldBlockEntity applies the block entity fixes between a chunk's data
 // version and the one decodeChunkNBT reads.
-func fixOldBlockEntity(entry nbt.CompoundTag, version int32) {
+//
+// It reports false for a block entity the current version no longer has.
+func fixOldBlockEntity(entry nbt.CompoundTag, version int32) bool {
 	if version == 0 {
-		return
+		return true
 	}
 	tag := entry.Entries()
 	id, _ := nbt.Get[nbt.String](tag, "id")
 	kind, _ := BlockEntityKindByName(string(id))
+	if version < bedBlockEntityVersion && string(id) == "minecraft:bed" {
+		// vanilla: RemoveBlockEntityTagFix
+		return false
+	}
 	if version < signsOpFlagVersion && IsSignKind(kind) {
 		tag["allow_op_features"] = nbt.Byte(1)
 	}
 	if version >= tooltipDisplayVersion {
-		return
+		return true
 	}
 	if version < storedItemVersion {
 		upgradeLegacyStacks(entry, version)
@@ -161,6 +167,7 @@ func fixOldBlockEntity(entry nbt.CompoundTag, version int32) {
 		}
 	}
 	fixStoredComponents(entry, version)
+	fixBlockEntityFields(string(id), kind, tag, version)
 	switch {
 	case string(id) == suspiciousSandID && version < brushableBlockVersion:
 		// vanilla: BlockEntityRenameFix, EntityBrushableBlockFieldsRenameFix
@@ -185,6 +192,40 @@ func fixOldBlockEntity(entry nbt.CompoundTag, version int32) {
 	}
 	if version < clickEventVersion && IsSignKind(kind) {
 		fixSignClickEvents(tag)
+	}
+	return true
+}
+
+// fixBlockEntityFields applies the block entity renames and reshapes of data
+// versions 3813 to 4068, in vanilla's order.
+func fixBlockEntityFields(id string, kind BlockEntityKind, tag nbt.Compound, version int32) {
+	if version < blockPosFormatVersion {
+		if kind == KindBeehive {
+			fixBlockPosField(tag, "FlowerPos", "flower_pos")
+		} else if id == "minecraft:end_gateway" {
+			fixBlockPosField(tag, "ExitPortal", "exit_portal")
+		}
+	}
+	switch kind {
+	case KindBeehive:
+		if version < beehiveRenameVersion {
+			fixBeehive(tag)
+		}
+	case KindBanner:
+		if version < bannerPatternVersion {
+			fixBannerPatterns(tag)
+		}
+	case KindSkull:
+		if version < playerHeadProfileVersion {
+			fixSkullProfile(tag)
+		}
+	case KindJukebox:
+		if version < jukeboxSongTicksVersion {
+			fixJukeboxTicks(tag)
+		}
+	}
+	if version < lockPredicateVersion {
+		fixContainerLock(tag)
 	}
 }
 
