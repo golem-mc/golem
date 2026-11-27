@@ -114,6 +114,7 @@ func (w *World) takeLoadedTicks() (loaded []loadedTick, unloaded []ChunkPos) {
 	defer w.mu.Unlock()
 	loaded, unloaded = w.pendingLoaded, w.unloadedChunks
 	w.pendingLoaded, w.unloadedChunks = nil, nil
+	w.unloadsPending.Store(false)
 	return loaded, unloaded
 }
 
@@ -135,6 +136,21 @@ func (w *World) dropChunkTicks(pos ChunkPos) {
 	}
 	w.pendingLoaded = kept
 	w.unloadedChunks = append(w.unloadedChunks, pos)
+	w.unloadsPending.Store(true)
+}
+
+// takeUnloads returns and clears the chunks unloaded since the last take,
+// without locking when there are none.
+func (w *World) takeUnloads() []ChunkPos {
+	if !w.unloadsPending.Load() {
+		return nil
+	}
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	unloaded := w.unloadedChunks
+	w.unloadedChunks = nil
+	w.unloadsPending.Store(false)
+	return unloaded
 }
 
 // prepareTick takes the unloads that must precede a new booking, with
@@ -145,6 +161,7 @@ func (w *World) prepareTick(x, z int32, dirty, takeLoaded bool) (loaded []loaded
 	pos := ChunkPos{X: x >> 4, Z: z >> 4}
 	w.mu.Lock()
 	unloaded, w.unloadedChunks = w.unloadedChunks, nil
+	w.unloadsPending.Store(false)
 	if takeLoaded {
 		loaded, w.pendingLoaded = w.pendingLoaded, nil
 	}

@@ -181,6 +181,37 @@ func TestUnloadingAChunkDropsItsQueuedTicks(t *testing.T) {
 	}
 }
 
+// TestPistonEventBookingTakesUnloadsFirst checks a piston event booked after a
+// chunk unloaded discards the events that chunk held.
+func TestPistonEventBookingTakesUnloadsFirst(t *testing.T) {
+	w, p, _ := newSavedWorld(t)
+	t.Cleanup(func() { w.Close() })
+	p.schedulePistonEvent(40, GroundLevel, 40, 1, 0)
+	key := blockKey{40, GroundLevel, 40}
+	p.mu.Lock()
+	_, booked := p.pendingEvent[key]
+	p.mu.Unlock()
+	if !booked {
+		t.Fatal("setup: the event was not booked")
+	}
+	pos := ChunkPos{X: 2, Z: 2}
+	w.Acquire(pos)
+	w.Release(pos)
+	w.Release(pos)
+	w.FlushSaves()
+	if w.ChunkLoaded(pos) {
+		t.Fatal("setup: the chunk is still loaded")
+	}
+	p.schedulePistonEvent(0, GroundLevel, 0, 1, 0)
+	p.mu.Lock()
+	_, stale := p.pendingEvent[key]
+	_, fresh := p.pendingEvent[blockKey{0, GroundLevel, 0}]
+	p.mu.Unlock()
+	if stale || !fresh {
+		t.Errorf("stale event kept = %v, new event booked = %v; want false, true", stale, fresh)
+	}
+}
+
 // fallsAfterReload removes the hold of a stalactite at (x, y, z), saves and
 // reloads the world and returns how many stalactites fall within 10 ticks.
 func fallsAfterReload(t *testing.T, waterlogged bool) int {
