@@ -791,7 +791,9 @@ func (s *Server) registerWake(woken wakeResult) {
 			s.resolveJockey(s.dimensionOfWorld(ent.w), ent)
 		}
 	}
-	s.relinkVexOwners()
+	if len(woken.mobs) > 0 {
+		s.relinkVexOwners()
+	}
 	for _, it := range woken.items {
 		s.registerItem(it)
 	}

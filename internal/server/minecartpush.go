@@ -212,17 +212,17 @@ func (s *Server) minecartPushInputs(clients []*client) *cartPushes {
 				}
 			}
 		}
-		for _, m := range h.herd {
+		h.mobsNearBoxes(wp.reach, func(m *entity.Mob) bool {
 			if m.Dead {
-				continue
+				return true
 			}
 			box := entity.NewAABB(m.BlastBox())
 			if !wp.inReach(box) {
-				continue
+				return true
 			}
-			ent := h.book[m]
+			ent := h.record(m)
 			if ent == nil {
-				continue
+				return true
 			}
 			var rootCart *minecartEntity
 			if root := h.book[m.RootVehicle()]; root != nil {
@@ -232,7 +232,8 @@ func (s *Server) minecartPushInputs(clients []*client) *cartPushes {
 			add(wp, cartPushBody{box: box, x: m.X, z: m.Z, ent: ent, team: m.Team, rule: m.TeamCollision,
 				golem: m.Type == entity.TypeIronGolem, seated: ent.seated(), pushes: m.PushesCarts(), pushable: pushable,
 				collides: pushable || m.CollidesWithAny(), rootCart: rootCart})
-		}
+			return true
+		})
 	}
 	s.unlockTick(&s.mobsMu)
 	return p
