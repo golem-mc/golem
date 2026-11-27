@@ -512,14 +512,6 @@ func (b *SpawnBodies) ensure() {
 		b.list = b.Build(b.list[:0])
 	}
 	b.grid.Reset()
-	if len(b.list) > 0 {
-		lo, hi := b.list[0], b.list[0]
-		for _, o := range b.list[1:] {
-			lo.MinX, lo.MinZ = min(lo.MinX, o.MinX), min(lo.MinZ, o.MinZ)
-			hi.MaxX, hi.MaxZ = max(hi.MaxX, o.MaxX), max(hi.MaxZ, o.MaxZ)
-		}
-		b.grid.SetPointBounds(lo.MinX, hi.MaxX, lo.MinZ, hi.MaxZ, len(b.list))
-	}
 	for i := range b.list {
 		b.grid.Add(int32(i), b.list[i].aabb())
 	}
