@@ -111,6 +111,10 @@ type Chunk struct {
 	// tickingCarried counts the trial spawners, vaults, beehives and end gateways among carriedBlockEntities.
 	tickingCarried  int
 	carriedEntities nbt.List
+
+	// levelEntities are the entities a chunk in the layout before 1.17 held,
+	// upgraded; loadChunk moves them to the entity store.
+	levelEntities []nbt.Tag
 	// carriedRoot is the unmodelled root tags (structure starts,
 	// PostProcessing, carving_mask, UpgradeData and the rest), kept as read so
 	// a save does not drop a vanilla world's villages and strongholds.

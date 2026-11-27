@@ -2163,8 +2163,30 @@ func (w *World) loadChunk(pos ChunkPos) (*Chunk, error) {
 	// nether and end clients would read past the end of their shorter chunks.
 	if chunk != nil {
 		w.encodeChunk(chunk)
+		w.importLevelEntities(pos, chunk)
 	}
 	return chunk, nil
+}
+
+// importLevelEntities hands the entities of a chunk saved before 1.17 to the
+// entity store unless it already holds an entry for the chunk (the entities
+// saved since, even none), so a chunk reloaded from its old record does not
+// bring back what a player removed.
+func (w *World) importLevelEntities(pos ChunkPos, c *Chunk) {
+	entities := c.levelEntities
+	c.levelEntities = nil
+	if len(entities) == 0 {
+		return
+	}
+	if _, pending := w.pendingChunkEntities(pos); pending {
+		return
+	}
+	if _, stored, err := w.LoadChunkEntities(pos); stored || err != nil {
+		return
+	}
+	if err := w.SaveChunkEntities(pos, entities); err != nil {
+		slog.Warn("could not move the entities of an old chunk to the entity store", "x", pos.X, "z", pos.Z, "error", err)
+	}
 }
 
 // withChunkRoot reads a chunk's stored NBT and hands it to read, relocated to

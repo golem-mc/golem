@@ -38,6 +38,10 @@ var levelRenames = [][2]string{
 	{"LiquidTicks", "fluid_ticks"}, {"Entities", "entities"}, {"Structures", "structures"},
 }
 
+// levelEntitiesKey is where unwrapLevelChunk leaves the entities a Level chunk
+// held: from 1.17 on they live in the entities/ region files.
+const levelEntitiesKey = "level_entities"
+
 // levelProtoKeys are the Level fields of a chunk still being generated; a full
 // chunk has no use for them and the new layout sizes them for 24 sections.
 // vanilla: ChunkHeightAndBiomeFix.updateChunkTag
@@ -46,8 +50,9 @@ var levelProtoKeys = []string{"Biomes", "Heightmaps", "CarvingMasks", "LiquidsTo
 // unwrapLevelChunk rewrites a chunk in the layout before 1.18 (everything
 // under a Level compound, one block palette and packed array per section, a
 // biome int array) in place to the 1.18 layout decodeChunkNBT reads. It
-// reports an unsupportedVersionError for a chunk holding entities or a
-// spawner, whose pre-1.20 formats are not upgraded.
+// reports an unsupportedVersionError for a chunk holding a spawner, or
+// entities from before entityDataVersionFloor, whose formats are not upgraded.
+// Entities of newer chunks move to levelEntitiesKey for decodeChunkNBT.
 //
 // Not carried over: the blending data and below-zero retrogeneration vanilla
 // adds for chunks of a noise world, which this server has no use for.
@@ -72,7 +77,11 @@ func unwrapLevelChunk(root nbt.Compound, version int32) error {
 		}
 	}
 	if entities, ok := nbt.Get[nbt.List](root, "entities"); ok && len(entities.Items) > 0 {
-		return &unsupportedVersionError{version: version}
+		if version < entityDataVersionFloor {
+			return &unsupportedVersionError{version: version}
+		}
+		delete(root, "entities")
+		root[levelEntitiesKey] = entities
 	}
 	if be, ok := nbt.Get[nbt.List](root, "block_entities"); ok {
 		for _, item := range be.Items {

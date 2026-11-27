@@ -1,6 +1,7 @@
 package world
 
 import (
+	"reflect"
 	"testing"
 
 	"github.com/golem-mc/golem/nbt"
@@ -84,7 +85,7 @@ func tagEqual(a, b nbt.Tag) bool {
 		}
 		return true
 	}
-	return a == b
+	return reflect.DeepEqual(a, b)
 }
 
 // TestUpgradeEntitiesFixesPassengers checks a boat's passenger shape.

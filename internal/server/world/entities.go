@@ -76,6 +76,9 @@ func upgradeEntities(entities nbt.List, version int32) {
 		if !ok {
 			continue
 		}
+		if version < oldEntityFixesEnd {
+			upgradeOldEntity(c, version)
+		}
 		if version < attributeIdPrefixVersion {
 			upgradeLegacyEntity(c, version)
 		}
