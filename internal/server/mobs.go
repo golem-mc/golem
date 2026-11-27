@@ -815,12 +815,13 @@ func (s *Server) finishReinforcement(call reinforcementCall) {
 	clients := s.clientsLocked()
 	s.mu.RUnlock()
 	players := spawnPlayersOf(clients, call.w)
-	bodies := &entity.SpawnBodies{Build: func(dst []entity.SpawnBody) []entity.SpawnBody {
-		return s.appendSpawnBodies(dst, dim, players)
-	}}
 	s.mobsMu.Lock()
 	kind, x, y, z := call.caller.Type, rules.BlockOf(call.caller.X), rules.BlockOf(call.caller.Y), rules.BlockOf(call.caller.Z)
 	s.mobsMu.Unlock()
+	area := entity.ReinforcementSpawnArea(kind, x, y, z)
+	bodies := &entity.SpawnBodies{Build: func(dst []entity.SpawnBody) []entity.SpawnBody {
+		return s.appendSpawnBodiesNear(dst, dim, players, area)
+	}}
 	sx, sy, sz, ok := entity.ReinforcementSite(call.w, entity.NewDice(call.seed), kind, x, y, z, players, bodies)
 	if !ok {
 		return

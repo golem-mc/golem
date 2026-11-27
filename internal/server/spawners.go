@@ -59,25 +59,28 @@ func (h *spawnerHost) Players() []entity.SpawnPlayer {
 	return h.players
 }
 
-func (h *spawnerHost) Bodies() []entity.SpawnBody { return h.s.spawnBodies(h.dim, h.Players()) }
+func (h *spawnerHost) Bodies(area entity.AABB) []entity.SpawnBody {
+	return h.s.appendSpawnBodiesNear(nil, h.dim, h.Players(), area)
+}
 
-func (h *spawnerHost) MobBodies(kind entity.MobType) []entity.SpawnBody {
+func (h *spawnerHost) MobBodies(kind entity.MobType, area entity.AABB) []entity.SpawnBody {
 	var bodies []entity.SpawnBody
 	add := func(m *entity.Mob) {
 		if m.Type != kind {
 			return
 		}
-		hw := m.BbWidth() / 2
-		bodies = append(bodies, entity.SpawnBody{
-			MinX: m.X - hw, MinY: m.Y, MinZ: m.Z - hw,
-			MaxX: m.X + hw, MaxY: m.Y + m.BbHeight(), MaxZ: m.Z + hw,
-		})
+		b := mobSpawnBody(m)
+		if bodyCrosses(b, area) {
+			bodies = append(bodies, b)
+		}
 	}
+	boxes := [1]entity.AABB{area}
 	h.s.mobsMu.Lock()
 	defer h.s.mobsMu.Unlock()
-	for _, m := range h.dim.mobs.herd {
+	h.dim.mobs.mobsNearBoxes(boxes[:], func(m *entity.Mob) bool {
 		add(m)
-	}
+		return true
+	})
 	for _, corpse := range h.dim.mobs.dying {
 		add(corpse.ent.mob)
 	}

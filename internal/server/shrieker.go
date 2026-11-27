@@ -239,7 +239,7 @@ func (s *Server) summonShriekerWarden(w *world.World, x, y, z int32) bool {
 		clients = append(clients, c)
 	}
 	s.mu.RUnlock()
-	bodies := s.spawnBodies(dim, spawnPlayersOf(clients, w))
+	bodies := s.appendSpawnBodiesNear(nil, dim, spawnPlayersOf(clients, w), entity.WardenSpawnArea(x, y, z))
 	sx, sy, sz, ok := entity.FindWardenSpawnSpot(w, x, y, z, s.levelRng.Intn, bodies)
 	if !ok {
 		return false

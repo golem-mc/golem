@@ -267,6 +267,18 @@ func (s *Server) spawnBodies(dim *dimension, players []entity.SpawnPlayer) []ent
 	return s.appendSpawnBodies(nil, dim, players)
 }
 
+func mobSpawnBody(m *entity.Mob) entity.SpawnBody {
+	hw := m.BbWidth() / 2
+	return entity.SpawnBody{
+		MinX: m.X - hw, MinY: m.Y, MinZ: m.Z - hw,
+		MaxX: m.X + hw, MaxY: m.Y + m.BbHeight(), MaxZ: m.Z + hw,
+	}
+}
+
+func bodyCrosses(b entity.SpawnBody, area entity.AABB) bool {
+	return area.Crosses(entity.NewAABB(b.MinX, b.MinY, b.MinZ, b.MaxX, b.MaxY, b.MaxZ))
+}
+
 // appendSpawnBodies is spawnBodies appending to dst, so a caller can reuse
 // the backing slice.
 func (s *Server) appendSpawnBodies(bodies []entity.SpawnBody, dim *dimension, players []entity.SpawnPlayer) []entity.SpawnBody {
@@ -281,20 +293,13 @@ func (s *Server) appendSpawnBodies(bodies []entity.SpawnBody, dim *dimension, pl
 			MaxX: p.X + hw, MaxY: p.Y + p.Height, MaxZ: p.Z + hw,
 		})
 	}
-	mobBox := func(m *entity.Mob) entity.SpawnBody {
-		hw := m.BbWidth() / 2
-		return entity.SpawnBody{
-			MinX: m.X - hw, MinY: m.Y, MinZ: m.Z - hw,
-			MaxX: m.X + hw, MaxY: m.Y + m.BbHeight(), MaxZ: m.Z + hw,
-		}
-	}
 	lockedDo(&s.mobsMu, func() {
 		for _, m := range dim.mobs.herd {
-			bodies = append(bodies, mobBox(m))
+			bodies = append(bodies, mobSpawnBody(m))
 		}
 		// A corpse keeps its box for the twenty ticks its death animation runs.
 		for _, corpse := range dim.mobs.dying {
-			bodies = append(bodies, mobBox(corpse.ent.mob))
+			bodies = append(bodies, mobSpawnBody(corpse.ent.mob))
 		}
 	})
 
@@ -354,6 +359,100 @@ func (s *Server) appendSpawnBodies(bodies []entity.SpawnBody, dim *dimension, pl
 			}
 			minX, minY, minZ, maxX, maxY, maxZ := ent.crystal.BlastBox()
 			bodies = append(bodies, entity.SpawnBody{
+				MinX: minX, MinY: minY, MinZ: minZ,
+				MaxX: maxX, MaxY: maxY, MaxZ: maxZ,
+			})
+		}
+	})
+	return bodies
+}
+
+// appendSpawnBodiesNear is appendSpawnBodies restricted to bodies whose box
+// intersects area, reading mobs through the chunk index.
+func (s *Server) appendSpawnBodiesNear(bodies []entity.SpawnBody, dim *dimension, players []entity.SpawnPlayer, area entity.AABB) []entity.SpawnBody {
+	add := func(b entity.SpawnBody) {
+		if bodyCrosses(b, area) {
+			bodies = append(bodies, b)
+		}
+	}
+	for i := range players {
+		p := &players[i]
+		if p.Spectator {
+			continue
+		}
+		hw := p.Width / 2
+		add(entity.SpawnBody{
+			MinX: p.X - hw, MinY: p.Y, MinZ: p.Z - hw,
+			MaxX: p.X + hw, MaxY: p.Y + p.Height, MaxZ: p.Z + hw,
+		})
+	}
+	boxes := [1]entity.AABB{area}
+	lockedDo(&s.mobsMu, func() {
+		dim.mobs.mobsNearBoxes(boxes[:], func(m *entity.Mob) bool {
+			add(mobSpawnBody(m))
+			return true
+		})
+		for _, corpse := range dim.mobs.dying {
+			add(mobSpawnBody(corpse.ent.mob))
+		}
+	})
+
+	lockedDo(&s.tntMu, func() {
+		for _, it := range s.tnts {
+			if it.w != dim.w || it.tnt.Dead {
+				continue
+			}
+			add(entity.SpawnBody{
+				MinX: it.tnt.X - entity.TNTHalfWidth, MinY: it.tnt.Y, MinZ: it.tnt.Z - entity.TNTHalfWidth,
+				MaxX: it.tnt.X + entity.TNTHalfWidth, MaxY: it.tnt.Y + entity.TNTHeight, MaxZ: it.tnt.Z + entity.TNTHalfWidth,
+			})
+		}
+	})
+
+	lockedDo(&s.fallingMu, func() {
+		for _, it := range s.fallings {
+			if it.w != dim.w || it.fb.Dead {
+				continue
+			}
+			add(entity.SpawnBody{
+				MinX: it.fb.X - entity.FallingHalfWidth, MinY: it.fb.Y, MinZ: it.fb.Z - entity.FallingHalfWidth,
+				MaxX: it.fb.X + entity.FallingHalfWidth, MaxY: it.fb.Y + entity.FallingHeight, MaxZ: it.fb.Z + entity.FallingHalfWidth,
+			})
+		}
+	})
+
+	lockedDo(&s.boatsMu, func() {
+		for _, it := range s.boats {
+			if it.w != dim.w || it.boat.Dead {
+				continue
+			}
+			add(entity.SpawnBody{
+				MinX: it.boat.X - entity.BoatHalfWidth, MinY: it.boat.Y, MinZ: it.boat.Z - entity.BoatHalfWidth,
+				MaxX: it.boat.X + entity.BoatHalfWidth, MaxY: it.boat.Y + entity.BoatHeight, MaxZ: it.boat.Z + entity.BoatHalfWidth,
+			})
+		}
+	})
+
+	lockedDo(&s.minecartsMu, func() {
+		for _, it := range s.minecarts {
+			if it.w != dim.w || it.cart.Dead {
+				continue
+			}
+			minX, minY, minZ, maxX, maxY, maxZ := it.cart.Box()
+			add(entity.SpawnBody{
+				MinX: minX, MinY: minY, MinZ: minZ,
+				MaxX: maxX, MaxY: maxY, MaxZ: maxZ,
+			})
+		}
+	})
+
+	lockedDo(&s.endCrystalsMu, func() {
+		for _, ent := range s.endCrystals {
+			if ent.w != dim.w || ent.crystal.Dead {
+				continue
+			}
+			minX, minY, minZ, maxX, maxY, maxZ := ent.crystal.BlastBox()
+			add(entity.SpawnBody{
 				MinX: minX, MinY: minY, MinZ: minZ,
 				MaxX: maxX, MaxY: maxY, MaxZ: maxZ,
 			})
