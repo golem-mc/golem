@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	"github.com/golem-mc/golem/nbt"
+	"github.com/golem-mc/golem/registry"
 )
 
 // Data versions of the entity fixes of 1.21.2 and later, each the version a
@@ -121,20 +122,21 @@ func splitBoat(entries nbt.Compound, id string) {
 // vanilla: InlineBlockPosFormatFix
 func inlineBlockPos(entries nbt.Compound, id string) {
 	fixInlineBlockPos(entries, "SleepingX", "SleepingY", "SleepingZ", "sleeping_pos")
-	switch id {
-	case "minecraft:vex":
+	kind, _ := registry.EntityTypeByName(id)
+	switch kind {
+	case registry.EntityTypeVex:
 		renameField(entries, "LifeTicks", "life_ticks")
 		fixInlineBlockPos(entries, "BoundX", "BoundY", "BoundZ", "bound_pos")
-	case "minecraft:phantom":
+	case registry.EntityTypePhantom:
 		renameField(entries, "Size", "size")
 		fixInlineBlockPos(entries, "AX", "AY", "AZ", "anchor_pos")
-	case "minecraft:turtle":
+	case registry.EntityTypeTurtle:
 		renameField(entries, "HasEgg", "has_egg")
 		fixInlineBlockPos(entries, "HomePosX", "HomePosY", "HomePosZ", "home_pos")
 		delete(entries, "TravelPosX")
 		delete(entries, "TravelPosY")
 		delete(entries, "TravelPosZ")
-	case "minecraft:item_frame", "minecraft:glow_item_frame", "minecraft:painting", "minecraft:leash_knot":
+	case registry.EntityTypeItemFrame, registry.EntityTypeGlowItemFrame, registry.EntityTypePainting, registry.EntityTypeLeashKnot:
 		fixInlineBlockPos(entries, "TileX", "TileY", "TileZ", "block_pos")
 	}
 }
