@@ -194,7 +194,7 @@ func (c *client) sendOutboundIn(w *world.World, p outbound) bool {
 // filterOutbound applies the per-packet filters; ok is false for a packet
 // this client is not sent.
 func (c *client) filterOutbound(p outbound) (_ outbound, ok bool) {
-	if p.playerChat && !c.acceptsChatMessages() {
+	if c.dropsPlayerChat(p) {
 		return p, false
 	}
 	if c.sky.Load() != nil {
@@ -204,35 +204,41 @@ func (c *client) filterOutbound(p outbound) (_ outbound, ok bool) {
 		}
 		p.data = data
 	}
-	// vanilla: ServerPlayer.acceptsSystemMessages
-	if p.id == protocol.IDPlaySystemChat && c.chatMode.Load() == protocol.ChatModeHidden && len(p.data) > 0 && p.data[len(p.data)-1] == 0 {
-		return p, false
-	}
-	return p, true
+	return p, !c.dropsHiddenSystemChat(p)
 }
 
-// sendOutboundsIn queues the entries, all bound for c, in order under one
-// mailbox lock, with the filters, world check and limit of sendOutboundIn.
-// It reuses entries as scratch.
-func (c *client) sendOutboundsIn(entries []sendEntry) {
+func (c *client) dropsPlayerChat(p outbound) bool {
+	return p.playerChat && !c.acceptsChatMessages()
+}
+
+// vanilla: ServerPlayer.acceptsSystemMessages
+func (c *client) dropsHiddenSystemChat(p outbound) bool {
+	return p.id == protocol.IDPlaySystemChat && c.chatMode.Load() == protocol.ChatModeHidden && len(p.data) > 0 && p.data[len(p.data)-1] == 0
+}
+
+// sendOutboundsIn queues entries[i] for each i in idx, all bound for c, in
+// order under one mailbox lock, with the filters, world check and limit of
+// sendOutboundIn.
+func (c *client) sendOutboundsIn(entries []sendEntry, idx []int32) {
 	m := c.out
 	if m == nil {
 		return
 	}
-	kept := entries[:0]
-	for _, e := range entries {
-		if p, ok := c.filterOutbound(e.p); ok {
-			e.p = p
-			kept = append(kept, e)
+	if c.sky.Load() != nil {
+		// skyFilter may take other locks, so it runs outside the mailbox's.
+		for _, i := range idx {
+			c.sendOutboundIn(entries[i].w, entries[i].p)
 		}
-	}
-	if len(kept) == 0 {
 		return
 	}
 	wake := false
 	soon := c.srv.tickFlushSoon()
 	m.mu.Lock()
-	for _, e := range kept {
+	for _, i := range idx {
+		e := &entries[i]
+		if c.dropsPlayerChat(e.p) || c.dropsHiddenSystemChat(e.p) {
+			continue
+		}
 		if e.w != nil && c.theWorld() != e.w {
 			continue
 		}

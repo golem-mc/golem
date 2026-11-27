@@ -506,10 +506,11 @@ func (l *sendList) drain(f func(c *client, p outbound)) {
 	l.entries = nil
 }
 
-// sendScratch is the bucketed copy of a list and its per-slot counts.
+// sendScratch is a list's entry indices grouped by recipient and the
+// per-slot counts that place them.
 type sendScratch struct {
-	entries []sendEntry
-	starts  []int
+	order  []int32
+	starts []int
 }
 
 var sendScratches = sync.Pool{New: func() any { return new(sendScratch) }}
@@ -523,36 +524,35 @@ func (l *sendList) send() {
 	src := *l.entries
 	sc := sendScratches.Get().(*sendScratch)
 	top := 0
-	for _, e := range src {
-		top = max(top, e.to.slot)
+	for i := range src {
+		top = max(top, src[i].to.slot)
 	}
 	sc.starts = append(sc.starts[:0], make([]int, top+2)...)
-	for _, e := range src {
-		sc.starts[e.to.slot+1]++
+	for i := range src {
+		sc.starts[src[i].to.slot+1]++
 	}
 	for i := 1; i < len(sc.starts); i++ {
 		sc.starts[i] += sc.starts[i-1]
 	}
-	sc.entries = append(sc.entries[:0], src...)
-	for _, e := range src {
-		i := &sc.starts[e.to.slot]
-		sc.entries[*i] = e
-		*i++
+	sc.order = append(sc.order[:0], make([]int32, len(src))...)
+	for i := range src {
+		at := &sc.starts[src[i].to.slot]
+		sc.order[*at] = int32(i)
+		*at++
 	}
-	// starts[s] is now the end of slot s's bucket. Clients that share a slot
-	// (none joined) stay apart by the run of the same recipient.
-	for i := 0; i < len(sc.entries); {
+	// Clients sharing a slot (none that are joined) stay apart by runs of
+	// the same recipient.
+	for i := 0; i < len(sc.order); {
+		to := src[sc.order[i]].to
 		j := i + 1
-		for j < len(sc.entries) && sc.entries[j].to == sc.entries[i].to {
+		for j < len(sc.order) && src[sc.order[j]].to == to {
 			j++
 		}
-		sc.entries[i].to.sendOutboundsIn(sc.entries[i:j])
+		to.sendOutboundsIn(src, sc.order[i:j])
 		i = j
 	}
-	// Cleared, so a pooled list holds no client or payload alive.
-	clear(sc.entries)
-	sc.entries = sc.entries[:0]
 	sendScratches.Put(sc)
+	// Cleared, so a pooled list holds no client or payload alive.
 	clear(src)
 	*l.entries = src[:0]
 	sendEntries.Put(l.entries)
