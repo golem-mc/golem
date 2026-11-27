@@ -6,6 +6,7 @@ var (
 	ItemTagIDArrows                        = mustItemTag("minecraft:arrows")
 	ItemTagIDAxes                          = mustItemTag("minecraft:axes")
 	ItemTagIDAxolotlFood                   = mustItemTag("minecraft:axolotl_food")
+	ItemTagIDBanners                       = mustItemTag("minecraft:banners")
 	ItemTagIDBeaconPaymentItems            = mustItemTag("minecraft:beacon_payment_items")
 	ItemTagIDBeeFood                       = mustItemTag("minecraft:bee_food")
 	ItemTagIDBoats                         = mustItemTag("minecraft:boats")

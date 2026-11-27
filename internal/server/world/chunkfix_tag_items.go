@@ -22,6 +22,32 @@ var (
 	dyeNames = []string{"white", "orange", "magenta", "light_blue", "yellow", "lime", "pink", "gray", "light_gray", "cyan", "purple", "blue", "brown", "green", "red", "black"}
 )
 
+// dyeName is the name of a dye colour id; an unknown id is white.
+// vanilla: ExtraDataFixUtils.dyeColorIdToName
+func dyeName(id int32) string {
+	if id >= 0 && int(id) < len(dyeNames) {
+		return dyeNames[id]
+	}
+	return "white"
+}
+
+// fixBlockPos turns a {X, Y, Z} position into an int array; anything else
+// stays as it is.
+// vanilla: ExtraDataFixUtils.fixBlockPos
+func fixBlockPos(tag nbt.Tag) nbt.Tag {
+	p, ok := nbt.CompoundView(tag)
+	if !ok {
+		return tag
+	}
+	x, okX := nbt.IntValue(p["X"])
+	y, okY := nbt.IntValue(p["Y"])
+	z, okZ := nbt.IntValue(p["Z"])
+	if !okX || !okY || !okZ {
+		return tag
+	}
+	return nbt.IntArray{x, y, z}
+}
+
 // componentizeBlockEntityTag turns a stack's BlockEntityTag into the
 // components of the block entity's kind; what is left becomes
 // minecraft:block_entity_data (kept with its id).
@@ -71,16 +97,13 @@ func componentizeBlockEntityTag(c, tag nbt.Compound, itemID string) {
 			c["minecraft:container"] = nbt.ListOf([]nbt.Tag{nbt.Compound{"slot": nbt.Int(0), "item": item}})
 		}
 	case name == "minecraft:banner":
+		fixBannerPatterns(be)
 		if v, ok := takeKey(be, "patterns"); ok {
 			c["minecraft:banner_patterns"] = v
 		}
 		if base, ok := takeKey(be, "Base"); ok {
 			if n, isNum := nbt.IntValue(base); isNum {
-				color := "white"
-				if n >= 0 && int(n) < len(dyeNames) {
-					color = dyeNames[n]
-				}
-				c["minecraft:base_color"] = nbt.String(color)
+				c["minecraft:base_color"] = nbt.String(dyeName(n))
 			}
 		}
 	case slices.Contains(containerBEs, name):
@@ -254,6 +277,9 @@ func componentizeItemKind(c, tag nbt.Compound, id string) {
 			comp := nbt.Compound{}
 			if hasPos && hasDim {
 				comp["target"] = nbt.Compound{"pos": pos, "dimension": dim}
+			}
+			if p, ok := comp["target"].(nbt.Compound); ok {
+				p["pos"] = fixBlockPos(p["pos"])
 			}
 			if hasTracked && !boolValue(tracked) {
 				comp["tracked"] = nbt.Byte(0)
