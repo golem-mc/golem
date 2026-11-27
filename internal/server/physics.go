@@ -502,6 +502,9 @@ func (s *Server) physicsResults(dim *dimension, changes []world.BlockChange, fal
 	for i := range changes {
 		s.reconnectShapes(dim.w, changes[i].X, changes[i].Y, changes[i].Z)
 	}
+	for _, c := range dim.physics.TakeRideCells() {
+		s.reconnectShapes(dim.w, c[0], c[1], c[2])
+	}
 	s.updatePortalsNear(dim.w, changes)
 	// Bodies spawn after the block change clearing their cell, so the queue
 	// goes out first.

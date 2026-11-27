@@ -57,3 +57,60 @@ func TestAConnectingBlockLosesTheSideAPistonPullsAway(t *testing.T) {
 		})
 	}
 }
+
+// A connecting block beside a cell that turns into a ride because the block
+// above it moves in (the middle of a pushed column) drops that side in the
+// tick the push begins, and keeps it dropped while the column travels.
+func TestAConnectingBlockLosesTheSideOfACellAPushedColumnEnters(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct{ name, block, side string }{
+		{"pane", "glass_pane", "south"},
+		{"bars", "iron_bars", "south"},
+		{"fence", "oak_fence", "south"},
+		{"wall", "cobblestone_wall", "south"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			srv, connect := servertest.Start(t, servertest.BlockTestConfig(), servertest.OpsListing(t, "Actor"))
+			actor := connect().Join("Actor")
+			servertest.HoldTicks(t, srv)
+			// A retracted piston at (2,64,0) facing up pushes the dirt at
+			// (2,65,0) and (2,66,0); the second's cell takes the first's ride.
+			if !srv.SetBlock(2, 64, 0, servertest.BlockStateWith(t, "minecraft:piston", "extended=false,facing=up")) {
+				t.Fatal("the piston's chunk was not loaded")
+			}
+			servertest.Setblock(t, actor, 2, 65, 0, "dirt")
+			servertest.Setblock(t, actor, 2, 66, 0, "dirt")
+			servertest.Setblock(t, actor, 2, 66, -1, "minecraft:"+tc.block)
+			side := func() string {
+				_, props := servertest.StateProps(srv.BlockAt(2, 66, -1))
+				return props[tc.side]
+			}
+			if got := side(); got == "false" || got == "none" {
+				t.Fatalf("setup: %s %s = %q, want connected", tc.block, tc.side, got)
+			}
+			servertest.Setblock(t, actor, 2, 64, 1, "redstone_block")
+			servertest.RunTicks(t, srv, 1)
+			servertest.Setblock(t, actor, 2, 64, 1, "air")
+			servertest.UntilTicks(t, srv, 6, "the push's ride appears", func() bool {
+				name, _ := servertest.StateProps(srv.BlockAt(2, 66, 0))
+				return name == "minecraft:moving_piston"
+			})
+			gone := "false"
+			if tc.block == "cobblestone_wall" {
+				gone = "none"
+			}
+			// The ride lasts two ticks; the landed block then reconnects.
+			for i := range 2 {
+				if got := side(); got != gone {
+					t.Fatalf("%s %s = %q on tick %d of the push, want %q", tc.block, tc.side, got, i, gone)
+				}
+				servertest.RunTicks(t, srv, 1)
+			}
+			servertest.RunTicks(t, srv, 2)
+			if got := side(); got == gone {
+				t.Errorf("%s %s = %q after the dirt landed, want connected", tc.block, tc.side, got)
+			}
+		})
+	}
+}

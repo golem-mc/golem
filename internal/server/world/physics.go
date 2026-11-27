@@ -668,6 +668,7 @@ type Physics struct {
 	ghastBooked map[blockKey]bool
 
 	tadpoleHatches  []TadpoleHatch
+	rideCells       [][3]int32
 	frogspawnBooked map[blockKey]bool
 	snifferHatches  []SnifferHatch
 	// snifferEggBooked marks eggs with their next stage booked.
