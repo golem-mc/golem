@@ -348,7 +348,10 @@ func (s *Server) killCloud(it *cloudEntity) {
 // teleportCloud moves a cloud; the tick tells its viewers.
 // vanilla: Entity.teleportTo, ServerEntity.sendChanges
 func (s *Server) teleportCloud(it *cloudEntity, to player.Position, by string) {
-	cloudTracker.teleport(s, it, func() { it.cloud.SetPos(to.X, to.Y, to.Z) })
+	cloudTracker.teleport(s, it, func() {
+		it.cloud.SetPos(to.X, to.Y, to.Z)
+		it.look.yaw, it.look.pitch = to.Yaw, to.Pitch
+	})
 }
 
 // cloudTwinAt builds the cloud continuing this one in another dimension at

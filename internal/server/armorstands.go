@@ -1132,7 +1132,7 @@ func (s *Server) teleportArmorStand(ent *armorStandEntity, to player.Position, b
 	standTracker.teleport(s, ent, func() {
 		ent.stand.SetPos(to.X, to.Y, to.Z)
 		ent.stand.VX, ent.stand.VY, ent.stand.VZ = 0, 0, 0
-		ent.stand.Yaw = to.Yaw
+		ent.stand.Yaw, ent.look.pitch = to.Yaw, to.Pitch
 		if command {
 			ent.stand.OnGround = true
 		}

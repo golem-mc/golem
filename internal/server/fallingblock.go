@@ -597,6 +597,7 @@ func (s *Server) teleportFallingBlock(it *fallingEntity, to player.Position, by 
 	fallingTracker.teleport(s, it, func() {
 		it.fb.SetPos(to.X, to.Y, to.Z)
 		it.fb.VX, it.fb.VY, it.fb.VZ = 0, 0, 0
+		it.look.yaw, it.look.pitch = to.Yaw, to.Pitch
 	})
 	logTeleported("falling block", to, by)
 }

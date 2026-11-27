@@ -486,7 +486,7 @@ func endCrystalTag(ent *endCrystalEntity) *nbt.OrderedCompound {
 
 func endCrystalTagAs(ent *endCrystalEntity, id string) *nbt.OrderedCompound {
 	c := ent.crystal
-	tag := orderedEntityBaseTag(id, c.X, c.Y, c.Z, c.VX, c.VY, c.VZ, 0, ent.look.pitch, ent.uuid, false, 0, 0, 0)
+	tag := orderedEntityBaseTag(id, c.X, c.Y, c.Z, c.VX, c.VY, c.VZ, ent.look.yaw, ent.look.pitch, ent.uuid, false, 0, 0, 0)
 	putEntityOptions(tag, ent.custom, c.Silent, false, ent.look.dataOnly(), ent.tags)
 	tag.Set("fall_distance", nbt.Double(c.FallDistance))
 	tag.Set("Invulnerable", boolTag(c.Invulnerable))
@@ -561,7 +561,10 @@ func (s *Server) killEndCrystal(ent *endCrystalEntity) {
 // teleportEndCrystal moves a crystal and marks it for the next tracking pass.
 // vanilla: Entity.teleportTo
 func (s *Server) teleportEndCrystal(ent *endCrystalEntity, to player.Position, by string) {
-	endCrystalTracker.teleport(s, ent, func() { ent.crystal.SetPos(to.X, to.Y, to.Z) })
+	endCrystalTracker.teleport(s, ent, func() {
+		ent.crystal.SetPos(to.X, to.Y, to.Z)
+		ent.look.yaw, ent.look.pitch = to.Yaw, to.Pitch
+	})
 }
 
 func (s *Server) endCrystalSnapshot(ent *endCrystalEntity, q *entityQuery) *entitySnapshot {
@@ -574,7 +577,7 @@ func (s *Server) endCrystalSnapshot(ent *endCrystalEntity, q *entityQuery) *enti
 		return nil
 	}
 	e := s.snapshot(q, ent.tags, ent, c.ID, typ, "End Crystal", ent.uuid,
-		s.dimensionOfWorld(ent.w).name, player.Position{X: c.X, Y: c.Y, Z: c.Z}, box6(c.BlastBox()))
+		s.dimensionOfWorld(ent.w).name, player.Position{X: c.X, Y: c.Y, Z: c.Z, Yaw: ent.look.yaw, Pitch: ent.look.pitch}, box6(c.BlastBox()))
 	if e == nil {
 		return nil
 	}

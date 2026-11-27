@@ -16,11 +16,12 @@ type entityLook struct {
 	// vanilla: Entity.customData
 	customData nbt.Compound
 	// airOffset is Air minus its default, so the zero value is the default.
-	airOffset int16
-	// fallDistance is Entity.fallDistance, kept for a kind whose physics do
-	// not use it; pitch is the saved Rotation[1] for a kind that never turns.
+	airOffset    int16
 	fallDistance float64
-	pitch        float32
+	// yaw and pitch are the saved Rotation of a kind that never turns. A
+	// kind with a yaw of its own (boat, cart, armor stand) keeps only the pitch
+	// here. vanilla: Entity.yRot, Entity.xRot
+	yaw, pitch float32
 }
 
 // dataOnly is the look reduced to what a kind with no presentation flags
@@ -34,6 +35,7 @@ func (l entityLook) air() int16 { return defaultAirSupply + l.airOffset }
 
 // entityLookOf reads a compound's presentation flags.
 func entityLookOf(compound nbt.Compound) entityLook {
+	yaw, pitch := entityRotationOfTag(compound)
 	return entityLook{
 		silent:     nbt.BoolField(compound, "Silent"),
 		glowing:    nbt.BoolField(compound, "Glowing"),
@@ -45,7 +47,8 @@ func entityLookOf(compound nbt.Compound) entityLook {
 		customData:   customDataOfTag(compound),
 		airOffset:    airOffsetOfTag(compound),
 		fallDistance: nbt.DoubleFieldOr(compound, "fall_distance", 0),
-		pitch:        pitchOfTag(compound),
+		yaw:          yaw,
+		pitch:        pitch,
 	}
 }
 
@@ -65,11 +68,6 @@ func airOffsetOfTag(compound nbt.Compound) int16 {
 		return 0
 	}
 	return int16(air) - defaultAirSupply
-}
-
-func pitchOfTag(compound nbt.Compound) float32 {
-	_, pitch := entityRotationOfTag(compound)
-	return pitch
 }
 
 // putBase replaces the Air and fall_distance a base compound starts with.

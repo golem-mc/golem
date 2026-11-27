@@ -155,7 +155,7 @@ func itemTagAs(ent *itemEntity, id string) *nbt.OrderedCompound {
 	tag := orderedEntityBaseTag(id,
 		it.X, it.Y-entity.ItemHalfSize, it.Z,
 		it.VX, it.VY, it.VZ,
-		0, 0, ent.uuid, it.OnGround, ent.portal.Cooldown, restingFire, it.InvulnerableTime)
+		ent.look.yaw, ent.look.pitch, ent.uuid, it.OnGround, ent.portal.Cooldown, restingFire, it.InvulnerableTime)
 	putEntityOptions(tag, ent.custom, ent.look.silent, it.NoGravity, ent.look, ent.tags)
 	tag.Set("Invulnerable", boolTag(it.Invulnerable))
 	tag.Set("Health", nbt.Short(clampToShort(it.Health)))
@@ -269,7 +269,7 @@ func orbTagAs(ent *orbEntity, id string) *nbt.OrderedCompound {
 	o := ent.orb
 	tag := orderedEntityBaseTag(id,
 		o.X, o.Y, o.Z, o.VX, o.VY, o.VZ,
-		0, ent.look.pitch, ent.uuid, o.OnGround, ent.portal.Cooldown, restingFire, 0)
+		ent.look.yaw, ent.look.pitch, ent.uuid, o.OnGround, ent.portal.Cooldown, restingFire, 0)
 	putEntityOptions(tag, ent.custom, ent.look.silent, o.NoGravity, ent.look, ent.tags)
 	tag.Set("Invulnerable", boolTag(ent.look.invulnerable))
 	tag.Set("Health", nbt.Short(clampToShort(o.Health)))
@@ -289,7 +289,7 @@ func tntTagAs(ent *tntEntity, id string) *nbt.OrderedCompound {
 	t := ent.tnt
 	tag := orderedEntityBaseTag(id,
 		t.X, t.Y, t.Z, t.VX, t.VY, t.VZ,
-		0, 0, ent.uuid, t.OnGround, ent.portal.Cooldown, restingFire, 0)
+		ent.look.yaw, ent.look.pitch, ent.uuid, t.OnGround, ent.portal.Cooldown, restingFire, 0)
 	putEntityOptions(tag, ent.custom, t.Silent, t.NoGravity, ent.look, ent.tags)
 	tag.Set("Invulnerable", boolTag(ent.look.invulnerable))
 	tag.Set("fuse", nbt.Short(clampToShort(t.Fuse)))
@@ -316,7 +316,7 @@ func fallingTagAs(ent *fallingEntity, id string) *nbt.OrderedCompound {
 	f := ent.fb
 	tag := orderedEntityBaseTag(id,
 		f.X, f.Y, f.Z, f.VX, f.VY, f.VZ,
-		0, 0, ent.uuid, f.OnGround, ent.portal.Cooldown, restingFire, 0)
+		ent.look.yaw, ent.look.pitch, ent.uuid, f.OnGround, ent.portal.Cooldown, restingFire, 0)
 	putEntityOptions(tag, ent.custom, ent.look.silent, f.NoGravity, ent.look, ent.tags)
 	tag.Set("Invulnerable", boolTag(ent.look.invulnerable))
 	tag.Set("BlockState", registry.BlockStateCodecTag(f.BlockState))
@@ -440,7 +440,7 @@ func cloudTagAs(ent *cloudEntity, id string) *nbt.OrderedCompound {
 	c := ent.cloud
 	tag := orderedEntityBaseTag(id,
 		c.X, c.Y, c.Z, 0, 0, 0,
-		0, 0, ent.uuid, false, 0, restingFire, 0)
+		ent.look.yaw, ent.look.pitch, ent.uuid, false, 0, restingFire, 0)
 	putEntityOptions(tag, ent.custom, ent.look.silent, ent.look.noGravity, ent.look, ent.tags)
 	tag.Set("Invulnerable", boolTag(ent.look.invulnerable))
 	tag.Set("Age", nbt.Int(c.TickCount))
