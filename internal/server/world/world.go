@@ -707,7 +707,7 @@ func (w *World) readyChunk(pos ChunkPos) (*Chunk, *[16][16]int32, bool) {
 		// Terrain generated over the stored chunk would hide it from the
 		// player; the record stays on disk (marked unreadable, never saved).
 		if !w.oldVersionLogged.Swap(true) {
-			slog.Warn("world has chunks this server cannot upgrade (saved before Minecraft 1.16.5, or in the layout before 1.18 and holding entities or spawners), "+
+			slog.Warn("world has chunks this server cannot upgrade (saved before Minecraft 1.16.5), "+
 				"they are served empty and left unchanged on disk",
 				"world", w.dir, "world_version", w.savedVersion, "dimension", w.dimName, "chunk", pos, "data_version", old.version)
 		}
@@ -812,7 +812,7 @@ func (w *World) putChunk(pos ChunkPos, c *Chunk, motion *[16][16]int32, fresh bo
 	// A generated chunk starts unsaved, so it reaches disk on its first unload
 	// or save even unchanged.
 	// vanilla: LevelChunk(ServerLevel, ProtoChunk, PostLoadProcessor)
-	if fresh && !w.dropUntouched {
+	if fresh && !w.dropUntouched || c.rewriteOnLoad {
 		loaded.markDirty()
 	}
 	loaded.users.Add(1)
@@ -2153,7 +2153,12 @@ func (w *World) loadChunk(pos ChunkPos) (*Chunk, error) {
 	var chunk *Chunk
 	_, err := w.withChunkRoot(pos, false, func(root nbt.Compound) (err error) {
 		dropOldBlendingData(root, w.dimName)
-		chunk, err = decodeChunkNBT(root)
+		if chunk, err = decodeChunkNBT(root); err == nil && chunk != nil {
+			chunk.rewriteOnLoad, err = w.moveChunkEntities(pos, root)
+			if chunk.rewriteOnLoad {
+				chunk.carriedEntities = nbt.List{}
+			}
+		}
 		return err
 	})
 	if err != nil {
