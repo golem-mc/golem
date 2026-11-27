@@ -310,3 +310,43 @@ func TestAComparatorReadsAChestOnlyWhenNothingSitsOnIt(t *testing.T) {
 		})
 	}
 }
+
+// TestAComparatorReadsAChestBlockedByASittingCatAcrossAChunkBorder puts a cat
+// on a chest at x=15 whose box reaches into the chunk at x>=16: sitting, it
+// blocks the chest (comparator reads 0); standing, it does not.
+// vanilla: ChestBlock.isCatSittingOnChest
+func TestAComparatorReadsAChestBlockedByASittingCatAcrossAChunkBorder(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name    string
+		sitting bool
+		want    string
+	}{
+		{"standing", false, "1"},
+		{"sitting", true, "0"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			srv, c := servertest.AttachActor(t)
+			servertest.Setblock(t, c, 15, 64, 0, "chest")
+			if !srv.SetInventoryAt(15, 64, 0, 0, servertest.ItemStack(t, "minecraft:dirt", 64)) {
+				t.Fatal("the chest has no slot 0")
+			}
+			stone, _ := registry.FindState("minecraft:stone", nil)
+			srv.SetBlock(15, 63, 1, stone)
+			srv.SetBlock(15, 63, 2, stone)
+			servertest.Setblock(t, c, 15, 64, 2, "redstone_wire")
+			servertest.Setblock(t, c, 15, 64, 1, "comparator[facing=north]")
+			servertest.Setblock(t, c, 14, 64, 1, "stone")
+			// The cat's centre is in chunk x=1; its box reaches back over the chest.
+			srv.SpawnMob("minecraft:cat", 16.1, 65, 0.5)
+			cat := c.ExpectMobSpawn(protocol.EntityTypeCat)
+			if tc.sitting && !srv.SetMobSitting(cat.EntityID, true) {
+				t.Fatal("the cat is not in the herd")
+			}
+			// A comparator updates after a delay; settle before reading a 0.
+			srv.TickPhysics(4)
+			servertest.ExpectWirePower(t, srv, 15, 64, 2, tc.want)
+		})
+	}
+}

@@ -25,9 +25,18 @@ func (s *Server) collidersByWorld(pass collisionPass) map[*world.World]entity.Wo
 	hulls := s.hullsByWorld()
 	s.mobsMu.Lock()
 	defer s.mobsMu.Unlock()
-	out := make(map[*world.World]entity.World, len(s.allDims()))
+	out := s.colliderMaps[pass]
+	if out == nil {
+		out = make(map[*world.World]entity.World, len(s.allDims()))
+		s.colliderMaps[pass] = out
+	}
+	clear(out)
 	for _, dim := range s.allDims() {
-		out[dim.w] = dim.colliders[pass].reset(dim.w, hulls[dim.w], dim.mobs.herd, false)
+		herd := dim.mobs.herd
+		if dim.mobs.colliders == 0 {
+			herd = nil
+		}
+		out[dim.w] = dim.colliders[pass].reset(dim.w, hulls[dim.w], herd, false)
 	}
 	return out
 }

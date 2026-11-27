@@ -1,6 +1,7 @@
 package server
 
 import (
+	"strconv"
 	"testing"
 
 	"github.com/golem-mc/golem/internal/server/entity"
@@ -96,5 +97,29 @@ func BenchmarkRollBreakDropShulkerBox(b *testing.B) {
 	b.ResetTimer()
 	for range b.N {
 		s.rollBreakDrop(w, e)
+	}
+}
+
+// BenchmarkSittingCatInHerd asks for a sitting cat in one block of a flat
+// world's herd, as a comparator reading a chest does.
+func BenchmarkSittingCatInHerd(b *testing.B) {
+	for _, cows := range []int{0, 2000} {
+		b.Run(strconv.Itoa(cows), func(b *testing.B) {
+			s, w := newTrackerBenchServer(b)
+			dim := s.dimensionOfWorld(w)
+			for i := range cows {
+				x, z := float64(i%50)*2-49.5, float64(i/50)*2-39.5
+				s.spawnMobInDim(dim, entity.TypeCow, x, world.GroundLevel, z, int64(i+1), nil)
+			}
+			src := sittingCatSource{s: s, dim: dim}
+			box := world.Box{MinX: 40, MinY: 65, MinZ: 40, MaxX: 41, MaxY: 66, MaxZ: 41}
+			b.ReportAllocs()
+			b.ResetTimer()
+			for range b.N {
+				if src.SittingCatIn(box) {
+					b.Fatal("found a cat")
+				}
+			}
+		})
 	}
 }

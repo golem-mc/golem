@@ -462,14 +462,75 @@ type SpawnBody struct {
 // must not intersect any blocksBuilding body (EntityGetter.isUnobstructed).
 func boxOverlapsBody(bodies []SpawnBody, box SpawnBody) bool {
 	for i := range bodies {
-		b := &bodies[i]
-		if b.MinX < box.MaxX && b.MaxX > box.MinX &&
-			b.MinY < box.MaxY && b.MaxY > box.MinY &&
-			b.MinZ < box.MaxZ && b.MaxZ > box.MinZ {
+		if bodies[i].overlaps(&box) {
 			return true
 		}
 	}
 	return false
+}
+
+func (b *SpawnBody) overlaps(box *SpawnBody) bool {
+	return b.MinX < box.MaxX && b.MaxX > box.MinX &&
+		b.MinY < box.MaxY && b.MaxY > box.MinY &&
+		b.MinZ < box.MaxZ && b.MaxZ > box.MinZ
+}
+
+func (b SpawnBody) aabb() AABB {
+	return NewAABB(b.MinX, b.MinY, b.MinZ, b.MaxX, b.MaxY, b.MaxZ)
+}
+
+// SpawnBodies is the obstruction list, built by Build on first use so a tick
+// whose spawn attempts never reach the obstruction test pays nothing. The zero
+// value is an empty list. A nil *SpawnBodies is empty.
+type SpawnBodies struct {
+	// Build appends the dimension's bodies to dst and returns it.
+	Build func(dst []SpawnBody) []SpawnBody
+	list  []SpawnBody
+	grid  BoxGrid
+	built bool
+}
+
+// NewSpawnBodies is a built list holding bodies.
+func NewSpawnBodies(bodies []SpawnBody) *SpawnBodies {
+	b := &SpawnBodies{}
+	b.Reset(func(dst []SpawnBody) []SpawnBody { return append(dst, bodies...) })
+	return b
+}
+
+// Reset drops the list, keeping its storage; build runs on the next Overlaps.
+func (b *SpawnBodies) Reset(build func(dst []SpawnBody) []SpawnBody) {
+	b.Build, b.built = build, false
+	b.list = b.list[:0]
+}
+
+func (b *SpawnBodies) ensure() {
+	if b.built {
+		return
+	}
+	b.built = true
+	if b.Build != nil {
+		b.list = b.Build(b.list[:0])
+	}
+	b.grid.Reset()
+	for i := range b.list {
+		b.grid.Add(int32(i), b.list[i].aabb())
+	}
+}
+
+// Overlaps reports whether box intersects any body, building the list first.
+func (b *SpawnBodies) Overlaps(box SpawnBody) bool {
+	if b == nil {
+		return false
+	}
+	b.ensure()
+	return b.grid.First(box.aabb(), func(i int32) bool { return b.list[i].overlaps(&box) }) >= 0
+}
+
+// Add files a body published after the list was built.
+func (b *SpawnBodies) Add(box SpawnBody) {
+	b.ensure()
+	b.grid.Add(int32(len(b.list)), box.aabb())
+	b.list = append(b.list, box)
 }
 
 // spawnBox is the box a type-t body at the position would fill.
@@ -1001,7 +1062,10 @@ func NewSpawnPass(c SpawnCategory, counts *SpawnCounts, limit int) SpawnPass {
 // SpawnNaturally shuffles chunks once, trying open passes in order with shared bodies/potential.
 // vanilla: ServerChunkCache.tickChunks, NaturalSpawner.spawnForChunk; global cap scales by chunks/289.
 func SpawnNaturally(w SpawnWorld, rng *rand.Rand, chunks []ChunkPos, players []SpawnPlayer,
-	bodies []SpawnBody, potential *SpawnPotential, passes []SpawnPass, spawnableChunkCount int, ticking func(ChunkPos) bool, sink func(SpawnRequest)) {
+	bodies *SpawnBodies, potential *SpawnPotential, passes []SpawnPass, spawnableChunkCount int, ticking func(ChunkPos) bool, sink func(SpawnRequest)) {
+	if bodies == nil {
+		bodies = &SpawnBodies{}
+	}
 	open := make([]SpawnPass, 0, len(passes))
 	for _, p := range passes {
 		if p.Counts.Global < spawnableChunkCount*p.max/spawnMagicNumber {
@@ -1032,7 +1096,7 @@ func SpawnNaturally(w SpawnWorld, rng *rand.Rand, chunks []ChunkPos, players []S
 						c.w = c.chunk
 					}
 				}
-				c.spawnCategoryForChunk(spawn, rng, pos, players, &bodies, potential, p.Counts, p.category, sink)
+				c.spawnCategoryForChunk(spawn, rng, pos, players, bodies, potential, p.Counts, p.category, sink)
 			}
 		}
 		if c.chunk != nil {
@@ -1056,13 +1120,13 @@ func localCapOpen(players []SpawnPlayer, pos ChunkPos, counts *SpawnCounts, cate
 
 // spawnCategoryForChunk grows packs from one random position (NaturalSpawner.spawnCategoryForChunk).
 func spawnCategoryForChunk(w SpawnWorld, spawn spawnPoint, rng *rand.Rand, pos ChunkPos,
-	players []SpawnPlayer, bodies *[]SpawnBody, potential *SpawnPotential, counts *SpawnCounts, category SpawnCategory, sink func(SpawnRequest)) {
+	players []SpawnPlayer, bodies *SpawnBodies, potential *SpawnPotential, counts *SpawnCounts, category SpawnCategory, sink func(SpawnRequest)) {
 	c := naturalSpawnContext{w: w}
 	c.spawnCategoryForChunk(spawn, rng, pos, players, bodies, potential, counts, category, sink)
 }
 
 func (c *naturalSpawnContext) spawnCategoryForChunk(spawn spawnPoint, rng *rand.Rand, pos ChunkPos,
-	players []SpawnPlayer, bodies *[]SpawnBody, potential *SpawnPotential, counts *SpawnCounts, category SpawnCategory, sink func(SpawnRequest)) {
+	players []SpawnPlayer, bodies *SpawnBodies, potential *SpawnPotential, counts *SpawnCounts, category SpawnCategory, sink func(SpawnRequest)) {
 	w := c.w
 	// vanilla: NaturalSpawner.getRandomPosWithin; inclusive upper bound is the first free y.
 	bx := pos.X*16 + (rng.Int31() & 15)
@@ -1100,13 +1164,13 @@ func (c *naturalSpawnContext) spawnCategoryForChunk(spawn spawnPoint, rng *rand.
 
 // spawnCategoryForPosition walks three packs (NaturalSpawner.spawnCategoryForPosition).
 func spawnCategoryForPosition(w SpawnWorld, spawn spawnPoint, rng *rand.Rand, pos ChunkPos, y int32, bx, bz int32,
-	players []SpawnPlayer, bodies *[]SpawnBody, potential *SpawnPotential, counts *SpawnCounts, category SpawnCategory, sink func(SpawnRequest)) {
+	players []SpawnPlayer, bodies *SpawnBodies, potential *SpawnPotential, counts *SpawnCounts, category SpawnCategory, sink func(SpawnRequest)) {
 	c := naturalSpawnContext{w: w}
 	c.spawnCategoryForPosition(spawn, rng, pos, y, bx, bz, players, bodies, potential, counts, category, sink)
 }
 
 func (c *naturalSpawnContext) spawnCategoryForPosition(spawn spawnPoint, rng *rand.Rand, pos ChunkPos, y int32, bx, bz int32,
-	players []SpawnPlayer, bodies *[]SpawnBody, potential *SpawnPotential, counts *SpawnCounts, category SpawnCategory, sink func(SpawnRequest)) {
+	players []SpawnPlayer, bodies *SpawnBodies, potential *SpawnPotential, counts *SpawnCounts, category SpawnCategory, sink func(SpawnRequest)) {
 	w := c.w
 	spawned := 0
 	for range 3 {
@@ -1180,7 +1244,7 @@ func (c *naturalSpawnContext) spawnCategoryForPosition(spawn spawnPoint, rng *ra
 			if costed && potential.EnergyChange(x0, y, z0, cost.charge) > cost.budget {
 				continue
 			}
-			if !validPositionWithDespawn(w, data.mob, float64(x0)+0.5, float64(y), float64(z0)+0.5, dist, kind.distanceSq, *bodies) {
+			if !validPositionWithDespawn(w, data.mob, float64(x0)+0.5, float64(y), float64(z0)+0.5, dist, kind.distanceSq, bodies) {
 				continue
 			}
 			if group == nil {
@@ -1205,7 +1269,7 @@ func (c *naturalSpawnContext) spawnCategoryForPosition(spawn spawnPoint, rng *ra
 				potential.Add(x0, y, z0, cost.charge)
 			}
 			// Finalization and body publication precede the next roll.
-			*bodies = append(*bodies, spawnBox(data.mob, float64(x0)+0.5, float64(y), float64(z0)+0.5))
+			bodies.Add(spawnBox(data.mob, float64(x0)+0.5, float64(y), float64(z0)+0.5))
 			counts.Global++
 			if counts.PerPlayer == nil {
 				counts.PerPlayer = make(map[int32]int)
@@ -1516,7 +1580,7 @@ func seesSkyForSpawn(w SpawnWorld, t MobType, x, y, z int32) bool {
 
 // validPositionForMob is NaturalSpawner.isValidPositionForMob at a block
 // position's centre, as the tick's pass calls it.
-func validPositionForMob(w SpawnWorld, t MobType, x, y, z int32, distToPlayerSq float64, bodies []SpawnBody) bool {
+func validPositionForMob(w SpawnWorld, t MobType, x, y, z int32, distToPlayerSq float64, bodies *SpawnBodies) bool {
 	return validPositionAt(w, t, float64(x)+0.5, float64(y), float64(z)+0.5, distToPlayerSq, bodies)
 }
 
@@ -1533,12 +1597,12 @@ func (u undarkenedWorld) MaxLocalRawLightAt(x, y, z int32) uint8 {
 // centre: a walk-target value of at least 0 (PathfinderMob.checkSpawnRules),
 // within the despawn band for a body removeWhenFarAway would remove, no fluid
 // in its box, and no blocksBuilding body in the way.
-func validPositionAt(w SpawnWorld, t MobType, x, y, z float64, distToPlayerSq float64, bodies []SpawnBody) bool {
+func validPositionAt(w SpawnWorld, t MobType, x, y, z float64, distToPlayerSq float64, bodies *SpawnBodies) bool {
 	far := despawnDistanceOf(t)
 	return validPositionWithDespawn(w, t, x, y, z, distToPlayerSq, far*far, bodies)
 }
 
-func validPositionWithDespawn(w SpawnWorld, t MobType, x, y, z, distToPlayerSq, farSq float64, bodies []SpawnBody) bool {
+func validPositionWithDespawn(w SpawnWorld, t MobType, x, y, z, distToPlayerSq, farSq float64, bodies *SpawnBodies) bool {
 	if pathfinderMobSpawn(t) && (&Mob{Type: t}).walkTargetValue(w, Waypoint{int32(math.Floor(x)), int32(math.Floor(y)), int32(math.Floor(z))}) < 0 {
 		return false
 	}
@@ -1550,7 +1614,7 @@ func validPositionWithDespawn(w SpawnWorld, t MobType, x, y, z, distToPlayerSq, 
 	if !leavesLiquidOut(t) && boxInLiquid(w, t, x, y, z) {
 		return false
 	}
-	if boxOverlapsBody(bodies, spawnBox(t, x, y, z)) {
+	if bodies.Overlaps(spawnBox(t, x, y, z)) {
 		return false
 	}
 	return true

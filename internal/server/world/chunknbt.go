@@ -564,7 +564,9 @@ func decodeChunkNBT(root nbt.Compound) (*Chunk, error) {
 				continue
 			}
 			rebaseBlockEntityPos(compound, c.x, c.z)
-			fixOldBlockEntity(compound, c.dataVersion)
+			if !fixOldBlockEntity(compound, c.dataVersion) {
+				continue
+			}
 			if c.dataVersion != 0 && c.dataVersion < furnaceBurnTimeVersion {
 				fixFurnaceBurnTime(compound)
 			}

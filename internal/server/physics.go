@@ -1281,17 +1281,22 @@ func (c sittingCatSource) SittingCatIn(box world.Box) bool {
 		c.s.mobsMu.Lock()
 		defer c.s.mobsMu.Unlock()
 	}
-	for _, m := range c.dim.mobs.herd {
+	b := [6]float64{box.MinX, box.MinY, box.MinZ, box.MaxX, box.MaxY, box.MaxZ}
+	area, indexed := smallChunkArea(&b)
+	found := false
+	c.dim.mobs.mobsInArea(area, indexed, func(m *entity.Mob) bool {
 		if m.Type != entity.TypeCat || !m.Tamable.SittingPose {
-			continue
+			return true
 		}
 		x0, y0, z0, x1, y1, z1 := m.BlastBox()
 		if x1 > box.MinX && x0 < box.MaxX && y1 > box.MinY && y0 < box.MaxY &&
 			z1 > box.MinZ && z0 < box.MaxZ {
-			return true
+			found = true
+			return false
 		}
-	}
-	return false
+		return true
+	})
+	return found
 }
 
 // redstoneToucher answers the engine's plate and tripwire questions from

@@ -1,6 +1,7 @@
 package world
 
 import (
+	"maps"
 	"slices"
 	"strings"
 
@@ -49,17 +50,24 @@ func isLegacyStack(entries nbt.Compound) bool {
 
 // upgradeLegacyStacks rewrites every plain pre-1.20.5 stack under tag to the
 // current shape: Count becomes an int count, a tag becomes components and item
-// names renamed since version follow.
+// names renamed since version follow. It returns the tag to store in place of
+// the one given: a stack that is an ordered compound is replaced by a plain
+// one, as the fixes add and remove keys, which an ordered compound's key list
+// would not follow.
 // vanilla: ItemStackComponentizationFix, ItemRenameFix
-func upgradeLegacyStacks(tag nbt.Tag, version int32) {
+func upgradeLegacyStacks(tag nbt.Tag, version int32) nbt.Tag {
 	switch v := tag.(type) {
 	case nbt.List:
-		for _, item := range v.Items {
-			upgradeLegacyStacks(item, version)
+		for i, item := range v.Items {
+			v.Items[i] = upgradeLegacyStacks(item, version)
 		}
 	case nbt.CompoundTag:
 		entries := v.Entries()
 		if isLegacyStack(entries) {
+			if _, ordered := v.(*nbt.OrderedCompound); ordered {
+				entries = maps.Clone(entries)
+				v = entries
+			}
 			count, _ := nbt.IntValue(entries["Count"])
 			delete(entries, "Count")
 			entries["count"] = nbt.Int(count)
@@ -68,10 +76,12 @@ func upgradeLegacyStacks(tag nbt.Tag, version int32) {
 			entries["id"] = name
 			componentizeTag(entries, string(name))
 		}
-		for _, child := range entries {
-			upgradeLegacyStacks(child, version)
+		for key, child := range entries {
+			entries[key] = upgradeLegacyStacks(child, version)
 		}
+		return v
 	}
+	return tag
 }
 
 // renameOldItem applies the item renames between version and
@@ -121,12 +131,21 @@ var potShardRenames = map[string]string{
 
 // fixOldBlockEntity applies the block entity fixes between a chunk's data
 // version and the one decodeChunkNBT reads.
-func fixOldBlockEntity(entry nbt.CompoundTag, version int32) {
-	if version == 0 || version >= tooltipDisplayVersion {
-		return
-	}
+//
+// It reports false for a block entity the current version no longer has.
+func fixOldBlockEntity(entry nbt.CompoundTag, version int32) bool {
 	tag := entry.Entries()
 	id, _ := nbt.Get[nbt.String](tag, "id")
+	if version == 0 {
+		return true
+	}
+	if version < bedBlockEntityVersion && string(id) == "minecraft:bed" {
+		// vanilla: RemoveBlockEntityTagFix
+		return false
+	}
+	if version >= tooltipDisplayVersion {
+		return true
+	}
 	if version < storedItemVersion {
 		upgradeLegacyStacks(entry, version)
 	}
@@ -142,6 +161,7 @@ func fixOldBlockEntity(entry nbt.CompoundTag, version int32) {
 	}
 	fixStoredComponents(entry, version)
 	kind, _ := BlockEntityKindByName(string(id))
+	fixBlockEntityFields(string(id), kind, tag, version)
 	switch {
 	case string(id) == suspiciousSandID && version < brushableBlockVersion:
 		// vanilla: BlockEntityRenameFix, EntityBrushableBlockFieldsRenameFix
@@ -163,6 +183,40 @@ func fixOldBlockEntity(entry nbt.CompoundTag, version int32) {
 	}
 	if version < textComponentVersion {
 		unflattenBlockEntityText(tag)
+	}
+	return true
+}
+
+// fixBlockEntityFields applies the block entity renames and reshapes of data
+// versions 3813 to 4068, in vanilla's order.
+func fixBlockEntityFields(id string, kind BlockEntityKind, tag nbt.Compound, version int32) {
+	if version < blockPosFormatVersion {
+		if kind == KindBeehive {
+			fixBlockPosField(tag, "FlowerPos", "flower_pos")
+		} else if id == "minecraft:end_gateway" {
+			fixBlockPosField(tag, "ExitPortal", "exit_portal")
+		}
+	}
+	switch kind {
+	case KindBeehive:
+		if version < beehiveRenameVersion {
+			fixBeehive(tag)
+		}
+	case KindBanner:
+		if version < bannerPatternVersion {
+			fixBannerPatterns(tag)
+		}
+	case KindSkull:
+		if version < playerHeadProfileVersion {
+			fixSkullProfile(tag)
+		}
+	case KindJukebox:
+		if version < jukeboxSongTicksVersion {
+			fixJukeboxTicks(tag)
+		}
+	}
+	if version < lockPredicateVersion {
+		fixContainerLock(tag)
 	}
 }
 

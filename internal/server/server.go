@@ -160,6 +160,13 @@ type Server struct {
 	// scoreboard is /scoreboard's objectives and scores, saved in
 	// data/minecraft/scoreboard.dat.
 	scoreboard *scoreboard.Board
+	// collisionCache is teamCollisionRules' converted snapshot, valid while
+	// version is the board's current one.
+	collisionCache struct {
+		sync.Mutex
+		version uint64
+		rules   map[string]entity.CollisionRule
+	}
 	// pluginScoreboards publishes immutable snapshots for tick and packet readers.
 	pluginScoreboards atomic.Pointer[[]*scoreboard.Board]
 	// destroyedMu guards destroyed, the UUIDs of non-mob bodies removed
@@ -545,6 +552,8 @@ type Server struct {
 	// every herd under it, and anything else (spawn, hit, shearing) only reads
 	// or adds. It is taken inside mu where both are needed, like itemsMu.
 	mobsMu sync.Mutex
+	// colliderMaps holds each pass's collidersByWorld result, refilled per call on the tick goroutine.
+	colliderMaps [collisionPassCount]map[*world.World]entity.World
 	// waypointPass counts the locator bar passes; tick loop only.
 	waypointPass uint64
 	// The locator bar pass reuses its player list and changed receiver indices.
@@ -2701,11 +2710,19 @@ func (s *Server) obstructed(w *world.World, x, y, z int32, state uint16) bool {
 
 	s.mobsMu.Lock()
 	herd := s.herdOf(w)
-	for _, m := range herd.herd {
-		if mobOverlapsPlaced(x, y, z, state, m) {
-			s.mobsMu.Unlock()
-			return true
-		}
+	// The index files a mob by its position; the margin covers its half
+	// width.
+	box := [6]float64{float64(x) - mobIndexMargin, float64(y), float64(z) - mobIndexMargin,
+		float64(x) + 1 + mobIndexMargin, float64(y) + 1, float64(z) + 1 + mobIndexMargin}
+	area, indexed := smallChunkArea(&box)
+	hit := false
+	herd.mobsInArea(area, indexed, func(m *entity.Mob) bool {
+		hit = mobOverlapsPlaced(x, y, z, state, m)
+		return !hit
+	})
+	if hit {
+		s.mobsMu.Unlock()
+		return true
 	}
 	// A corpse keeps its box for its twenty-tick death animation (vanilla's
 	// deathTime), refusing placements until then.
@@ -2813,6 +2830,10 @@ func (s *Server) obstructed(w *world.World, x, y, z int32, state uint16) bool {
 	}
 	return false
 }
+
+// mobIndexMargin is how far past a query box a mob's position may sit while
+// its box still reaches in: above the widest half width of any indexed mob.
+const mobIndexMargin = 3
 
 // mobOverlapsPlaced tests one mob's box (the baby's if it is one) against
 // the placed state's shape.

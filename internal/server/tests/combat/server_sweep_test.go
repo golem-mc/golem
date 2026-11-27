@@ -139,6 +139,35 @@ func TestASweepHurtsTheBodiesBesideItsVictim(t *testing.T) {
 	}
 }
 
+// TestASweepReachesABystanderInTheNextChunk strikes a cow in the last block
+// column of one chunk with a bystander whose position is in the next chunk,
+// and holds that the sweep still hurts the bystander.
+func TestASweepReachesABystanderInTheNextChunk(t *testing.T) {
+	t.Parallel()
+	f := newSweepFixture(t)
+	f.watcher.MoveToGround(40.5, 64, 40.5, true)
+	f.watcher.Settle()
+	f.fencer.MoveToGround(13.5, 64, 5.5, true)
+	f.fencer.MoveToGround(13.5, 64, 5.5, true)
+	f.ironSword(t)
+
+	f.srv.StopTick()
+	stricken := f.srv.SpawnMob("minecraft:cow", 15.5, 64, 5.5)
+	beside := f.srv.SpawnMob("minecraft:cow", 16.45, 64, 5.5)
+	f.fencer.Settle()
+	f.watcher.Settle()
+
+	f.fencer.Attack(stricken)
+	f.fencer.Settle()
+	heard := f.watcher.HearBodies()
+	if !heard.HurtEvents[beside] {
+		t.Error("the cow across the chunk border took no hurt from the sweep")
+	}
+	if got := heard.Healths[beside]; math.Abs(float64(got)-9) > 0.01 {
+		t.Errorf("the swept cow across the border was left at %v, want 9", got)
+	}
+}
+
 // TestSweepingEdgeRaisesTheSweepHurt plants a bystander cow beside the
 // stricken one and swings a Sweeping Edge III blade at full strength, and
 // holds that the sweep carries the edge's three quarters of the blow over
