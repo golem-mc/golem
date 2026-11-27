@@ -381,3 +381,46 @@ func TestOldChunkClaimsTheFixedVersion(t *testing.T) {
 		}
 	}
 }
+
+func TestOldSignGetsOpFlagAndClickEvent(t *testing.T) {
+	t.Parallel()
+	for _, version := range []int32{3700, 3955, 5001, dataVersion} {
+		click := nbt.Compound{"action": nbt.String("run_command"), "value": nbt.String("/say hi")}
+		line := nbt.Tag(nbt.String(`{"text":"Click","clickEvent":{"action":"run_command","value":"/say hi"}}`))
+		if version >= textComponentVersion {
+			line = nbt.Compound{"text": nbt.String("Click"), "clickEvent": click}
+		}
+		if version >= clickEventVersion {
+			line = nbt.Compound{"text": nbt.String("Click"), "click_event": nbt.Compound{"action": nbt.String("run_command"), "command": nbt.String("/say hi")}}
+		}
+		empty := nbt.Tag(nbt.String(`""`))
+		if version >= textComponentVersion {
+			empty = nbt.String("")
+		}
+		lines := func(first nbt.Tag) nbt.List {
+			return nbt.List{Elem: nbt.TypeString, Items: []nbt.Tag{first, empty, empty, empty}}
+		}
+		sign := nbt.Compound{
+			"id": nbt.String("minecraft:sign"), "x": nbt.Int(16), "y": nbt.Int(64), "z": nbt.Int(32),
+			"front_text": nbt.Compound{"messages": lines(line), "color": nbt.String("black"), "has_glowing_text": nbt.Byte(0)},
+			"back_text":  nbt.Compound{"messages": lines(empty), "color": nbt.String("black"), "has_glowing_text": nbt.Byte(0)},
+			"is_waxed":   nbt.Byte(0),
+		}
+		w, pos := oldChunkWorld(t, version, sign)
+		w.Acquire(pos)
+		be := w.BlockEntity(16, 64, 32)
+		if be == nil {
+			t.Fatalf("v%d: no sign block entity", version)
+		}
+		allowed, events := be.SignClicks(true)
+		if want := version < signsOpFlagVersion; allowed != want {
+			t.Errorf("v%d: AllowOpFeatures = %v, want %v", version, allowed, want)
+		}
+		if action, _ := nbt.Get[nbt.String](events[0], "action"); action != "run_command" {
+			t.Errorf("v%d: click event = %v", version, events[0])
+		}
+		if cmd, _ := nbt.Get[nbt.String](events[0], "command"); cmd != "/say hi" {
+			t.Errorf("v%d: click command = %v", version, events[0])
+		}
+	}
+}

@@ -22,6 +22,8 @@ const (
 	potSherdsVersion            = 3448 // vanilla: DataFixers.addFixers (DecoratedPotFieldRenameFix)
 	shardRenameVersion          = 3447 // vanilla: DataFixers.addFixers (Pottery shard item renaming)
 	grassRenameVersion          = 3692 // vanilla: DataFixers.addFixers (Rename grass block to short_grass)
+	clickEventVersion           = 4292 // vanilla: DataFixers.addFixers (TextComponentHoverAndClickEventFix)
+	signsOpFlagVersion          = 5002 // vanilla: DataFixers.addFixers (SignsOpFlagFix)
 )
 
 // oldChunkFixedVersion is the data version a chunk from before it claims once
@@ -122,11 +124,18 @@ var potShardRenames = map[string]string{
 // fixOldBlockEntity applies the block entity fixes between a chunk's data
 // version and the one decodeChunkNBT reads.
 func fixOldBlockEntity(entry nbt.CompoundTag, version int32) {
-	if version == 0 || version >= tooltipDisplayVersion {
+	if version == 0 {
 		return
 	}
 	tag := entry.Entries()
 	id, _ := nbt.Get[nbt.String](tag, "id")
+	kind, _ := BlockEntityKindByName(string(id))
+	if version < signsOpFlagVersion && IsSignKind(kind) {
+		tag["allow_op_features"] = nbt.Byte(1)
+	}
+	if version >= tooltipDisplayVersion {
+		return
+	}
 	if version < storedItemVersion {
 		upgradeLegacyStacks(entry, version)
 	}
@@ -141,7 +150,6 @@ func fixOldBlockEntity(entry nbt.CompoundTag, version int32) {
 		}
 	}
 	fixStoredComponents(entry, version)
-	kind, _ := BlockEntityKindByName(string(id))
 	switch {
 	case string(id) == suspiciousSandID && version < brushableBlockVersion:
 		// vanilla: BlockEntityRenameFix, EntityBrushableBlockFieldsRenameFix
@@ -163,6 +171,9 @@ func fixOldBlockEntity(entry nbt.CompoundTag, version int32) {
 	}
 	if version < textComponentVersion {
 		unflattenBlockEntityText(tag)
+	}
+	if version < clickEventVersion && IsSignKind(kind) {
+		fixSignClickEvents(tag)
 	}
 }
 
