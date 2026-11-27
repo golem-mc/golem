@@ -2985,6 +2985,9 @@ type mobMovement struct {
 	seated   bool
 	head     uint8
 	headRead bool
+	// vel and headPkt are shared by every watcher that needs them; a
+	// mobMovement is declared fresh for each mob on each tracking tick.
+	vel, headPkt []byte
 }
 
 // movementTick takes the impulse and any teleport due on this tracking tick.
@@ -3012,8 +3015,10 @@ func (motion *mobMovement) move(v *trackedBody[*mobEntity, mobShown], was *toldB
 	if !motion.seated {
 		dx, dy, dz := m.VX-was.own.vx, m.VY-was.own.vy, m.VZ-was.own.vz
 		if diff := dx*dx + dy*dy + dz*dz; diff > motionThreshold || diff > 0 && m.VX == 0 && m.VY == 0 && m.VZ == 0 {
-			*sends = append(*sends, mobSend{c: c, w: v.w, id: protocol.IDPlaySetEntityMotion,
-				data: entityVelocityPayload(m.ID, m.VX, m.VY, m.VZ)})
+			if motion.vel == nil {
+				motion.vel = entityVelocityPayload(m.ID, m.VX, m.VY, m.VZ)
+			}
+			*sends = append(*sends, mobSend{c: c, w: v.w, id: protocol.IDPlaySetEntityMotion, data: motion.vel})
 			was.own.vx, was.own.vy, was.own.vz = m.VX, m.VY, m.VZ
 		}
 	}
@@ -3030,10 +3035,13 @@ func (motion *mobMovement) move(v *trackedBody[*mobEntity, mobShown], was *toldB
 	}
 	if motion.head != was.own.head {
 		was.own.head = motion.head
-		var head protocol.Buffer
-		head.PutVarInt(m.ID)
-		head.PutU8(was.own.head)
-		*sends = append(*sends, mobSend{c: c, w: v.w, id: protocol.IDPlayHeadRotation, data: head.Bytes()})
+		if motion.headPkt == nil {
+			var head protocol.Buffer
+			head.PutVarInt(m.ID)
+			head.PutU8(motion.head)
+			motion.headPkt = head.Bytes()
+		}
+		*sends = append(*sends, mobSend{c: c, w: v.w, id: protocol.IDPlayHeadRotation, data: motion.headPkt})
 	}
 }
 

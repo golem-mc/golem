@@ -376,3 +376,22 @@ func BenchmarkTickMobsOnSculk(b *testing.B) {
 	b.ReportMetric(float64(len(dim.mobs.herd)), "mobs")
 	s.mobsMu.Unlock()
 }
+
+// BenchmarkTickMobsWatched runs the mob tick over two thousand cows that
+// every one of the tracker bench's watching players is told about.
+func BenchmarkTickMobsWatched(b *testing.B) {
+	s, _ := newTrackerBenchServer(b)
+	dim := s.allDims()[0]
+	ground := float64(world.GroundLevel)
+	for i := range 2000 {
+		s.spawnMobInDim(dim, entity.TypeCow, float64(i%45)-22, ground, float64(i/45)-22, int64(i), nil)
+	}
+	for range 5 {
+		s.tickMobs()
+	}
+	b.ReportAllocs()
+	b.ResetTimer()
+	for range b.N {
+		s.tickMobs()
+	}
+}
