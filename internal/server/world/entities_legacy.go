@@ -29,8 +29,9 @@ var blockPosFields = map[string]map[string]string{
 // 3945's shape) and the 1.20.5 shapes to an entity and its passengers, in
 // data version order.
 func upgradeLegacyEntity(e nbt.CompoundTag, version int32) {
+	upgradeOldEntity(e, version) // recurses into passengers itself
 	if version < storedItemVersion {
-		upgradeLegacyStacks(e, version) // recurses into passengers itself
+		upgradeLegacyStacks(e, version) // likewise
 	}
 	upgradeLegacyEntityFields(e, version)
 }

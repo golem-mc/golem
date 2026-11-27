@@ -46,8 +46,9 @@ var levelProtoKeys = []string{"Biomes", "Heightmaps", "CarvingMasks", "LiquidsTo
 // unwrapLevelChunk rewrites a chunk in the layout before 1.18 (everything
 // under a Level compound, one block palette and packed array per section, a
 // biome int array) in place to the 1.18 layout decodeChunkNBT reads. It
-// reports an unsupportedVersionError for a chunk holding entities or a
-// spawner, whose pre-1.20 formats are not upgraded.
+// leaves the chunk's entities under "entities", for the caller to hand to the
+// entity loader; a chunk holding any from before entityDataVersionFloor is an
+// unsupportedVersionError.
 //
 // Not carried over: the blending data and below-zero retrogeneration vanilla
 // adds for chunks of a noise world, which this server has no use for.
@@ -71,16 +72,8 @@ func unwrapLevelChunk(root nbt.Compound, version int32) error {
 			structures["starts"] = starts
 		}
 	}
-	if entities, ok := nbt.Get[nbt.List](root, "entities"); ok && len(entities.Items) > 0 {
+	if entities, ok := nbt.Get[nbt.List](root, "entities"); ok && len(entities.Items) > 0 && version < entityDataVersionFloor {
 		return &unsupportedVersionError{version: version}
-	}
-	if be, ok := nbt.Get[nbt.List](root, "block_entities"); ok {
-		for _, item := range be.Items {
-			entry, _ := nbt.CompoundView(item)
-			if id, _ := nbt.Get[nbt.String](entry, "id"); id == "minecraft:mob_spawner" {
-				return &unsupportedVersionError{version: version}
-			}
-		}
 	}
 
 	oldBiomes, _ := nbt.Get[nbt.IntArray](level, "Biomes")

@@ -10,6 +10,7 @@ import (
 
 	"github.com/golem-mc/golem/internal/server"
 	"github.com/golem-mc/golem/internal/server/servertest"
+	"github.com/golem-mc/golem/internal/server/world"
 
 	"github.com/golem-mc/golem/nbt"
 	"github.com/golem-mc/golem/registry"
@@ -208,5 +209,101 @@ func TestAVanilla1_16_5WorldLoadsItsChunks(t *testing.T) {
 	}
 	if b := srv.OverworldBiomeAt(2, 4, 2); b != "minecraft:plains" {
 		t.Errorf("biome = %q, want minecraft:plains", b)
+	}
+}
+
+// TestAVanilla1_16_5WorldKeepsItsEntitiesAndSpawner loads a region file
+// vanilla 1.16.5 wrote with entities and a spawner in the chunk's own record:
+// the blocks load, the spawner holds its entity in the weighted shape, and
+// the entities reach the entity region upgraded, with the zombie as vanilla
+// 26.3 reads it: named, 40 max health, 30 health, speed II, sword and helmet.
+func TestAVanilla1_16_5WorldKeepsItsEntitiesAndSpawner(t *testing.T) {
+	t.Parallel()
+	cfg := servertest.SurvivalConfig()
+	cfg.LevelName, _ = oldWorld(t, "vanilla-1.16.5-entities-r.0.0.mca")
+
+	srv, _ := servertest.Start(t, cfg)
+	release0 := srv.HoldChunk(0, 0)
+	defer release0()
+	release1 := srv.HoldChunk(16, 0)
+	defer release1()
+	if got, want := srv.BlockAt(2, 3, 2), registry.BlockStates["minecraft:grass_block"]; got != want {
+		t.Errorf("block at (2,3,2) = %d, want %d", got, want)
+	}
+	spawner, ok := srv.BlockEntityTagAt(5, 4, 14)
+	if !ok {
+		t.Fatal("no spawner block entity")
+	}
+	data, _ := nbt.Get[nbt.Compound](spawner, "SpawnData")
+	entity, _ := nbt.Get[nbt.Compound](data, "entity")
+	if id, _ := nbt.Get[nbt.String](entity, "id"); id != "minecraft:zombie" {
+		t.Errorf("SpawnData.entity.id = %q, want minecraft:zombie (spawner %v)", id, spawner)
+	}
+	srv.Shutdown()
+
+	var names []string
+	for _, pos := range []world.ChunkPos{{X: 0, Z: 0}, {X: 1, Z: 0}} {
+		for _, e := range servertest.ReadChunkEntities(t, cfg.LevelName, pos) {
+			id, _ := nbt.Get[nbt.String](e, "id")
+			names = append(names, string(id))
+			switch {
+			case id == "minecraft:zombie" && pos.X == 0:
+				checkBob(t, e)
+			case id == "minecraft:item_frame":
+				item, _ := nbt.Get[nbt.Compound](e, "Item")
+				if item["id"] != nbt.String("minecraft:diamond") || item["count"] != nbt.Int(1) {
+					t.Errorf("item frame holds %v, want a diamond", item)
+				}
+			case id == "minecraft:painting":
+				if e["variant"] != nbt.String("minecraft:kebab") {
+					t.Errorf("painting variant = %v, want minecraft:kebab", e["variant"])
+				}
+			}
+		}
+	}
+	slices.Sort(names)
+	want := []string{"minecraft:armor_stand", "minecraft:item", "minecraft:item_frame", "minecraft:painting", "minecraft:zombie", "minecraft:zombie"}
+	if !slices.Equal(names, want) {
+		t.Errorf("entities = %v, want %v", names, want)
+	}
+}
+
+func checkBob(t *testing.T, e nbt.Compound) {
+	t.Helper()
+	// The name is a text component, saved as its compound.
+	if name, _ := nbt.Get[nbt.Compound](e, "CustomName"); name["text"] != nbt.String("Bob") {
+		t.Errorf("CustomName = %v, want Bob", e["CustomName"])
+	}
+	if health, _ := nbt.Get[nbt.Float](e, "Health"); health != 30 {
+		t.Errorf("Health = %v, want 30", health)
+	}
+	attributes, _ := nbt.Get[nbt.List](e, "attributes")
+	maxHealth := 0.0
+	for _, a := range attributes.Items {
+		m, _ := nbt.CompoundView(a)
+		if id, _ := nbt.Get[nbt.String](m, "id"); id == "minecraft:max_health" {
+			maxHealth = float64(nbt.DoubleFieldOr(m, "base", 0))
+		}
+	}
+	if maxHealth != 40 {
+		t.Errorf("max health = %v, want 40 (attributes %v)", maxHealth, attributes)
+	}
+	effects, _ := nbt.Get[nbt.List](e, "active_effects")
+	if len(effects.Items) != 1 {
+		t.Fatalf("active_effects = %v, want speed II", effects)
+	}
+	effect, _ := nbt.CompoundView(effects.Items[0])
+	if id, _ := nbt.Get[nbt.String](effect, "id"); id != "minecraft:speed" {
+		t.Errorf("effect id = %q, want minecraft:speed", id)
+	}
+	if amp, _ := nbt.IntValue(effect["amplifier"]); amp != 1 {
+		t.Errorf("effect amplifier = %d, want 1", amp)
+	}
+	equipment, _ := nbt.Get[nbt.Compound](e, "equipment")
+	if main, _ := nbt.Get[nbt.Compound](equipment, "mainhand"); main["id"] != nbt.String("minecraft:diamond_sword") {
+		t.Errorf("mainhand = %v, want a diamond sword", main)
+	}
+	if head, _ := nbt.Get[nbt.Compound](equipment, "head"); head["id"] != nbt.String("minecraft:leather_helmet") {
+		t.Errorf("head = %v, want a leather helmet", head)
 	}
 }

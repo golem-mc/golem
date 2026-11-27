@@ -72,6 +72,13 @@ func upgradeLegacyStacks(tag nbt.Tag, version int32) nbt.Tag {
 			delete(entries, "Count")
 			entries["count"] = nbt.Int(count)
 			name, _ := nbt.Get[nbt.String](entries, "id")
+			if tag, ok := nbt.CompoundView(entries["tag"]); ok {
+				fixStackEffects(tag, string(name), version)
+			}
+			if name == "minecraft:pig_spawn_egg" && version < spawnEggVersion {
+				fixSpawnEgg(entries)
+				name, _ = nbt.Get[nbt.String](entries, "id")
+			}
 			name = nbt.String(renameOldItem(string(name), version))
 			entries["id"] = name
 			componentizeTag(entries, string(name))
@@ -153,6 +160,10 @@ func fixOldBlockEntity(entry nbt.CompoundTag, version int32) bool {
 	case "minecraft:furnace", "minecraft:blast_furnace", "minecraft:smoker":
 		if version < furnaceRecipesVersion {
 			fixFurnaceRecipes(tag)
+		}
+	case "minecraft:mob_spawner":
+		if version < spawnerDataVersion {
+			fixSpawnerData(tag, version)
 		}
 	case "minecraft:conduit", "minecraft:skull":
 		if version < blockEntityUUIDFixed {

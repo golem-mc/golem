@@ -163,6 +163,10 @@ func upgradeChunkRecord(root nbt.Compound, erase bool) error {
 	if err := checkChunkFormat(root); err != nil {
 		return err
 	}
+	if entities, ok := nbt.Get[nbt.List](root, "entities"); ok && len(entities.Items) > 0 {
+		// Only the running server moves these to the entity region.
+		return errors.New("chunk still holds its entities in the layout before 1.18")
+	}
 	fixOldChunkRoot(root)
 	version, _ := nbt.Get[nbt.Int](root, "DataVersion")
 	sections, _ := nbt.Get[nbt.List](root, "sections")
