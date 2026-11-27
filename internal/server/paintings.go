@@ -276,13 +276,13 @@ func (s *Server) registerPaintingLocked(p *paintingEntity) {
 // hangingNear collects the listed paintings and frames of w filed in the
 // chunks covering the box widened by 2 blocks for paintings (a 4x4 painting's
 // centre, the point it is filed under, is at most 2 blocks from any cell it
-// covers) and by 1 for frames. Both
-// kind locks are held. Only those whose box overlaps the box in x and z are
+// covers) and by half a block for frames (a frame
+// is at most 1 block wide). Both kind locks are held. The slices returned are
+// reused by the next call: use them before it, and keep neither. Only those whose box overlaps the box in x and z are
 // returned. Bodies a listener still holds are not listed yet.
 // vanilla: Level.hasEntities(EntityTypeTest.forClass(HangingEntity.class), ...)
 func (s *Server) hangingNear(w *world.World, minX, minZ, maxX, maxZ float64) ([]*paintingEntity, []*frameEntity) {
-	var paintings []*paintingEntity
-	var frames []*frameEntity
+	paintings, frames := s.hangingScratchP[:0], s.hangingScratchF[:0]
 	for pos := range s.paintingChunks.ChunksIn(entity.ChunkAt(minX-2, minZ-2), entity.ChunkAt(maxX+2, maxZ+2)) {
 		for p := range s.paintingChunks.In(pos) {
 			if p.w == w && p.maxX >= minX && p.minX <= maxX && p.maxZ >= minZ && p.minZ <= maxZ && !p.held && !paintingTracker.dead(p) {
@@ -290,13 +290,14 @@ func (s *Server) hangingNear(w *world.World, minX, minZ, maxX, maxZ float64) ([]
 			}
 		}
 	}
-	for pos := range s.frameChunks.ChunksIn(entity.ChunkAt(minX-1, minZ-1), entity.ChunkAt(maxX+1, maxZ+1)) {
+	for pos := range s.frameChunks.ChunksIn(entity.ChunkAt(minX-0.5, minZ-0.5), entity.ChunkAt(maxX+0.5, maxZ+0.5)) {
 		for f := range s.frameChunks.In(pos) {
 			if f.w == w && f.maxX >= minX && f.minX <= maxX && f.maxZ >= minZ && f.minZ <= maxZ && !f.held && !frameTracker.dead(f) {
 				frames = append(frames, f)
 			}
 		}
 	}
+	s.hangingScratchP, s.hangingScratchF = paintings, frames
 	return paintings, frames
 }
 
