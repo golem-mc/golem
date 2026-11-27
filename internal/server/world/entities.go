@@ -76,9 +76,6 @@ func upgradeEntities(entities nbt.List, version int32) {
 		if !ok {
 			continue
 		}
-		if version < oldEntityFixesEnd {
-			upgradeOldEntity(c, version)
-		}
 		if version < attributeIdPrefixVersion {
 			upgradeLegacyEntity(c, version)
 		}
@@ -93,6 +90,26 @@ func upgradeEntities(entities nbt.List, version int32) {
 			upgradeEntityShapes(c, version)
 		}
 	}
+}
+
+// UpgradePlayerData brings a player file written at an older data version to
+// the shapes this server reads: item stacks of Inventory, EnderItems and the
+// equipment, and the player's attributes. It raises the file's DataVersion to
+// the last of those fixes (tooltipDisplayVersion), so a later load does not run
+// them over the upgraded data; the respawn and equipment steps keyed on the
+// claim stay with the caller.
+// vanilla: DataFixTypes.PLAYER.updateToCurrentVersion
+func UpgradePlayerData(root nbt.Compound) {
+	version, _ := nbt.Get[nbt.Int](root, "DataVersion")
+	if version == 0 || version >= tooltipDisplayVersion {
+		return
+	}
+	if version < attributeIdPrefixVersion {
+		upgradeLegacyEntity(root, int32(version))
+	}
+	fixStoredComponents(root, int32(version))
+	fixEntityTexts(root, int32(version))
+	root["DataVersion"] = nbt.Int(tooltipDisplayVersion)
 }
 
 // fixEntityTexts strips attribute id prefixes and unflattens CustomName on an
@@ -304,4 +321,23 @@ func (w *World) releaseEntityRegion(rf *regionFile) {
 	w.regionMu.Lock()
 	defer w.regionMu.Unlock()
 	w.entityRegions.release(rf)
+}
+
+// moveChunkEntities hands the entities a chunk in the layout before 1.18 holds
+// to the entity region, upgraded, unless the region already has an entry for
+// the chunk: from then on they are read as any chunk's. moved is true when the
+// chunk record still holds an entities list, which the caller must rewrite
+// without it so the entity region stays the only record.
+// vanilla: ChunkRenamesFix, SerializableChunkData.parse
+func (w *World) moveChunkEntities(pos ChunkPos, root nbt.Compound) (moved bool, err error) {
+	entities, ok := nbt.Get[nbt.List](root, "entities")
+	if !ok || len(entities.Items) == 0 {
+		return false, nil
+	}
+	if _, has, err := w.LoadChunkEntities(pos); err != nil || has {
+		return err == nil, err
+	}
+	version, _ := nbt.Get[nbt.Int](root, "DataVersion")
+	upgradeEntities(entities, int32(version))
+	return true, w.SaveChunkEntities(pos, entities.Items)
 }

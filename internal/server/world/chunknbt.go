@@ -330,7 +330,8 @@ func biomeID(name string) int32 {
 const chunkDataVersionFloor = 2843
 
 // entityDataVersionFloor is the oldest DataVersion of a stored entity read:
-// 1.16.5, the oldest whose entity fixes upgradeOldEntity carries.
+// older ones need the fixes of 1.16.4 and before, which are not ported.
+// vanilla: DataFixers.addFixers (v2586, 1.16.5)
 const entityDataVersionFloor = 2586
 
 // Data versions of the block renames a chunk palette from below them gets.
@@ -584,10 +585,6 @@ func decodeChunkNBT(root nbt.Compound) (*Chunk, error) {
 	c.countTickingCarried()
 	if ent, ok := nbt.Get[nbt.List](root, "entities"); ok {
 		c.carriedEntities = ent
-	}
-	if ent, ok := nbt.Get[nbt.List](root, levelEntitiesKey); ok {
-		upgradeEntities(ent, c.dataVersion)
-		c.levelEntities = ent.Items
 	}
 
 	// Load cached light if this server wrote it; a vanilla chunk has no

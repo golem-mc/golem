@@ -162,3 +162,32 @@ func TestMailboxOverflowLogsQueuedBytesDuringDrain(t *testing.T) {
 		}
 	})
 }
+
+func TestLazyPacketWakesWriterOnlyWithoutTickFlush(t *testing.T) {
+	c, _ := mailboxClient()
+	queue := func(lazy bool) bool {
+		c.queueIn(nil, outbound{id: protocol.IDPlaySoundEffect, lazy: lazy})
+		select {
+		case <-c.out.wake:
+			return true
+		default:
+			return false
+		}
+	}
+	c.srv.tickRunning = true
+	if queue(true) {
+		t.Fatal("lazy packet woke the writer with the loop running")
+	}
+	if !queue(false) {
+		t.Fatal("ordinary packet did not wake the writer")
+	}
+	c.srv.tickRunning = false
+	if !queue(true) {
+		t.Fatal("lazy packet did not wake the writer with the loop stopped")
+	}
+	c.srv.tickRunning = true
+	c.srv.tickClock = wallClock{}
+	if !queue(true) {
+		t.Fatal("lazy packet did not wake the writer on a test clock")
+	}
+}

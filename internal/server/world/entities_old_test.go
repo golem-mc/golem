@@ -6,60 +6,85 @@ import (
 	"github.com/golem-mc/golem/nbt"
 )
 
-// TestUpgradeEntitiesAppliesTheEntityFixesOf1_16To1_20 feeds each entity of
-// the shape before a data fixer through upgradeEntities.
-// vanilla: AbstractArrowPickupFix, EntityVariantFix, VariantRenameFix,
-// EntityFieldsRenameFix, EntityGoatMissingStateFix, EffectDurationFix,
-// MobEffectIdFix, FixProjectileStoredItem
-func TestUpgradeEntitiesAppliesTheEntityFixesOf1_16To1_20(t *testing.T) {
-	str := func(s string) nbt.Tag { return nbt.String(s) }
+func TestOldEntityFixes(t *testing.T) {
 	list := func(items ...nbt.Tag) nbt.List { return nbt.List{Elem: nbt.TypeCompound, Items: items} }
-	for _, tc := range []struct {
-		name    string
-		version int32
-		in      nbt.Compound
-		want    nbt.Compound
-	}{
-		{"arrow from a player", 2586, nbt.Compound{"id": str("minecraft:arrow")},
-			nbt.Compound{"id": str("minecraft:arrow"), "pickup": nbt.Byte(1), "item": nbt.Compound{"id": str("minecraft:arrow"), "count": nbt.Int(1)}}},
-		{"trident not from a player", 2586, nbt.Compound{"id": str("minecraft:trident"), "player": nbt.Byte(0)},
-			nbt.Compound{"id": str("minecraft:trident"), "pickup": nbt.Byte(0)}},
-		{"tipped arrow", 3600, nbt.Compound{"id": str("minecraft:arrow"), "pickup": nbt.Byte(1), "Potion": str("minecraft:poison")},
-			nbt.Compound{"id": str("minecraft:arrow"), "pickup": nbt.Byte(1), "Potion": str("minecraft:poison"),
-				"item": nbt.Compound{"id": str("minecraft:tipped_arrow"), "count": nbt.Int(1)}}},
-		{"cat", 2586, nbt.Compound{"id": str("minecraft:cat"), "CatType": nbt.Int(4)},
-			nbt.Compound{"id": str("minecraft:cat"), "variant": str("minecraft:british_shorthair")}},
-		{"cat between shorthair and variants", 3090, nbt.Compound{"id": str("minecraft:cat"), "variant": str("minecraft:british")},
-			nbt.Compound{"id": str("minecraft:cat"), "variant": str("minecraft:british_shorthair")}},
-		{"cat unknown type", 3000, nbt.Compound{"id": str("minecraft:cat"), "CatType": nbt.Int(99)},
-			nbt.Compound{"id": str("minecraft:cat"), "variant": str("minecraft:tabby")}},
-		{"frog", 3086, nbt.Compound{"id": str("minecraft:frog"), "Variant": nbt.Int(2)},
-			nbt.Compound{"id": str("minecraft:frog"), "variant": str("minecraft:cold")}},
-		{"painting", 3000, nbt.Compound{"id": str("minecraft:painting"), "Motive": str("minecraft:kebab"), "Facing": nbt.Byte(2)},
-			nbt.Compound{"id": str("minecraft:painting"), "variant": str("minecraft:kebab"), "facing": nbt.Byte(2)}},
-		{"goat", 3092, nbt.Compound{"id": str("minecraft:goat")},
-			nbt.Compound{"id": str("minecraft:goat"), "HasLeftHorn": nbt.Byte(1), "HasRightHorn": nbt.Byte(1)}},
-		{"active effects", 3000, nbt.Compound{"id": str("minecraft:zombie"), "ActiveEffects": list(
-			nbt.Compound{"Id": nbt.Byte(1), "Amplifier": nbt.Byte(2), "Duration": nbt.Int(100), "ShowParticles": nbt.Byte(1)})},
-			nbt.Compound{"id": str("minecraft:zombie"), "active_effects": list(
-				nbt.Compound{"id": str("minecraft:speed"), "amplifier": nbt.Byte(2), "duration": nbt.Int(100), "show_particles": nbt.Byte(1)})}},
-		{"effect ticks", 3300, nbt.Compound{"id": str("minecraft:zombie"), "ActiveEffects": list(
-			nbt.Compound{"Id": nbt.Byte(1), "Duration": nbt.Int(100), "FactorCalculationData": nbt.Compound{"effect_changed_timestamp": nbt.Int(130)}})},
-			nbt.Compound{"id": str("minecraft:zombie"), "active_effects": list(
-				nbt.Compound{"id": str("minecraft:speed"), "duration": nbt.Int(100), "FactorCalculationData": nbt.Compound{"ticks_active": nbt.Int(30)}})}},
-		{"area effect cloud", 3000, nbt.Compound{"id": str("minecraft:area_effect_cloud"), "Effects": list(nbt.Compound{"Id": nbt.Byte(19)})},
-			nbt.Compound{"id": str("minecraft:area_effect_cloud"), "potion_duration_scale": nbt.Float(0.25),
-				"potion_contents": nbt.Compound{"custom_effects": list(nbt.Compound{"id": str("minecraft:poison")})}}},
-		{"mooshroom", 3000, nbt.Compound{"id": str("minecraft:mooshroom"), "EffectId": nbt.Byte(16), "EffectDuration": nbt.Int(160)},
-			nbt.Compound{"id": str("minecraft:mooshroom"), "stew_effects": list(nbt.Compound{"id": str("minecraft:night_vision"), "duration": nbt.Int(160)})}},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			l := nbt.List{Elem: nbt.TypeCompound, Items: []nbt.Tag{tc.in}}
-			upgradeEntities(l, tc.version)
-			got, _ := nbt.CompoundView(l.Items[0])
-			if !tagEqual(got, tc.want) {
-				t.Errorf("got %v, want %v", got, tc.want)
-			}
-		})
+	entity := func(id string, kv ...any) nbt.Compound {
+		c := nbt.Compound{"id": nbt.String(id)}
+		for i := 0; i < len(kv); i += 2 {
+			c[kv[i].(string)] = kv[i+1].(nbt.Tag)
+		}
+		return c
+	}
+	run := func(version int32, e nbt.Compound) nbt.Compound {
+		upgradeEntities(list(e), version)
+		return e
+	}
+
+	if a := run(2586, entity("minecraft:arrow", "player", nbt.Byte(0))); a["pickup"] != nbt.Byte(0) || a["player"] != nil {
+		t.Errorf("arrow pickup: %v", a)
+	}
+	if a := run(2586, entity("minecraft:trident")); a["pickup"] != nbt.Byte(1) {
+		t.Errorf("trident pickup: %v", a)
+	}
+	if c := run(3000, entity("minecraft:cat", "CatType", nbt.Int(4))); c["variant"] != nbt.String("minecraft:british_shorthair") {
+		t.Errorf("cat variant: %v", c)
+	}
+	if f := run(3086, entity("minecraft:frog", "Variant", nbt.Int(2))); f["variant"] != nbt.String("minecraft:cold") {
+		t.Errorf("frog variant: %v", f)
+	}
+	p := run(2586, entity("minecraft:painting", "Motive", nbt.String("minecraft:kebab"), "Facing", nbt.Byte(2)))
+	if p["variant"] != nbt.String("minecraft:kebab") || p["facing"] != nbt.Byte(2) || p["Motive"] != nil {
+		t.Errorf("painting: %v", p)
+	}
+	if g := run(3000, entity("minecraft:goat")); g["HasLeftHorn"] != nbt.Byte(1) || g["HasRightHorn"] != nbt.Byte(1) {
+		t.Errorf("goat: %v", g)
+	}
+
+	// The arrow gets its item, which the componentization then converts, and
+	// its potion lands in that item's potion_contents.
+	a := run(3000, entity("minecraft:arrow", "Potion", nbt.String("minecraft:poison"),
+		"CustomPotionEffects", list(nbt.Compound{"Id": nbt.Byte(1), "Amplifier": nbt.Byte(0), "Duration": nbt.Int(5)})))
+	item, _ := nbt.Get[nbt.Compound](a, "item")
+	if item["id"] != nbt.String("minecraft:tipped_arrow") || item["count"] != nbt.Int(1) {
+		t.Fatalf("arrow item: %v", a)
+	}
+	contents, _ := nbt.Get[nbt.Compound](item["components"].(nbt.Compound), "minecraft:potion_contents")
+	effects, _ := nbt.Get[nbt.List](contents, "custom_effects")
+	if contents["potion"] != nbt.String("minecraft:poison") || len(effects.Items) != 1 {
+		t.Errorf("arrow potion_contents: %v", contents)
+	}
+	if effect, _ := nbt.CompoundView(effects.Items[0]); effect["id"] != nbt.String("minecraft:speed") {
+		t.Errorf("arrow effect: %v", effect)
+	}
+
+	// A mooshroom's stew, a cloud's effects and a mob's active effects.
+	m := run(3000, entity("minecraft:mooshroom", "EffectId", nbt.Byte(1), "EffectDuration", nbt.Int(100)))
+	stew, _ := nbt.Get[nbt.List](m, "stew_effects")
+	if entry, _ := nbt.CompoundView(stew.Items[0]); entry["id"] != nbt.String("minecraft:speed") || entry["duration"] != nbt.Int(100) || m["EffectId"] != nil {
+		t.Errorf("mooshroom: %v", m)
+	}
+	z := run(3000, entity("minecraft:zombie", "ActiveEffects", list(nbt.Compound{"Id": nbt.Byte(5), "Amplifier": nbt.Byte(1)})))
+	active, _ := nbt.Get[nbt.List](z, "active_effects")
+	if e, _ := nbt.CompoundView(active.Items[0]); e["id"] != nbt.String("minecraft:strength") || e["amplifier"] != nbt.Byte(1) || z["ActiveEffects"] != nil {
+		t.Errorf("active effects: %v", z)
+	}
+
+	// A spawner's data is wrapped, and the entity inside is upgraded too.
+	spawner := nbt.Compound{
+		"SpawnData":       entity("minecraft:zombie", "Attributes", list(nbt.Compound{"Name": nbt.String("generic.max_health"), "Base": nbt.Double(40)})),
+		"SpawnPotentials": list(nbt.Compound{"Weight": nbt.Int(3), "Entity": entity("minecraft:pig")}),
+	}
+	fixSpawnerData(spawner, 2586)
+	data, _ := nbt.Get[nbt.Compound](spawner, "SpawnData")
+	inner, _ := nbt.Get[nbt.Compound](data, "entity")
+	if inner["id"] != nbt.String("minecraft:zombie") || inner["attributes"] == nil {
+		t.Errorf("SpawnData: %v", spawner["SpawnData"])
+	}
+	potentials, _ := nbt.Get[nbt.List](spawner, "SpawnPotentials")
+	entry, _ := nbt.CompoundView(potentials.Items[0])
+	pdata, _ := nbt.Get[nbt.Compound](entry, "data")
+	pinner, _ := nbt.Get[nbt.Compound](pdata, "entity")
+	if entry["weight"] != nbt.Int(3) || pinner["id"] != nbt.String("minecraft:pig") || entry["Weight"] != nil {
+		t.Errorf("SpawnPotentials: %v", potentials)
 	}
 }

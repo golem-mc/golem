@@ -43,7 +43,14 @@ func TestUnwrapLevelChunkKeepsWhatItCannotUpgrade(t *testing.T) {
 	t.Parallel()
 	root := nbt.Compound{"Level": nbt.Compound{"Entities": nbt.List{Elem: nbt.TypeCompound, Items: []nbt.Tag{nbt.Compound{"id": nbt.String("minecraft:cow")}}}}}
 	if _, ok := errors.AsType[*unsupportedVersionError](unwrapLevelChunk(root, levelChunkFloor)); !ok {
-		t.Error("a chunk with entities was upgraded")
+		t.Error("a chunk with entities from before 1.16.5 was upgraded")
+	}
+	root = nbt.Compound{"Level": nbt.Compound{"Entities": nbt.List{Elem: nbt.TypeCompound, Items: []nbt.Tag{nbt.Compound{"id": nbt.String("minecraft:cow")}}}}}
+	if err := unwrapLevelChunk(root, entityDataVersionFloor); err != nil {
+		t.Errorf("a 1.16.5 chunk with entities: %v", err)
+	}
+	if entities, _ := nbt.Get[nbt.List](root, "entities"); len(entities.Items) != 1 {
+		t.Errorf("entities = %v, want the cow left for the entity loader", entities)
 	}
 }
 
@@ -108,27 +115,5 @@ func TestOldPaletteAndBlockEntityFixes(t *testing.T) {
 	owner, _ := nbt.Get[nbt.Compound](skull, "profile")
 	if !nbt.Equal(owner["id"], nbt.IntArray{1, 2, 0, 3}) {
 		t.Errorf("skull = %v", skull)
-	}
-}
-
-// TestUnwrapLevelChunkSetsEntitiesAside keeps the entities of a 1.16.5 chunk
-// for the entity store, and the chunk upgrader refuses to drop them.
-func TestUnwrapLevelChunkSetsEntitiesAside(t *testing.T) {
-	t.Parallel()
-	cow := nbt.Compound{"id": nbt.String("minecraft:cow")}
-	root := nbt.Compound{"DataVersion": nbt.Int(entityDataVersionFloor), "Level": nbt.Compound{
-		"Status": nbt.String("full"), "Entities": nbt.List{Elem: nbt.TypeCompound, Items: []nbt.Tag{cow}},
-	}}
-	if err := unwrapLevelChunk(root, entityDataVersionFloor); err != nil {
-		t.Fatal(err)
-	}
-	if _, ok := root["entities"]; ok {
-		t.Error("entities left in place")
-	}
-	if list, _ := nbt.Get[nbt.List](root, levelEntitiesKey); len(list.Items) != 1 {
-		t.Errorf("%s = %v, want the cow", levelEntitiesKey, root[levelEntitiesKey])
-	}
-	if _, ok := errors.AsType[*unsupportedVersionError](upgradeChunkRecord(root, false)); !ok {
-		t.Error("the chunk upgrader would drop the entities")
 	}
 }

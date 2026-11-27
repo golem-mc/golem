@@ -3034,7 +3034,7 @@ func (c *client) stepEvent(was, now player.Position, look player.Appearance, inW
 	})
 	play := func(snd rules.StepSound) {
 		if snd.Event != registry.SoundNone {
-			c.srv.broadcastSoundIDExcept(w, c, snd.Event, protocol.SoundCategoryPlayer, now.X, now.Y, now.Z, snd.Volume, snd.Pitch)
+			c.srv.broadcastLazySoundIDExcept(w, c, snd.Event, protocol.SoundCategoryPlayer, now.X, now.Y, now.Z, snd.Volume, snd.Pitch)
 		}
 	}
 	swim := func() {

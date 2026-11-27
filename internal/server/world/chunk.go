@@ -111,10 +111,6 @@ type Chunk struct {
 	// tickingCarried counts the trial spawners, vaults, beehives and end gateways among carriedBlockEntities.
 	tickingCarried  int
 	carriedEntities nbt.List
-
-	// levelEntities are the entities a chunk in the layout before 1.17 held,
-	// upgraded; loadChunk moves them to the entity store.
-	levelEntities []nbt.Tag
 	// carriedRoot is the unmodelled root tags (structure starts,
 	// PostProcessing, carving_mask, UpgradeData and the rest), kept as read so
 	// a save does not drop a vanilla world's villages and strongholds.
@@ -184,6 +180,9 @@ type Chunk struct {
 	// lightFormsRetained is set only while the packet cache owns this chunk.
 	lightFormsRetained bool
 	lightCorrect       bool
+	// rewriteOnLoad marks a chunk read from a pre-1.18 record whose entities
+	// moved to the entity region; it is saved at once without them.
+	rewriteOnLoad bool
 	// lightBorrowed marks, per layer and light section, an array shared with
 	// another chunk or a uniform constant, copied before its first write
 	// (writableLight).

@@ -2430,6 +2430,10 @@ func (s *Server) broadcastNear(w *world.World, x, y, z, radius float64, packetID
 // broadcastNearExcept is broadcastNear without one player, for a sound the
 // actor needs on their own connection ahead of the packets that follow.
 func (s *Server) broadcastNearExcept(w *world.World, except *client, x, y, z, radius float64, packetID int32, data []byte) {
+	s.broadcastNearExceptOutbound(w, except, x, y, z, radius, outbound{id: packetID, data: data})
+}
+
+func (s *Server) broadcastNearExceptOutbound(w *world.World, except *client, x, y, z, radius float64, p outbound) {
 	s.mu.RLock()
 	var recipients []*client
 	sq := radius * radius
@@ -2445,7 +2449,7 @@ func (s *Server) broadcastNearExcept(w *world.World, except *client, x, y, z, ra
 	}
 	s.mu.RUnlock()
 
-	sendToAll(w, recipients, outbound{id: packetID, data: data})
+	sendToAll(w, recipients, p)
 }
 
 // levelEventRange is a level or block event's reach in blocks, from the
@@ -2590,6 +2594,13 @@ func (s *Server) broadcastSoundID(w *world.World, sound registry.Sound, category
 func (s *Server) broadcastSoundIDExcept(w *world.World, except *client, sound registry.Sound, category int32, x, y, z float64, volume, pitch float32) {
 	s.broadcastNearExcept(w, except, x, y, z, soundRange(volume), protocol.IDPlaySoundEffect,
 		soundEffectIDAt(sound, category, x, y, z, volume, pitch))
+}
+
+// broadcastLazySoundIDExcept is broadcastSoundIDExcept for a sound that may
+// wait for the tick-end flush instead of waking each listener's writer.
+func (s *Server) broadcastLazySoundIDExcept(w *world.World, except *client, sound registry.Sound, category int32, x, y, z float64, volume, pitch float32) {
+	s.broadcastNearExceptOutbound(w, except, x, y, z, soundRange(volume),
+		outbound{id: protocol.IDPlaySoundEffect, data: soundEffectIDAt(sound, category, x, y, z, volume, pitch), lazy: true})
 }
 
 // playPending sends a sound kept until after a lock.
