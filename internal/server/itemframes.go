@@ -57,6 +57,8 @@ type frameEntity struct {
 
 	// checkInterval counts ticks toward the periodic survives poll.
 	checkInterval int
+	// neighboursGen is the hangingGen at which the last poll found no body in the way.
+	neighboursGen uint64
 	bodyTrack[struct{}]
 
 	// tags are the scoreboard tags. Guarded by the frame lock.
@@ -75,6 +77,7 @@ var frameTracker = trackedKind[*frameEntity, struct{}]{
 	chunks:      func(s *Server) *entity.ChunkIndex[*frameEntity] { return &s.frameChunks },
 	filing:      func(it *frameEntity) *entity.Filing { return &it.Filing },
 	uuid:        func(it *frameEntity) uuid.UUID { return it.uuid },
+	listed:      hangingChanged,
 	anchor:      func(it *frameEntity) (float64, float64) { return frameCentreX(it), frameCentreZ(it) },
 	track:       func(f *frameEntity) *bodyTrack[struct{}] { return &f.bodyTrack },
 	world:       func(f *frameEntity) *world.World { return f.w },
@@ -175,6 +178,7 @@ func (f *frameEntity) reshape() {
 	_, framedMap := f.item.MapIDOf()
 	f.minX, f.minY, f.minZ, f.maxX, f.maxY, f.maxZ = rules.ItemFrameBox(f.x, f.y, f.z, f.dir, framedMap)
 	f.Refile(entity.ChunkAt(frameCentreX(f), frameCentreZ(f)))
+	hangingChanged()
 }
 
 // frameSurvives reports whether a frame survives in the cell given: nothing
@@ -237,8 +241,8 @@ func (s *Server) hangFrame(w *world.World, x, y, z, dir int32, glow bool, stack 
 			f = loaded
 		}
 	}
-	if !frameSurvives(f.w, f.x, f.y, f.z, f.dir, f.fixed,
-		s.paintingsOfWorldExceptLocked(w, nil), s.framesOfWorldExceptLocked(w, nil)) {
+	paintings, frames := s.hangingNearCell(w, f.x, f.z)
+	if !frameSurvives(f.w, f.x, f.y, f.z, f.dir, f.fixed, paintings, frames) {
 		s.framesMu.Unlock()
 		s.paintingsMu.Unlock()
 		s.mu.RUnlock()
@@ -383,18 +387,6 @@ func (s *Server) frameTwinAt(f *frameEntity, to *dimension, pos player.Position)
 	tag := frameTag(f)
 	tag.Set("block_pos", nbt.IntArray{rules.BlockOf(pos.X), rules.BlockOf(pos.Y), rules.BlockOf(pos.Z)})
 	return frameOfTag(s, to.w, tag.Entries())
-}
-
-// framesOfWorldExceptLocked collects the world's frames not in excluded
-// (nil: every one). The frame lock is held.
-func (s *Server) framesOfWorldExceptLocked(w *world.World, excluded map[*frameEntity]bool) []*frameEntity {
-	frames := make([]*frameEntity, 0, len(s.frames))
-	for _, f := range s.frames {
-		if f.w == w && !excluded[f] {
-			frames = append(frames, f)
-		}
-	}
-	return frames
 }
 
 // frameByIDLocked finds the frame an entity ID names, nil for one gone.
@@ -752,9 +744,16 @@ func (s *Server) pollFrames() {
 			continue
 		}
 		f.checkInterval = 0
-		if !frameSurvives(f.w, f.x, f.y, f.z, f.dir, f.fixed,
-			s.paintingsOfWorldExceptLocked(f.w, nil),
-			s.framesOfWorldExceptLocked(f.w, map[*frameEntity]bool{f: true})) {
+		var paintings []*paintingEntity
+		var frames []*frameEntity
+		gen := hangingGen.Load()
+		if f.neighboursGen != gen {
+			paintings, frames = s.hangingNear(f.w, f.minX, f.minZ, f.maxX, f.maxZ)
+			frames = slices.DeleteFunc(frames, func(o *frameEntity) bool { return o == f })
+		}
+		if frameSurvives(f.w, f.x, f.y, f.z, f.dir, f.fixed, paintings, frames) {
+			f.neighboursGen = gen
+		} else {
 			doomed = append(doomed, f)
 			tells = append(tells, frameTellOf(f))
 		}

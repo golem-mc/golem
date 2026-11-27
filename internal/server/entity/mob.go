@@ -1206,7 +1206,10 @@ var kinds = [registry.EntityTypeCount]*kind{
 		width:      0.6,
 		height:     0.85,
 		eyeHeight:  0.68,
-		babyEye:    0.34375, // Wolf.BABY_DIMENSIONS
+		// vanilla: Wolf.BABY_DIMENSIONS
+		babyWidth:  0.3,
+		babyHeight: 0.425,
+		babyEye:    0.34375,
 		maxHealth:  8,
 		speed:      float64(float32(0.3)),
 		volume:     0.4, // Wolf.getSoundVolume

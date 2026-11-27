@@ -1111,6 +1111,7 @@ func applyPaintingTag(p *paintingEntity, compound nbt.Compound) {
 	p.invulnerable = nbt.BoolField(compound, "Invulnerable")
 	p.minX, p.minY, p.minZ, p.maxX, p.maxY, p.maxZ = rules.PaintingBox(p.x, p.y, p.z, p.dir, p.width, p.height)
 	p.Refile(entity.ChunkAt(paintingCentreX(p), paintingCentreZ(p)))
+	hangingChanged()
 }
 
 // frameTag writes a frame's compound: the anchor cell as block_pos, the
