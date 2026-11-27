@@ -19,13 +19,13 @@ type outbound struct {
 	id int32
 	// playerChat keeps converted System Chat subject to full-chat visibility.
 	playerChat bool
-	data       []byte
-	shared     *protocol.CachedPacket
 	// raw skips compression: set for a body deflate cannot shrink.
 	raw bool
 	// lazy: queued without waking the writer; it goes with the next flush
 	// (the tick end or any other wake).
-	lazy bool
+	lazy   bool
+	data   []byte
+	shared *protocol.CachedPacket
 }
 
 // mailbox is a client's queue of packets from goroutines other than its
@@ -184,22 +184,78 @@ func (c *client) sendIn(w *world.World, packetID int32, data []byte) bool {
 }
 
 func (c *client) sendOutboundIn(w *world.World, p outbound) bool {
-	packetID, data := p.id, p.data
-	if p.playerChat && !c.acceptsChatMessages() {
-		return true
-	}
-	if c.sky.Load() != nil {
-		var ok bool
-		if data, ok = c.skyFilter(packetID, data); !ok {
-			return true
-		}
-		p.data = data
-	}
-	// vanilla: ServerPlayer.acceptsSystemMessages
-	if packetID == protocol.IDPlaySystemChat && c.chatMode.Load() == protocol.ChatModeHidden && len(data) > 0 && data[len(data)-1] == 0 {
+	p, ok := c.filterOutbound(p)
+	if !ok {
 		return true
 	}
 	return c.queueIn(w, p)
+}
+
+// filterOutbound applies the per-packet filters; ok is false for a packet
+// this client is not sent.
+func (c *client) filterOutbound(p outbound) (_ outbound, ok bool) {
+	if c.dropsPlayerChat(p) {
+		return p, false
+	}
+	if c.sky.Load() != nil {
+		data, ok := c.skyFilter(p.id, p.data)
+		if !ok {
+			return p, false
+		}
+		p.data = data
+	}
+	return p, !c.dropsHiddenSystemChat(p)
+}
+
+func (c *client) dropsPlayerChat(p outbound) bool {
+	return p.playerChat && !c.acceptsChatMessages()
+}
+
+// vanilla: ServerPlayer.acceptsSystemMessages
+func (c *client) dropsHiddenSystemChat(p outbound) bool {
+	return p.id == protocol.IDPlaySystemChat && c.chatMode.Load() == protocol.ChatModeHidden && len(p.data) > 0 && p.data[len(p.data)-1] == 0
+}
+
+// sendOutboundsIn queues the entries, all bound for c, in order under one mailbox lock, with the filters, world check and limit of
+// sendOutboundIn.
+func (c *client) sendOutboundsIn(entries []sendEntry) {
+	m := c.out
+	if m == nil {
+		return
+	}
+	if c.sky.Load() != nil {
+		// skyFilter may take other locks, so it runs outside the mailbox's.
+		for _, e := range entries {
+			c.sendOutboundIn(e.w, e.p)
+		}
+		return
+	}
+	wake := false
+	soon := c.srv.tickFlushSoon()
+	m.mu.Lock()
+	for i := range entries {
+		e := &entries[i]
+		if c.dropsPlayerChat(e.p) || c.dropsHiddenSystemChat(e.p) {
+			continue
+		}
+		if e.w != nil && c.theWorld() != e.w {
+			continue
+		}
+		if queued := m.queued; queued+len(e.p.data) > mailboxLimit {
+			m.mu.Unlock()
+			c.log.Warn("dropping client that is not keeping up", "queuedBytes", queued)
+			c.conn.Close()
+			return
+		}
+		m.queue = append(m.queue, e.p)
+		m.queued += len(e.p.data)
+		wake = wake || !e.p.lazy || !soon
+	}
+	m.mu.Unlock()
+	// Read after enqueue, as in queueIn.
+	if wake && !c.srv.deferWakes.Load() {
+		m.signal()
+	}
 }
 
 // sendUnfiltered bypasses chat visibility for the hidden-chat refusal itself.

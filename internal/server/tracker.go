@@ -462,11 +462,14 @@ func (o *trackSends) send() {
 	o.moves.send()
 }
 
-// sendList is packets each bound for one client, sent in order. Its entries
-// are pooled across ticks: a client's mailbox takes each packet by value, so
-// once send returns nothing refers to them. A list is used through a pointer
-// and sent once; a copy would share the entries it gives back.
-type sendList struct{ entries *[]sendEntry }
+// sendList is packets each bound for one client, sent in order per client.
+// Entries are bucketed by the client's slot as they are added, so send queues
+// each client's packets under one mailbox lock; nothing orders packets for
+// different clients. The buckets are pooled across ticks: a client's mailbox
+// takes each packet by value, so once send returns nothing refers to them. A
+// list is used through a pointer and sent once; a copy would share the
+// buckets it gives back.
+type sendList struct{ b *sendBuckets }
 
 type sendEntry struct {
 	to *client
@@ -476,48 +479,55 @@ type sendEntry struct {
 	p outbound
 }
 
-var sendEntries = sync.Pool{New: func() any { return new([]sendEntry) }}
-
-func (l *sendList) add(c *client, p outbound) {
-	if l.entries == nil {
-		l.entries = sendEntries.Get().(*[]sendEntry)
-	}
-	*l.entries = append(*l.entries, sendEntry{to: c, p: p})
+// sendBuckets holds entries by client slot; touched lists the non-empty ones.
+type sendBuckets struct {
+	by      [][]sendEntry
+	touched []int
 }
+
+var sendBucketPool = sync.Pool{New: func() any { return new(sendBuckets) }}
+
+func (l *sendList) add(c *client, p outbound) { l.addIn(c, nil, p) }
 
 // addIn queues a packet for c only while c stays in w.
 func (l *sendList) addIn(c *client, w *world.World, p outbound) {
-	l.add(c, p)
-	(*l.entries)[len(*l.entries)-1].w = w
-}
-
-// drain hands every queued packet to f instead of sending it, and releases
-// the list.
-func (l *sendList) drain(f func(c *client, p outbound)) {
-	if l.entries == nil {
-		return
+	if l.b == nil {
+		l.b = sendBucketPool.Get().(*sendBuckets)
 	}
-	for _, e := range *l.entries {
-		f(e.to, e.p)
+	b := l.b
+	if c.slot >= len(b.by) {
+		b.by = append(b.by, make([][]sendEntry, c.slot+1-len(b.by))...)
 	}
-	clear(*l.entries)
-	*l.entries = (*l.entries)[:0]
-	sendEntries.Put(l.entries)
-	l.entries = nil
+	if len(b.by[c.slot]) == 0 {
+		b.touched = append(b.touched, c.slot)
+	}
+	b.by[c.slot] = append(b.by[c.slot], sendEntry{to: c, w: w, p: p})
 }
 
 func (l *sendList) send() {
-	if l.entries == nil {
+	b := l.b
+	if b == nil {
 		return
 	}
-	for _, e := range *l.entries {
-		e.to.sendOutboundIn(e.w, e.p)
+	for _, slot := range b.touched {
+		entries := b.by[slot]
+		// Clients sharing a slot (none that are joined) stay apart by runs
+		// of the same recipient.
+		for i := 0; i < len(entries); {
+			j := i + 1
+			for j < len(entries) && entries[j].to == entries[i].to {
+				j++
+			}
+			entries[i].to.sendOutboundsIn(entries[i:j])
+			i = j
+		}
+		// Cleared, so a pooled list holds no client or payload alive.
+		clear(entries)
+		b.by[slot] = entries[:0]
 	}
-	// Cleared, so a pooled list holds no client or payload alive.
-	clear(*l.entries)
-	*l.entries = (*l.entries)[:0]
-	sendEntries.Put(l.entries)
-	l.entries = nil
+	b.touched = b.touched[:0]
+	sendBucketPool.Put(b)
+	l.b = nil
 }
 
 // settle pairs the body with a client standing at (x, z) that the range has
