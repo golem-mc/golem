@@ -552,16 +552,6 @@ func (t *mobDimTick) leaveUnloadedChunks(fx *mobEffects, in *mobTickInputs) {
 		gone[pos] = append(gone[pos], m)
 	}
 	h.setHerd(alive)
-	// A woken chunk left empty is written too, or the mobs that walked off it
-	// come back as duplicates.
-	for pos := range h.woken {
-		if _, ok := gone[pos]; ok || !unloaded(pos) {
-			continue
-		}
-		if h.listed[pos] {
-			gone[pos] = nil
-		}
-	}
 	// The four kinds' leavers join the same write, adding their chunks.
 	goneTags := make(map[world.ChunkPos][]nbt.Tag)
 	var steppedOff map[*mobEntity]uuid.UUID
@@ -586,11 +576,16 @@ func (t *mobDimTick) leaveUnloadedChunks(fx *mobEffects, in *mobTickInputs) {
 			gone[d.pos] = nil
 		}
 	}
-	// An unlisted woken chunk that unloaded has nothing to write; forgetting it
-	// keeps the woken set to loaded chunks. The next load wakes it from disk.
+	// A woken chunk left empty is written too, or the mobs that walked off it
+	// come back as duplicates. An unlisted one has nothing to write; forgetting
+	// it keeps the woken set to loaded chunks, and the next load wakes it from disk.
 	forgotten := 0
 	for pos := range h.woken {
-		if _, ok := gone[pos]; ok || h.listed[pos] || !unloaded(pos) {
+		if _, ok := gone[pos]; ok || !unloaded(pos) {
+			continue
+		}
+		if h.listed[pos] {
+			gone[pos] = nil
 			continue
 		}
 		forgotten++
