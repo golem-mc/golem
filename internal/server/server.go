@@ -339,6 +339,16 @@ type Server struct {
 	enableStatus         atomic.Bool
 	entityBroadcastRange atomic.Int32
 
+	// playerPairEpoch counts the writes to a client's seenBy made outside
+	// tickPlayerTracking; a pass that sees it unchanged since the last one
+	// may trust the records it left. prevPass is read by the tick goroutine
+	// only.
+	playerPairEpoch atomic.Uint64
+	prevPass        struct {
+		tick, epoch uint64
+		ok          bool
+	}
+
 	// allowFlight is the allow-flight setting.
 	allowFlight atomic.Bool
 	// enforceWhitelist is the enforce-whitelist setting.
@@ -1864,6 +1874,9 @@ type client struct {
 	hidden    atomic.Pointer[map[int32]struct{}]
 	// tracking is what the last tracking snapshot read of this player.
 	tracking trackingStamp
+	// pairing is what the last player-tracking pass read of this player;
+	// only the tick goroutine touches it.
+	pairing pairingStamp
 
 	// container is the window state: the open container, the cursor item, the
 	// click state ID both ends sync on, and the drag in progress. Written by
@@ -2146,6 +2159,7 @@ func (s *Server) addPlayer(c *client) ([]*client, error) {
 	s.appendToPlayerList(c)
 	s.appendToLevel(c)
 	s.clients[c.player.UUID] = c
+	s.playerPairEpoch.Add(1)
 	// The mailbox holds session updates and chat until after the join snapshot.
 	c.chatReady = true
 	// From here this player's movement is worth passing on, as everyone else
@@ -2161,6 +2175,7 @@ func (s *Server) addPlayer(c *client) ([]*client, error) {
 		c.seenBy[other.player.UUID] = other
 	}
 	c.trackMu.Unlock()
+	s.playerPairEpoch.Add(1)
 	return others, nil
 }
 
@@ -2174,6 +2189,7 @@ func (s *Server) removePlayer(c *client) {
 		return
 	}
 	delete(s.clients, c.player.UUID)
+	s.playerPairEpoch.Add(1)
 	s.freePlayerSlots = append(s.freePlayerSlots, c.slot)
 	for _, other := range s.clients {
 		if other.dimension() == c.dimension() {
