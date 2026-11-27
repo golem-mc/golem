@@ -15,6 +15,7 @@ const (
 	cloudDurationScaleVersion = 4296 // vanilla: DataFixers.addFixers (AreaEffectCloudDurationScaleFix)
 	fallDistanceVersion       = 4303 // vanilla: DataFixers.addFixers (EntityFallDistanceFloatToDoubleFix)
 	thrownPotionSplitVersion  = 4306 // vanilla: DataFixers.addFixers (ThrownPotionSplitFix)
+	inlineBlockPosVersion     = 4314 // vanilla: DataFixers.addFixers (InlineBlockPosFormatFix)
 	copperGolemWeatherVersion = 4535 // vanilla: DataFixers.addFixers (CopperGolemWeatherStateFix)
 	villagerFinalizedVersion  = 4763 // vanilla: DataFixers.addFixers (VillagerSetVillagerDataFinalized)
 )
@@ -64,6 +65,9 @@ func upgradeEntityShapes(e nbt.CompoundTag, version int32) {
 			entries["id"] = nbt.String("minecraft:splash_potion")
 		}
 	}
+	if version < inlineBlockPosVersion {
+		inlineBlockPos(entries, string(id))
+	}
 	if version < copperGolemWeatherVersion && id == "minecraft:copper_golem" {
 		if v, ok := entries["weather_state"]; ok {
 			n, _ := nbt.IntValue(v)
@@ -110,4 +114,46 @@ func splitBoat(entries nbt.Compound, id string) {
 		}
 		entries["id"] = nbt.String("minecraft:" + wood + suffix)
 	}
+}
+
+// inlineBlockPos folds an entity's loose block coordinates into one int array
+// each, and renames the fields that moved with them.
+// vanilla: InlineBlockPosFormatFix
+func inlineBlockPos(entries nbt.Compound, id string) {
+	fixInlineBlockPos(entries, "SleepingX", "SleepingY", "SleepingZ", "sleeping_pos")
+	switch id {
+	case "minecraft:vex":
+		renameField(entries, "LifeTicks", "life_ticks")
+		fixInlineBlockPos(entries, "BoundX", "BoundY", "BoundZ", "bound_pos")
+	case "minecraft:phantom":
+		renameField(entries, "Size", "size")
+		fixInlineBlockPos(entries, "AX", "AY", "AZ", "anchor_pos")
+	case "minecraft:turtle":
+		renameField(entries, "HasEgg", "has_egg")
+		fixInlineBlockPos(entries, "HomePosX", "HomePosY", "HomePosZ", "home_pos")
+		delete(entries, "TravelPosX")
+		delete(entries, "TravelPosY")
+		delete(entries, "TravelPosZ")
+	case "minecraft:item_frame", "minecraft:glow_item_frame", "minecraft:painting", "minecraft:leash_knot":
+		fixInlineBlockPos(entries, "TileX", "TileY", "TileZ", "block_pos")
+	}
+}
+
+// fixInlineBlockPos moves three int fields into one [I; x, y, z] under to,
+// only when all three exist.
+// vanilla: ExtraDataFixUtils.fixInlineBlockPos
+func fixInlineBlockPos(entries nbt.Compound, xKey, yKey, zKey, to string) {
+	x, xok := entries[xKey]
+	y, yok := entries[yKey]
+	z, zok := entries[zKey]
+	if !xok || !yok || !zok {
+		return
+	}
+	xi, _ := nbt.IntValue(x)
+	yi, _ := nbt.IntValue(y)
+	zi, _ := nbt.IntValue(z)
+	delete(entries, xKey)
+	delete(entries, yKey)
+	delete(entries, zKey)
+	entries[to] = nbt.IntArray{xi, yi, zi}
 }

@@ -648,6 +648,7 @@ func fixPlayerRespawn(root nbt.Compound) {
 	}
 	if int(version) < inlineBlockPosFormatVersion {
 		migrateSpawnFields(root)
+		migrateEnteredNether(root)
 	}
 	if int(version) < playerRespawnDataFixVersion {
 		migrateRespawnAngle(root)
@@ -679,6 +680,23 @@ func migrateSpawnFields(root nbt.Compound) {
 		delete(root, key)
 	}
 	root["respawn"] = respawn
+}
+
+// migrateEnteredNether turns the old enteredNetherPosition {x,y,z} compound
+// into the entered_nether_pos list of doubles.
+// vanilla: InlineBlockPosFormatFix.fixPlayer
+func migrateEnteredNether(root nbt.Compound) {
+	old, ok := nbt.Get[nbt.Compound](root, "enteredNetherPosition")
+	if !ok {
+		return
+	}
+	delete(root, "enteredNetherPosition")
+	x, xok := nbt.Get[nbt.Double](old, "x")
+	y, yok := nbt.Get[nbt.Double](old, "y")
+	z, zok := nbt.Get[nbt.Double](old, "z")
+	if xok && yok && zok {
+		root["entered_nether_pos"] = nbt.ListOf([]nbt.Tag{x, y, z})
+	}
 }
 
 // migrateRespawnAngle is PlayerRespawnDataFix: the compound's angle becomes
