@@ -37,6 +37,19 @@ func (s *Server) blockPlaced(w *world.World, x, y, z int32, oldState uint16) {
 	s.afterBlockWake(w, x, y, z, oldState, changes, effects, primes)
 }
 
+// blockTemplatePlaced runs a template cell's removal reactions and on-place as
+// it is written. vanilla: StructureTemplate.placeInWorld
+func (s *Server) blockTemplatePlaced(w *world.World, x, y, z int32, oldState uint16) {
+	changes, effects, primes := s.physicsFor(w).NotifyTemplatePlaced(x, y, z, oldState)
+	s.afterBlockWake(w, x, y, z, oldState, changes, effects, primes)
+}
+
+// blockTemplateShaped runs a template cell's shape pass once all are placed.
+func (s *Server) blockTemplateShaped(w *world.World, x, y, z int32, oldState uint16) {
+	changes, effects, primes := s.physicsFor(w).NotifyTemplateShapes(x, y, z, oldState)
+	s.afterBlockWake(w, x, y, z, oldState, changes, effects, primes)
+}
+
 // blockPlacedHooks is blockPlaced's share a block write owns: the placement
 // hooks and the shape passes, before a block entity's tag loads.
 func (s *Server) blockPlacedHooks(w *world.World, x, y, z int32, oldState uint16) {

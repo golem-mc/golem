@@ -942,6 +942,42 @@ func (p *Physics) NotifyPlaced(x, y, z int32, oldState uint16) ([]BlockChange, [
 	return p.notifyChanged(x, y, z, oldState, true)
 }
 
+// NotifyTemplatePlaced is the part of a template cell's write that runs at its
+// placement: the old block's removal reactions and the new block's on-place,
+// seeing only the cells placed so far.
+// vanilla: StructureTemplate.placeInWorld, Level.setBlock
+func (p *Physics) NotifyTemplatePlaced(x, y, z int32, oldState uint16) ([]BlockChange, []Effect, []TNTPrime) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	newState := p.w.BlockAt(x, y, z)
+	if oldState == newState {
+		return nil, nil, nil
+	}
+	var changes []BlockChange
+	p.redstoneAfterRemoval(x, y, z, oldState, false, false, &changes)
+	p.containerRemoved(x, y, z, oldState, newState)
+	p.redstoneOnPlace(x, y, z, oldState, &changes)
+	effects, primes := p.takeWake()
+	return changes, effects, primes
+}
+
+// NotifyTemplateShapes is the shape pass of a template cell, run once every
+// cell is placed and before the neighbour updates.
+// vanilla: StructureTemplate.placeInWorld
+func (p *Physics) NotifyTemplateShapes(x, y, z int32, oldState uint16) ([]BlockChange, []Effect, []TNTPrime) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	newState := p.w.BlockAt(x, y, z)
+	if oldState == newState {
+		return nil, nil, nil
+	}
+	var changes []BlockChange
+	p.physicsAsked = nil
+	p.shapePass(x, y, z, oldState, newState, &changes)
+	effects, primes := p.takeWake()
+	return changes, effects, primes
+}
+
 // NotifyPlacedHooks is the part of NotifyPlaced a block write owns: the new
 // block's on-place and the shape passes, with no neighbour update. A block
 // entity's tag loads after it, then NotifyPlacedWake.
