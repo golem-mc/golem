@@ -104,12 +104,37 @@ func UpgradePlayerData(root nbt.Compound) {
 	if version == 0 || version >= dataVersion {
 		return
 	}
+	if version < legacyDimensionIDVersion {
+		fixLegacyDimensionID(root)
+	}
 	if version < attributeIdPrefixVersion {
 		upgradeLegacyEntity(root, int32(version))
 	}
 	fixStoredComponents(root, int32(version))
 	fixEntityTexts(root, int32(version))
 	root["DataVersion"] = nbt.Int(dataVersion)
+}
+
+// legacyDimensionIDVersion is the DataVersion that turned a player's numeric
+// Dimension into a name. vanilla: LegacyDimensionIdFix
+const legacyDimensionIDVersion = 2537
+
+// fixLegacyDimensionID replaces a numeric Dimension with its name: -1 the
+// Nether, 1 the End, any other number the overworld; a string stays.
+// vanilla: LegacyDimensionIdFix.fixPlayer
+func fixLegacyDimensionID(root nbt.Compound) {
+	v, ok := nbt.NumberValue(root["Dimension"])
+	if !ok {
+		return
+	}
+	switch int32(int64(v)) {
+	case -1:
+		root["Dimension"] = nbt.String("minecraft:the_nether")
+	case 1:
+		root["Dimension"] = nbt.String("minecraft:the_end")
+	default:
+		root["Dimension"] = nbt.String("minecraft:overworld")
+	}
 }
 
 // fixEntityTexts strips attribute id prefixes and unflattens CustomName on an
