@@ -177,17 +177,20 @@ var registryNameAllowed = map[string]nameAllowance{
 	"internal/server/world/turtleegg.go: string block lookup":                       {count: 1, issue: 6380},
 	"internal/server/world/world.go: string registry lookup":                        {count: 1, issue: 6380},
 	"internal/server/world/plugingen.go: string registry lookup":                    {count: 1, boundary: "biome name given by a plugin"},
+	"internal/server/world/entities_old.go: case on an entity name":                 {count: 10, boundary: "stored entity and item ids of old worlds"},
+	"internal/server/world/entities_old.go: comparison with an entity name":         {count: 6, boundary: "stored entity and item ids of old worlds"},
 }
 
 var registryBlockNameAllowed = map[string]nameAllowance{
-	"registry/blockitems.go: set literal of block names":         {count: 2, issue: 6380},
-	"registry/fences.go: case on a block name":                   {count: 1, issue: 6380},
-	"registry/recipes.go: case on a block name":                  {count: 3, issue: 6380},
-	"internal/server/hive.go: set literal of block names":        {count: 1, boundary: "stored entity kinds"},
-	"internal/server/world/template.go: case on a block name":    {count: 1, boundary: "stored block entity kinds"},
-	"internal/server/world/chunkfix.go: case on a block name":    {count: 2, boundary: "stored block entity ids"},
-	"internal/server/world/chunkfix115.go: case on a block name": {count: 1, boundary: "stored block entity ids"},
-	"internal/server/world/tree_decor.go: case on a block name":  {count: 4, boundary: "configured feature kinds"},
+	"registry/blockitems.go: set literal of block names":          {count: 2, issue: 6380},
+	"registry/fences.go: case on a block name":                    {count: 1, issue: 6380},
+	"registry/recipes.go: case on a block name":                   {count: 3, issue: 6380},
+	"internal/server/hive.go: set literal of block names":         {count: 1, boundary: "stored entity kinds"},
+	"internal/server/world/template.go: case on a block name":     {count: 1, boundary: "stored block entity kinds"},
+	"internal/server/world/chunkfix.go: case on a block name":     {count: 2, boundary: "stored block entity ids"},
+	"internal/server/world/chunkfix115.go: case on a block name":  {count: 1, boundary: "stored block entity ids"},
+	"internal/server/world/tree_decor.go: case on a block name":   {count: 4, boundary: "configured feature kinds"},
+	"internal/server/world/entities_old.go: case on a block name": {count: 1, boundary: "stored entity and item ids of old worlds"},
 }
 
 var registryItemNameAllowed = map[string]nameAllowance{
@@ -213,4 +216,6 @@ var registryItemNameAllowed = map[string]nameAllowance{
 	"internal/server/servertest_hooks.go: string item lookup":                         {count: 1, boundary: "test inputs"},
 	"internal/server/world/blockentity.go: comparison with an item name literal":      {count: 1, boundary: "stored compound IDs"},
 	"internal/server/world/templatefix_26_3.go: comparison with an item name literal": {count: 2, boundary: "stored item data fixing"},
+	"internal/server/world/chunkfix.go: comparison with an item name literal":         {count: 1, boundary: "stored entity and item ids of old worlds"},
+	"internal/server/world/entities_old.go: comparison with an item name literal":     {count: 3, boundary: "stored entity and item ids of old worlds"},
 }
