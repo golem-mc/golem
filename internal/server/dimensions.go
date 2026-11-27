@@ -93,6 +93,8 @@ type dimension struct {
 	randomTickPositions []world.ChunkPos
 	spawningPositions   []world.ChunkPos
 	spawnablePositions  []entity.ChunkPos
+	// spawnBodies is the natural spawning pass's obstruction list, reused across ticks.
+	spawnBodies entity.SpawnBodies
 	// phantoms is the dimension's insomnia spawner, ticked on the main loop;
 	// nil outside the overworld.
 	// vanilla: MinecraftServer.createLevels, overworldCustomSpawners

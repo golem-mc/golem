@@ -803,7 +803,9 @@ func (s *Server) finishReinforcement(call reinforcementCall) {
 	clients := s.clientsLocked()
 	s.mu.RUnlock()
 	players := spawnPlayersOf(clients, call.w)
-	bodies := s.spawnBodies(dim, players)
+	bodies := &entity.SpawnBodies{Build: func(dst []entity.SpawnBody) []entity.SpawnBody {
+		return s.appendSpawnBodies(dst, dim, players)
+	}}
 	s.mobsMu.Lock()
 	kind, x, y, z := call.caller.Type, rules.BlockOf(call.caller.X), rules.BlockOf(call.caller.Y), rules.BlockOf(call.caller.Z)
 	s.mobsMu.Unlock()

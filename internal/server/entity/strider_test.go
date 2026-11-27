@@ -37,7 +37,7 @@ func TestStridersSpawnOnlyInLava(t *testing.T) {
 	players := []SpawnPlayer{{EntityID: 1, X: float64(bx) + 40.5, Y: float64(y), Z: float64(bz) + 0.5}}
 	striders := 0
 	for seed := int64(1); seed <= 300; seed++ {
-		var bodies []SpawnBody
+		var bodies SpawnBodies
 		spawnCategoryForPosition(w, readSpawnPoint(w), rand.New(rand.NewSource(seed)), ChunkPos{}, y, bx, bz,
 			players, &bodies, &SpawnPotential{}, &SpawnCounts{PerPlayer: make(map[int32]int)}, CategoryCreature, func(r SpawnRequest) {
 				if r.Type != TypeStrider {

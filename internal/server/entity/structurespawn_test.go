@@ -53,7 +53,7 @@ func TestStructureOverrideSpawnsWitchesGuardiansAndCats(t *testing.T) {
 			}
 			spawned := 0
 			for seed := range int64(30) {
-				var bodies []SpawnBody
+				var bodies SpawnBodies
 				counts := SpawnCounts{PerPlayer: make(map[int32]int)}
 				spawnCategoryForPosition(w, readSpawnPoint(w), rand.New(rand.NewSource(seed)), ChunkPos{}, 50, 0, 0,
 					[]SpawnPlayer{{EntityID: 1, X: 80, Y: 50, Z: 0}}, &bodies, &SpawnPotential{}, &counts, tc.category, func(r SpawnRequest) {

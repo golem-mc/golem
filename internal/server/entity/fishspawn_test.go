@@ -60,7 +60,7 @@ func TestAColdOceanSpawnsSalmonAndCod(t *testing.T) {
 	players := []SpawnPlayer{{EntityID: 1, X: 40.5, Y: 62, Z: 0.5}}
 	var cod, salmon int
 	for seed := int64(1); seed <= 3000; seed++ {
-		var bodies []SpawnBody
+		var bodies SpawnBodies
 		spawnCategoryForPosition(w, readSpawnPoint(w), rand.New(rand.NewSource(seed)), ChunkPos{}, 62, 0, 0,
 			players, &bodies, &SpawnPotential{}, &SpawnCounts{PerPlayer: make(map[int32]int)}, CategoryWaterAmbient,
 			func(r SpawnRequest) {

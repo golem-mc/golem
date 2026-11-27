@@ -381,3 +381,80 @@ func TestOldChunkClaimsTheFixedVersion(t *testing.T) {
 		}
 	}
 }
+
+func TestOldBlockItemWithoutBlockEntityIDIsUpgraded(t *testing.T) {
+	t.Parallel()
+	for _, withID := range []bool{false, true} {
+		be := nbt.Compound{"Items": nbt.List{Elem: nbt.TypeCompound, Items: []nbt.Tag{nbt.Compound{"Slot": nbt.Byte(0), "id": nbt.String("minecraft:apple"), "Count": nbt.Byte(2)}}}}
+		if withID {
+			be["id"] = nbt.String("minecraft:shulker_box")
+		}
+		chest := nbt.Compound{
+			"id": nbt.String("minecraft:chest"), "x": nbt.Int(16), "y": nbt.Int(64), "z": nbt.Int(32),
+			"Items": nbt.List{Elem: nbt.TypeCompound, Items: []nbt.Tag{
+				nbt.Compound{
+					"Slot": nbt.Byte(0), "id": nbt.String("minecraft:shulker_box"), "Count": nbt.Byte(1),
+					"tag": nbt.Compound{"BlockEntityTag": be},
+				},
+				nbt.Compound{
+					"Slot": nbt.Byte(1), "id": nbt.String("minecraft:armor_stand"), "Count": nbt.Byte(1),
+					"tag": nbt.Compound{"EntityTag": nbt.Compound{"Small": nbt.Byte(1)}},
+				},
+				nbt.Compound{
+					"Slot": nbt.Byte(2), "id": nbt.String("minecraft:cow_spawn_egg"), "Count": nbt.Byte(1),
+					"tag": nbt.Compound{"EntityTag": nbt.Compound{"NoAI": nbt.Byte(1)}},
+				},
+			}},
+		}
+		w, pos := oldChunkWorld(t, 3700, chest)
+		c, _ := w.Acquire(pos)
+		tag, ok := w.BlockEntityTag(16, 64, 32)
+		if !ok {
+			t.Fatal("the chest was not loaded")
+		}
+		items, _ := nbt.Get[nbt.List](tag, "Items")
+		box, _ := nbt.CompoundView(items.Items[0])
+		comps, _ := nbt.Get[nbt.Compound](box, "components")
+		container, _ := nbt.Get[nbt.List](comps, "minecraft:container")
+		if box["id"] != nbt.String("minecraft:shulker_box") || len(container.Items) != 1 {
+			t.Fatalf("withID=%v: box = %v", withID, box)
+		}
+		slot, _ := nbt.CompoundView(container.Items[0])
+		item, _ := nbt.CompoundView(slot["item"])
+		if item["id"] != nbt.String("minecraft:apple") || item["count"] != nbt.Int(2) {
+			t.Errorf("withID=%v: item = %v", withID, item)
+		}
+		stand, _ := nbt.CompoundView(items.Items[1])
+		comps, _ = nbt.Get[nbt.Compound](stand, "components")
+		data, _ := nbt.Get[nbt.Compound](comps, "minecraft:entity_data")
+		if data["id"] != nbt.String("minecraft:armor_stand") || data["Small"] != nbt.Byte(1) {
+			t.Errorf("withID=%v: entity_data = %v", withID, data)
+		}
+		egg, _ := nbt.CompoundView(items.Items[2])
+		comps, _ = nbt.Get[nbt.Compound](egg, "components")
+		data, _ = nbt.Get[nbt.Compound](comps, "minecraft:entity_data")
+		if data["id"] != nbt.String("minecraft:cow") || data["NoAI"] != nbt.Byte(1) {
+			t.Errorf("withID=%v: egg entity_data = %v", withID, data)
+		}
+		if _, err := w.saveChunk(pos, c); err != nil {
+			t.Errorf("withID=%v: saveChunk: %v", withID, err)
+		}
+	}
+}
+
+func TestOldStackInUnmodelledBlockEntityTagStaysSaveable(t *testing.T) {
+	t.Parallel()
+	be := nbt.Compound{"Items": nbt.List{Elem: nbt.TypeCompound, Items: []nbt.Tag{
+		nbt.Compound{"Slot": nbt.Byte(0), "id": nbt.String("minecraft:apple"), "Count": nbt.Byte(2)}}}}
+	chest := nbt.Compound{
+		"id": nbt.String("minecraft:chest"), "x": nbt.Int(16), "y": nbt.Int(64), "z": nbt.Int(32),
+		"Items": nbt.List{Elem: nbt.TypeCompound, Items: []nbt.Tag{nbt.Compound{
+			"Slot": nbt.Byte(0), "id": nbt.String("minecraft:stick"), "Count": nbt.Byte(1),
+			"tag": nbt.Compound{"BlockEntityTag": be}}}},
+	}
+	w, pos := oldChunkWorld(t, 3700, chest)
+	c, _ := w.Acquire(pos)
+	if _, err := w.saveChunk(pos, c); err != nil {
+		t.Error(err)
+	}
+}
