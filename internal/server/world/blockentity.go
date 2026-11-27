@@ -1343,7 +1343,6 @@ func (w *World) EnsureBlockEntity(x, y, z int32, kind BlockEntityKind) *BlockEnt
 		// last, as vanilla removes the ticker before adding the replacement's.
 		// The old one is flagged removed so a UseLive turn holding it skips.
 		w.removeBlockEntityOrder(existing)
-		existing.removed.Store(true)
 	}
 	created := newBlockEntity(kind, x, y, z)
 	if kind == KindCrafter {
@@ -1427,42 +1426,41 @@ func (w *World) appendBlockEntityOrder(bes ...*BlockEntity) {
 	}
 }
 
-// removeBlockEntityOrder drops one entity from the world's tick order; call it
-// under mu.
+// removeBlockEntityOrder flags one entity removed and leaves it in the world's
+// lists, which readers skip it in until compactBlockEntityLists drops it; call
+// it under mu.
 func (w *World) removeBlockEntityOrder(be *BlockEntity) {
-	w.blockEntityOrder = removeOrdered(w.blockEntityOrder, be)
-	if blockEntityTicks(be.Kind) {
-		w.tickingBlockEntities = removeOrdered(w.tickingBlockEntities, be)
+	if !be.removed.Swap(true) {
+		w.removedInLists++
 	}
-	if sculkBlockEntityKind(be.Kind) {
-		w.sculkBlockEntities = removeOrdered(w.sculkBlockEntities, be)
-	}
+	w.compactBlockEntityLists()
 }
 
-func removeOrdered(list []*BlockEntity, be *BlockEntity) []*BlockEntity {
-	if i := slices.Index(list, be); i >= 0 {
-		return slices.Delete(list, i, i+1)
-	}
-	return list
-}
-
-// removeChunkBlockEntities drops an unloading chunk's entities from the tick
-// order and flags each removed, so a UseLive turn holding an old pointer skips.
-// Call it under mu; the flag is atomic, so no entity lock is taken.
-func (w *World) removeChunkBlockEntities(c *Chunk) {
-	bes := c.blockEntities()
-	if len(bes) == 0 {
+// compactBlockEntityLists drops the removed entries from the three lists once
+// they are over half of blockEntityOrder, so a removal costs O(1) amortised.
+// Call it under mu.
+func (w *World) compactBlockEntityLists() {
+	if w.removedInLists*2 <= len(w.blockEntityOrder) {
 		return
 	}
-	gone := make(map[*BlockEntity]bool, len(bes))
-	for _, be := range bes {
-		gone[be] = true
-		be.removed.Store(true)
+	gone := func(b *BlockEntity) bool { return b.removed.Load() }
+	w.blockEntityOrder = slices.DeleteFunc(w.blockEntityOrder, gone)
+	w.tickingBlockEntities = slices.DeleteFunc(w.tickingBlockEntities, gone)
+	w.sculkBlockEntities = slices.DeleteFunc(w.sculkBlockEntities, gone)
+	w.removedInLists = 0
+}
+
+// removeChunkBlockEntities flags an unloading chunk's entities removed, so
+// readers of the world's lists skip them and a UseLive turn holding an old
+// pointer skips. Call it under mu; the flag is atomic, so no entity lock is
+// taken.
+func (w *World) removeChunkBlockEntities(c *Chunk) {
+	for _, be := range c.blockEntities() {
+		if !be.removed.Swap(true) {
+			w.removedInLists++
+		}
 	}
-	// One pass over the world's order, not one per entity.
-	w.blockEntityOrder = slices.DeleteFunc(w.blockEntityOrder, func(b *BlockEntity) bool { return gone[b] })
-	w.tickingBlockEntities = slices.DeleteFunc(w.tickingBlockEntities, func(b *BlockEntity) bool { return gone[b] })
-	w.sculkBlockEntities = slices.DeleteFunc(w.sculkBlockEntities, func(b *BlockEntity) bool { return gone[b] })
+	w.compactBlockEntityLists()
 }
 
 // RemoveBlockEntity removes and returns the entity at the position, its block
@@ -1491,7 +1489,6 @@ func (w *World) RemoveBlockEntity(x, y, z int32) *BlockEntity {
 	}
 	if b != nil {
 		w.removeBlockEntityOrder(b)
-		b.removed.Store(true)
 	}
 	w.mu.Unlock()
 	return b
@@ -1589,7 +1586,6 @@ func (w *World) SetBlockEntityTag(x, y, z int32, entityType string, data nbt.Com
 		// as in EnsureBlockEntity.
 		if old := loaded.chunk.blockEntity(x, y, z); old != nil {
 			w.removeBlockEntityOrder(old)
-			old.removed.Store(true)
 		}
 		loaded.chunk.removePistonRide(x, y, z)
 		loaded.chunk.setBlockEntity(be)
@@ -2126,7 +2122,12 @@ func (w *World) TickingBlockEntities() []*BlockEntity {
 func (w *World) AppendTickingBlockEntities(dst []*BlockEntity) []*BlockEntity {
 	w.mu.RLock()
 	defer w.mu.RUnlock()
-	return append(dst, w.tickingBlockEntities...)
+	for _, be := range w.tickingBlockEntities {
+		if !be.removed.Load() {
+			dst = append(dst, be)
+		}
+	}
+	return dst
 }
 
 // BlockEntitiesOfKind returns every live block entity of kind in loaded
@@ -2136,7 +2137,7 @@ func (w *World) BlockEntitiesOfKind(kind BlockEntityKind) []*BlockEntity {
 	defer w.mu.RUnlock()
 	var out []*BlockEntity
 	for _, be := range w.blockEntityOrder {
-		if be.Kind == kind {
+		if be.Kind == kind && !be.removed.Load() {
 			out = append(out, be)
 		}
 	}
@@ -2149,7 +2150,7 @@ func (w *World) SculkCatalystEntities() []*BlockEntity {
 	defer w.mu.RUnlock()
 	var out []*BlockEntity
 	for _, be := range w.sculkBlockEntities {
-		if be.Kind == KindSculkCatalyst {
+		if be.Kind == KindSculkCatalyst && !be.removed.Load() {
 			out = append(out, be)
 		}
 	}

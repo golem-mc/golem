@@ -167,6 +167,9 @@ type World struct {
 	// sculkBlockEntities is the subset of blockEntityOrder that keeps a
 	// listener or is a catalyst, in the same order. Guarded by mu.
 	sculkBlockEntities []*BlockEntity
+	// removedInLists counts removed entries still in the three lists above;
+	// readers skip them. Guarded by mu.
+	removedInLists int
 
 	// changed is the cells told to the players since the tick's last flush.
 	changed SectionChanges
