@@ -24,6 +24,26 @@ type mannequinPushes struct {
 type mannequinPushWorld struct {
 	entity.PushCrowd
 	bodies []mannequinPushBody
+	// reach holds each live mannequin's box inflated by mannequinPushReach:
+	// a body outside all of them cannot overlap one after its move.
+	reach     []entity.AABB
+	reachGrid entity.BoxGrid
+}
+
+// mannequinPushReach is how far past a mannequin's box a body may still push
+// it this tick; a deliberate bound, not vanilla's. Normal movement (walking,
+// boats, minecarts) is well under it; a body moving further in one tick (a
+// fall near terminal velocity, an elytra dash) can miss the push that tick.
+const mannequinPushReach = 2.0
+
+func (p *mannequinPushWorld) inReach(box entity.AABB) bool {
+	found := false
+	p.reachGrid.Query(box, func(i int32) {
+		if !found && box.Crosses(p.reach[i]) {
+			found = true
+		}
+	})
+	return found
 }
 
 func (p *mannequinPushWorld) add(box entity.AABB, team string, rule entity.CollisionRule, body mannequinPushBody) {
@@ -43,6 +63,8 @@ func (s *Server) mannequinPushInputs(teams pushTeams) *mannequinPushes {
 		p.Reset()
 		clear(p.bodies)
 		p.bodies = p.bodies[:0]
+		p.reach = p.reach[:0]
+		p.reachGrid.Reset()
 	}
 	clear(pushes.mobs)
 	pushes.mobs = pushes.mobs[:0]
@@ -56,14 +78,18 @@ func (s *Server) mannequinPushInputs(teams pushTeams) *mannequinPushes {
 		if p == nil {
 			p = &mannequinPushWorld{}
 			p.Grid.Cell = cartPushCell
+			p.reachGrid.Cell = cartPushCell
 			byWorld[ent.w] = p
 		}
 		team, rule := teams.of(ent.uuid)
-		p.add(entity.NewAABB(ent.mannequin.BlastBox()), team, rule, mannequinPushBody{mannequin: ent, takes: true})
+		box := entity.NewAABB(ent.mannequin.BlastBox())
+		p.reachGrid.Add(int32(len(p.reach)), box.Inflate(mannequinPushReach))
+		p.reach = append(p.reach, box.Inflate(mannequinPushReach))
+		p.add(box, team, rule, mannequinPushBody{mannequin: ent, takes: true})
 	}
 	s.unlockTick(&s.mannequinsMu)
 	add := func(w *world.World, box entity.AABB, id uuid.UUID, b mannequinPushBody) {
-		if p := byWorld[w]; p != nil && len(p.bodies) > 0 {
+		if p := byWorld[w]; p != nil && len(p.bodies) > 0 && p.inReach(box) {
 			team, rule := teams.of(id)
 			p.add(box, team, rule, b)
 		}
@@ -85,20 +111,23 @@ func (s *Server) mannequinPushInputs(teams pushTeams) *mannequinPushes {
 	}
 	s.lockTick(&s.mobsMu)
 	for _, dim := range s.allDims() {
-		if p := byWorld[dim.w]; p == nil || len(p.bodies) == 0 {
+		p := byWorld[dim.w]
+		if p == nil || len(p.bodies) == 0 {
 			continue
 		}
-		for _, m := range dim.mobs.herd {
+		h := dim.mobs
+		h.mobsNearBoxes(p.reach, func(m *entity.Mob) bool {
 			if !m.Pushable() || m.Type == entity.TypeVex {
-				continue
+				return true
 			}
-			ent := dim.mobs.book[m]
+			ent := h.record(m)
 			// Herd entries can outlive their tracking records, e.g. on hive entry.
 			if ent == nil {
-				continue
+				return true
 			}
 			add(dim.w, entity.NewAABB(m.BlastBox()), ent.uuid, mannequinPushBody{mob: ent, takes: !m.RidesVehicle})
-		}
+			return true
+		})
 	}
 	s.unlockTick(&s.mobsMu)
 	s.lockTick(&s.boatsMu)

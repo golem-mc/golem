@@ -908,18 +908,18 @@ func (s *Server) boatBodies(clients []*client, worlds []*world.World, teams push
 	for _, w := range worlds {
 		wb := out[w]
 		h := s.herdOf(w)
-		for _, m := range h.herd {
+		h.mobsNearBoxes(wb.reach, func(m *entity.Mob) bool {
 			if !wb.inReach(m.X, m.Y, m.Z, m.BbWidth(), m.BbHeight()) {
-				continue
+				return true
 			}
 			pushable := m.Pushable()
 			boardable := !m.Dead && entity.BoatBoardable(m)
 			if !pushable && !boardable {
-				continue
+				return true
 			}
-			ent := h.book[m]
+			ent := h.record(m)
 			if ent == nil {
-				continue
+				return true
 			}
 			width, height := m.BbWidth(), m.BbHeight()
 			half := width / 2
@@ -931,11 +931,12 @@ func (s *Server) boatBodies(clients []*client, worlds []*world.World, teams push
 				})
 			}
 			if !boardable || ent.vehicle != nil || ent.cart != nil {
-				continue
+				return true
 			}
 			wb.candGrid.Add(int32(len(wb.cands)), entity.NewAABB(m.X-half, m.Y, m.Z-half, m.X+half, m.Y+height, m.Z+half))
 			wb.cands = append(wb.cands, mobCandidate{ent: ent, x: m.X, y: m.Y, z: m.Z, width: width, height: height})
-		}
+			return true
+		})
 	}
 	s.mobsMu.Unlock()
 	return out
