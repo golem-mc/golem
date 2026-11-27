@@ -2411,7 +2411,7 @@ func (s *Server) teleportBoat(it *boatEntity, to player.Position, yaw float32, b
 		s.cartCols = nil
 		s.minecartsMu.Unlock()
 		it.boat.SetPos(to.X, to.Y, to.Z)
-		it.boat.Yaw = yaw
+		it.boat.Yaw, it.look.pitch = yaw, to.Pitch
 		it.boat.VX, it.boat.VY, it.boat.VZ = 0, 0, 0
 		it.firstX, it.firstY, it.firstZ = to.X, to.Y, to.Z
 		for i, p := range it.passengers {

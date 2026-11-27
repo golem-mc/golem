@@ -411,6 +411,7 @@ func (s *Server) tickMinecarts() {
 		} else {
 			it.cart.Step(pushes.bodyWorld(it), ridden || len(it.mobs) > 0)
 		}
+		it.look.pitch = 0 // vanilla: OldMinecartBehavior.tick
 		movements.add(it.w, it.uuid, it.cart.Movement)
 		if it.cart.TakeBounceEffect() {
 			bounces = append(bounces, bodyBounce{w: it.w, source: it.uuid, x: it.cart.X, y: it.cart.Y, z: it.cart.Z, halfWidth: entity.MinecartHalfWidth})
@@ -665,7 +666,7 @@ func (s *Server) teleportMinecart(it *minecartEntity, to player.Position, yaw fl
 	var riders []*client
 	minecartTracker.teleport(s, it, func() {
 		it.cart.SetPos(to.X, to.Y, to.Z)
-		it.cart.Yaw = yaw
+		it.cart.Yaw, it.look.pitch = yaw, to.Pitch
 		it.cart.VX, it.cart.VY, it.cart.VZ = 0, 0, 0
 		riders = slices.Clone(it.passengers)
 		// The hopper index is keyed by the old column; lookups scan until

@@ -1028,9 +1028,9 @@ func (e *entitySnapshot) Teleport(move command.Move, dim string, by string) {
 
 // Rotate turns the entity in place, through each kind's teleport path (a
 // fresh Teleport Entity carrying angles), except mobs, whose watchers get
-// the movement path's rotation-only packets. Kinds never shown turning
-// (items, orbs, primed TNT, falling blocks) stay still; none of their
-// packets carry an angle. vanilla: RotateCommand.rotate, Entity.setRot
+// the movement path's rotation-only packets. A kind never shown turning
+// (items, orbs, primed TNT, falling blocks) keeps the angle in its saved
+// Rotation; none of its packets carry one. vanilla: RotateCommand.rotate, Entity.setRot
 func (e *entitySnapshot) Rotate(yaw, pitch float32) {
 	to := e.pos
 	to.Yaw, to.Pitch = yaw, pitch
@@ -1052,10 +1052,21 @@ func (e *entitySnapshot) Rotate(yaw, pitch float32) {
 	case *minecartEntity:
 		e.srv.teleportMinecart(ref, to, yaw, "rotate")
 	case *armorStandEntity:
-		e.srv.armorStandsMu.Lock()
-		ref.stand.Yaw = yaw
-		e.srv.armorStandsMu.Unlock()
 		e.srv.teleportArmorStand(ref, to, "rotate", false)
+	case *itemEntity:
+		e.srv.teleportItem(ref, to, "rotate")
+	case *orbEntity:
+		e.srv.teleportOrb(ref, to, "rotate")
+	case *tntEntity:
+		e.srv.teleportTNT(ref, to, "rotate")
+	case *fallingEntity:
+		e.srv.teleportFallingBlock(ref, to, "rotate")
+	case *cloudEntity:
+		e.srv.teleportCloud(ref, to, "rotate")
+	case *endCrystalEntity:
+		e.srv.teleportEndCrystal(ref, to, "rotate")
+	case *eyeEntity:
+		e.srv.teleportEye(ref, command.Move{Pos: to, DeltaX: true, DeltaY: true, DeltaZ: true})
 	case *mannequinEntity:
 		e.srv.teleportMannequin(ref, command.Move{Pos: to, DeltaX: true, DeltaY: true, DeltaZ: true}, "rotate")
 	case *fixtureEntity:
@@ -1793,7 +1804,7 @@ func (s *Server) itemSnapshot(it *itemEntity, q *entityQuery) *entitySnapshot {
 	}
 	x, y, z := it.item.FeetPosition()
 	e := s.snapshot(q, it.tags, it, it.item.ID, typ, "", it.uuid,
-		s.dimensionOfWorld(it.w).name, player.Position{X: x, Y: y, Z: z}, box6(it.item.BlastBox()))
+		s.dimensionOfWorld(it.w).name, player.Position{X: x, Y: y, Z: z, Yaw: it.look.yaw, Pitch: it.look.pitch}, box6(it.item.BlastBox()))
 	if e == nil {
 		return nil
 	}
@@ -1836,7 +1847,7 @@ func (s *Server) orbSnapshot(it *orbEntity, q *entityQuery) *entitySnapshot {
 	if o.Dead {
 		return nil
 	}
-	pos := player.Position{X: o.X, Y: o.Y, Z: o.Z}
+	pos := player.Position{X: o.X, Y: o.Y, Z: o.Z, Yaw: it.look.yaw, Pitch: it.look.pitch}
 	e := s.snapshot(q, it.tags, it, it.orb.ID, typ, "Experience Orb", it.uuid, s.dimensionOfWorld(it.w).name, pos, box6(o.BlastBox()))
 	if e == nil {
 		return nil
@@ -1877,7 +1888,7 @@ func (s *Server) tntSnapshot(it *tntEntity, q *entityQuery) *entitySnapshot {
 	if t.Dead {
 		return nil
 	}
-	pos := player.Position{X: t.X, Y: t.Y, Z: t.Z}
+	pos := player.Position{X: t.X, Y: t.Y, Z: t.Z, Yaw: it.look.yaw, Pitch: it.look.pitch}
 	e := s.snapshot(q, it.tags, it, it.tnt.ID, typ, "Primed TNT", it.uuid, s.dimensionOfWorld(it.w).name, pos, box6(t.BlastBox()))
 	if e == nil {
 		return nil
@@ -1896,7 +1907,7 @@ func (s *Server) boatSnapshot(it *boatEntity, q *entityQuery) *entitySnapshot {
 	if b.Dead {
 		return nil
 	}
-	pos := player.Position{X: b.X, Y: b.Y, Z: b.Z, Yaw: b.Yaw}
+	pos := player.Position{X: b.X, Y: b.Y, Z: b.Z, Yaw: b.Yaw, Pitch: it.look.pitch}
 	e := s.snapshot(q, it.tags, it, it.boat.ID, typ, "", it.uuid,
 		s.dimensionOfWorld(it.w).name, pos, box6(b.BlastBox()))
 	if e == nil {
@@ -1918,7 +1929,7 @@ func (s *Server) minecartSnapshot(it *minecartEntity, q *entityQuery) *entitySna
 	if m.Dead {
 		return nil
 	}
-	pos := player.Position{X: m.X, Y: m.Y, Z: m.Z, Yaw: m.Yaw}
+	pos := player.Position{X: m.X, Y: m.Y, Z: m.Z, Yaw: m.Yaw, Pitch: it.look.pitch}
 	e := s.snapshot(q, it.tags, it, m.ID, typ, it.kindInfo().Name, it.uuid,
 		s.dimensionOfWorld(it.w).name, pos, box6(m.BlastBox()))
 	if e == nil {
@@ -1938,7 +1949,7 @@ func (s *Server) fallingSnapshot(it *fallingEntity, q *entityQuery) *entitySnaps
 	if f.Dead {
 		return nil
 	}
-	pos := player.Position{X: f.X, Y: f.Y, Z: f.Z}
+	pos := player.Position{X: f.X, Y: f.Y, Z: f.Z, Yaw: it.look.yaw, Pitch: it.look.pitch}
 	block := registry.BlockOf(f.BlockState).Name()
 	e := s.snapshot(q, it.tags, it, it.fb.ID, typ, "Falling "+itemEnglishName(block), it.uuid, s.dimensionOfWorld(it.w).name, pos, box6(f.BlastBox()))
 	if e == nil {
@@ -1963,7 +1974,7 @@ func (s *Server) armorStandSnapshot(ent *armorStandEntity, q *entityQuery) *enti
 	if stand.Dead {
 		return nil
 	}
-	pos := player.Position{X: stand.X, Y: stand.Y, Z: stand.Z, Yaw: stand.Yaw}
+	pos := player.Position{X: stand.X, Y: stand.Y, Z: stand.Z, Yaw: stand.Yaw, Pitch: ent.look.pitch}
 	e := s.snapshot(q, ent.tags, ent, stand.ID, typ, "Armor Stand", ent.uuid,
 		s.dimensionOfWorld(ent.w).name, pos, box6(stand.BlastBox()))
 	if e == nil {
@@ -1983,7 +1994,7 @@ func (s *Server) cloudSnapshot(it *cloudEntity, q *entityQuery) *entitySnapshot 
 	if c.Dead {
 		return nil
 	}
-	pos := player.Position{X: c.X, Y: c.Y, Z: c.Z}
+	pos := player.Position{X: c.X, Y: c.Y, Z: c.Z, Yaw: it.look.yaw, Pitch: it.look.pitch}
 	e := s.snapshot(q, it.tags, it, c.ID, typ, "Area Effect Cloud", it.uuid,
 		s.dimensionOfWorld(it.w).name, pos, box6(c.Box().Corners()))
 	if e == nil {

@@ -1616,6 +1616,7 @@ func (s *Server) teleportItem(it *itemEntity, to player.Position, by string) {
 		// The simulation runs the box's middle.
 		it.item.SetPos(to.X, to.Y+entity.ItemHalfSize, to.Z)
 		it.item.VX, it.item.VY, it.item.VZ = 0, 0, 0
+		it.look.yaw, it.look.pitch = to.Yaw, to.Pitch
 		if s.itemCols != nil {
 			s.itemCols.add(it)
 		}

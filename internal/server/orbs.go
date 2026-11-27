@@ -602,6 +602,7 @@ func (s *Server) teleportOrb(it *orbEntity, to player.Position, by string) {
 	orbTracker.teleport(s, it, func() {
 		it.orb.SetPos(to.X, to.Y, to.Z)
 		it.orb.VX, it.orb.VY, it.orb.VZ = 0, 0, 0
+		it.look.yaw, it.look.pitch = to.Yaw, to.Pitch
 	})
 	logTeleported("orb", to, by)
 }
