@@ -88,6 +88,9 @@ func chestItems(t *testing.T, srv *server.Server, x, y, z int32) map[int8]string
 // A vanilla 26.3 server run over both fixtures (chunks forceloaded, read with
 // /data get block) reports these chests, and the stone at (18,y,4):
 //
+//	sign (2,y,2): front messages Hello, {color:red,text:golem}, "", ""; colour blue;
+//	              glowing 1 (1.18.2 only); short_grass at (6,y,2) over grass_block
+//
 //	(4,y,2):  [{Slot:0b,id:"minecraft:diamond",count:5},{Slot:3b,id:"minecraft:short_grass",count:12}]
 //	(18,y,2): [{Slot:0b,id:"minecraft:diamond_sword",count:1,components:{"minecraft:enchantments":{"minecraft:sharpness":5}}}]
 var (

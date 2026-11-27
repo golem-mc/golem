@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"io"
+	"log/slog"
 	"math/rand/v2"
 	"os"
 	"path/filepath"
@@ -669,7 +670,7 @@ func TestWorldKeepsChunksItCannotUpgrade(t *testing.T) {
 }
 
 func TestOldDataVersionChunkIsNotGeneratedOver(t *testing.T) {
-	t.Parallel()
+	// Not parallel: it swaps the global slog default to read the warning.
 	dir := t.TempDir()
 	pos := ChunkPos{X: 1, Z: 2}
 	rx, rz := regionCoords(pos)
@@ -696,8 +697,22 @@ func TestOldDataVersionChunkIsNotGeneratedOver(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	if err := writeLevelCompound(dir, nbt.Compound{
+		"Version": nbt.Compound{"Name": nbt.String("1.17.1")},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	var logs bytes.Buffer
+	prev := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&logs, nil)))
+	defer slog.SetDefault(prev)
+
 	w, _ := NewWorld(dir, NewFlatGenerator())
 	w.Acquire(pos)
+	w.Acquire(pos)
+	if n := strings.Count(logs.String(), "cannot upgrade"); n != 1 || !strings.Contains(logs.String(), "world_version=1.17.1") {
+		t.Errorf("want one warning naming the world and version 1.17.1, got %d:\n%s", n, logs.String())
+	}
 	if got := w.BlockAt(pos.X*16, 1, pos.Z*16); got != 0 {
 		t.Errorf("block at the flat ground = %d, want air", got)
 	}
@@ -714,5 +729,45 @@ func TestOldDataVersionChunkIsNotGeneratedOver(t *testing.T) {
 	}
 	if !bytes.Equal(got, want) {
 		t.Error("the region file changed")
+	}
+}
+
+func TestOldDataVersionWarningNamesVersionInNether(t *testing.T) {
+	// Not parallel: it swaps the global slog default to read the warning.
+	dir := t.TempDir()
+	pos := ChunkPos{X: 1, Z: 2}
+	rx, rz := regionCoords(pos)
+	path := regionFilePath(DimensionDir(dir, NetherName), rx, rz)
+	encoded, err := nbt.Encode("", nbt.Compound{
+		"DataVersion": nbt.Int(chunkDataVersionFloor - 1),
+		"Status":      nbt.String("minecraft:full"),
+		"xPos":        nbt.Int(pos.X),
+		"zPos":        nbt.Int(pos.Z),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	rf, err := openRegion(path, defaultSaveFormat)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := rf.writeChunk(pos, encoded); err != nil {
+		t.Fatal(err)
+	}
+	rf.close()
+	if err := writeLevelCompound(dir, nbt.Compound{
+		"Version": nbt.Compound{"Name": nbt.String("1.17.1")},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	var logs bytes.Buffer
+	prev := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&logs, nil)))
+	defer slog.SetDefault(prev)
+
+	w := NewDimensionWorld(dir, true, NewNetherGenerator(7))
+	w.Acquire(pos)
+	if n := strings.Count(logs.String(), "cannot upgrade"); n != 1 || !strings.Contains(logs.String(), "world_version=1.17.1") {
+		t.Errorf("want one warning naming version 1.17.1, got %d:\n%s", n, logs.String())
 	}
 }
