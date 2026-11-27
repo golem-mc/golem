@@ -299,13 +299,20 @@ func (s *Server) relinkVexOwners() {
 	var vexes []*mobEntity
 	s.mobsMu.Lock()
 	for _, dim := range s.allDims() {
-		for _, ent := range s.herdOf(dim.w).book {
+		h := s.herdOf(dim.w)
+		if h.vexes == 0 {
+			continue
+		}
+		for _, ent := range h.book {
 			if ent.mob.Type == entity.TypeVex {
 				vexes = append(vexes, ent)
 			}
 		}
 	}
 	s.mobsMu.Unlock()
+	if len(vexes) == 0 {
+		return
+	}
 	s.resolveVexOwners(vexes)
 }
 

@@ -61,14 +61,56 @@ func (w *World) LoadChunkEntities(pos ChunkPos) ([]nbt.Tag, bool, error) {
 	if !ok {
 		return nil, true, nil // an entry without an Entities list holds nothing
 	}
-	if version != 0 && version < equipmentFormatVersion {
-		for _, e := range entities.Items {
-			if c, ok := e.(nbt.CompoundTag); ok {
-				upgradeEquipment(c, int32(version))
+	upgradeEntities(entities, int32(version))
+	return entities.Items, true, nil
+}
+
+// upgradeEntities brings the entities of a record written at version to the
+// shapes this server reads.
+func upgradeEntities(entities nbt.List, version int32) {
+	if version == 0 {
+		return
+	}
+	for _, e := range entities.Items {
+		c, ok := e.(nbt.CompoundTag)
+		if !ok {
+			continue
+		}
+		if version < equipmentFormatVersion {
+			upgradeEquipment(c, version)
+		}
+		if version < tooltipDisplayVersion {
+			fixStoredComponents(c, version)
+			fixEntityTexts(c, version)
+		}
+	}
+}
+
+// fixEntityTexts strips attribute id prefixes and unflattens CustomName on an
+// entity and its passengers.
+// vanilla: AttributeIdPrefixFix, UnflattenTextComponentFix
+func fixEntityTexts(e nbt.CompoundTag, version int32) {
+	entries := e.Entries()
+	if version < attributeIdPrefixVersion {
+		attributes, _ := nbt.Get[nbt.List](entries, "attributes")
+		for _, a := range attributes.Items {
+			if m, ok := nbt.CompoundView(a); ok {
+				if id, ok := m["id"].(nbt.String); ok {
+					m["id"] = nbt.String(stripAttributePrefix(string(id)))
+				}
 			}
 		}
 	}
-	return entities.Items, true, nil
+	if version < textComponentVersion {
+		unflattenText(entries, "CustomName")
+	}
+	if passengers, ok := nbt.Get[nbt.List](entries, "Passengers"); ok {
+		for _, p := range passengers.Items {
+			if c, ok := p.(nbt.CompoundTag); ok {
+				fixEntityTexts(c, version)
+			}
+		}
+	}
 }
 
 // The DataVersions that reshaped a mob's gear, each the version a file must be

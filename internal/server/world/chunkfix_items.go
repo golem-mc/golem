@@ -13,7 +13,7 @@ import (
 // still needs; the generated STRUCTURE chain starts at templateDataVersionFloor.
 const (
 	attributeModifierIdVersion = 3945 // vanilla: DataFixers.addFixers (AttributeModifierIdFix)
-	attributeIDPrefixVersion   = 4055 // vanilla: DataFixers.addFixers (AttributeIdPrefixFix)
+	attributeIdPrefixVersion   = 4055 // vanilla: DataFixers.addFixers (AttributeIdPrefixFix)
 	foodConsumableVersion      = 4059 // vanilla: DataFixers.addFixers (FoodToConsumableFix)
 	customModelDataVersion     = 4175 // vanilla: DataFixers.addFixers (CustomModelDataExpandFix)
 	textComponentVersion       = 4290 // vanilla: DataFixers.addFixers (UnflattenTextComponentFix)
@@ -48,8 +48,8 @@ func fixComponentShapes(c nbt.Compound, id string, version int32) {
 	if version < attributeModifierIdVersion {
 		fixAttributeModifierIDs(c)
 	}
-	if version < attributeIDPrefixVersion {
-		fixAttributeIDPrefixes(c)
+	if version < attributeIdPrefixVersion {
+		fixModifierTypePrefixes(c)
 	}
 	if version < foodConsumableVersion {
 		fixFoodToConsumable(c)
@@ -82,6 +82,35 @@ func fixComponentShapes(c nbt.Compound, id string, version int32) {
 	}
 	if version < tooltipDisplayVersion {
 		fixTooltipDisplay(c)
+	}
+}
+
+// stripAttributePrefix drops the generic./horse./player./zombie. prefix of an
+// attribute id. vanilla: AttributeIdPrefixFix.replaceId
+func stripAttributePrefix(id string) string {
+	name := strings.TrimPrefix(id, "minecraft:")
+	for _, prefix := range []string{"generic.", "horse.", "player.", "zombie."} {
+		if rest, ok := strings.CutPrefix(name, prefix); ok {
+			return "minecraft:" + rest
+		}
+	}
+	return id
+}
+
+// fixModifierTypePrefixes strips the prefix from the type of each modifier in
+// a stack's attribute_modifiers. vanilla: AttributesRenameFix.fixDataComponentsOld
+func fixModifierTypePrefixes(c nbt.Compound) {
+	wrapper, ok := nbt.CompoundView(c["minecraft:attribute_modifiers"])
+	if !ok {
+		return
+	}
+	modifiers, _ := wrapper["modifiers"].(nbt.List)
+	for _, item := range modifiers.Items {
+		if m, ok := nbt.CompoundView(item); ok {
+			if t, ok := m["type"].(nbt.String); ok {
+				m["type"] = nbt.String(stripAttributePrefix(string(t)))
+			}
+		}
 	}
 }
 
@@ -445,39 +474,6 @@ func boolValue(tag nbt.Tag) bool {
 // additionalTooltipComponents are the components hide_additional_tooltip hid.
 // vanilla: TooltipDisplayComponentFix.CONVERTED_ADDITIONAL_TOOLTIP_TYPES
 var additionalTooltipComponents = []string{"minecraft:banner_patterns", "minecraft:bees", "minecraft:block_entity_data", "minecraft:block_state", "minecraft:bundle_contents", "minecraft:charged_projectiles", "minecraft:container", "minecraft:container_loot", "minecraft:firework_explosion", "minecraft:fireworks", "minecraft:instrument", "minecraft:map_id", "minecraft:painting/variant", "minecraft:pot_decorations", "minecraft:potion_contents", "minecraft:tropical_fish/pattern", "minecraft:written_book_content"}
-
-// fixAttributeIDPrefixes drops the generic., horse., player. and zombie.
-// prefix of the attribute ids of an attribute_modifiers component.
-// vanilla: AttributeIdPrefixFix
-func fixAttributeIDPrefixes(c nbt.Compound) {
-	var modifiers nbt.Tag
-	if wrapper, ok := nbt.CompoundView(c["minecraft:attribute_modifiers"]); ok {
-		modifiers = wrapper["modifiers"]
-	} else {
-		modifiers = c["minecraft:attribute_modifiers"]
-	}
-	list, _ := modifiers.(nbt.List)
-	for _, item := range list.Items {
-		m, ok := nbt.CompoundView(item)
-		if !ok {
-			continue
-		}
-		id, ok := m["type"].(nbt.String)
-		if !ok {
-			continue
-		}
-		name := string(id)
-		if !strings.Contains(name, ":") {
-			name = "minecraft:" + name
-		}
-		for _, prefix := range []string{"generic.", "horse.", "player.", "zombie."} {
-			if rest, found := strings.CutPrefix(name, "minecraft:"+prefix); found {
-				m["type"] = nbt.String("minecraft:" + rest)
-				break
-			}
-		}
-	}
-}
 
 // unflattenBookText parses the JSON of a written book's pages.
 // vanilla: UnflattenTextComponentFix (written_book_content)

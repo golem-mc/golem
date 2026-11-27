@@ -80,15 +80,30 @@ func portsFree(o *options, timeout time.Duration) error {
 	return fmt.Errorf("a server is still listening on %d or %d", o.port, o.rconPort)
 }
 
-// freePort returns a TCP port nothing listens on at the moment; another
-// process may still take it before the server binds it.
-func freePort() (int, error) {
-	l, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		return 0, err
+// freePorts returns n distinct TCP ports nothing listens on at the moment. All
+// listeners stay open until every port is read, so none repeats; another
+// process may still take one before the server binds it.
+func freePorts(n int) ([]int, error) {
+	ports := make([]int, 0, n)
+	for len(ports) < n {
+		ls := make([]net.Listener, 0, n)
+		var err error
+		for range n {
+			var l net.Listener
+			if l, err = net.Listen("tcp", "127.0.0.1:0"); err != nil {
+				break
+			}
+			ls = append(ls, l)
+		}
+		for _, l := range ls {
+			ports = append(ports, l.Addr().(*net.TCPAddr).Port)
+			l.Close()
+		}
+		if err != nil {
+			return nil, err
+		}
 	}
-	defer l.Close()
-	return l.Addr().(*net.TCPAddr).Port, nil
+	return ports[:n], nil
 }
 
 func (o *options) gameAddr() string { return "127.0.0.1:" + strconv.Itoa(o.port) }
@@ -133,11 +148,7 @@ func startServer(o *options, levelType, out string) (*serverProc, error) {
 	cmd := exec.Command("taskset", args...)
 	cmd.Dir = dir
 	if o.server == "golem" && o.profile {
-		port, err := freePort()
-		if err != nil {
-			return nil, err
-		}
-		s.pprof = "127.0.0.1:" + strconv.Itoa(port)
+		s.pprof = "127.0.0.1:" + strconv.Itoa(o.pprofPort)
 		cmd.Env = append(os.Environ(), "PPROF_ADDR="+s.pprof)
 	}
 	logf, err := os.Create(filepath.Join(out, "server.log"))
