@@ -18,7 +18,7 @@ func (m *Mannequin) EnvironmentStep(w World, hurt func(float64, registry.DamageT
 	if m.Dead || m.Dying() {
 		return
 	}
-	_, height := MannequinDimensions(m.Pose)
+	_, height := m.Dimensions()
 	box := NewAABB(m.BlastBox())
 	// Step already read the fluids for a travelling body.
 	if m.Immovable {
