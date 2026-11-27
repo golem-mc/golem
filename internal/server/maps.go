@@ -193,6 +193,9 @@ func (c *client) tickMaps() {
 	c.player.Inventory(func(inv *player.Inventory) {
 		main, off := player.HotbarSlot+int(inv.Selected), player.OffHandSlot
 		for slot := player.ArmorSlot; slot <= player.OffHandSlot; slot++ {
+			if !registry.Item(inv.Slots[slot].ItemID).IsMap() {
+				continue
+			}
 			id, ok := filledMapID(inv.Slots[slot])
 			if !ok {
 				continue
