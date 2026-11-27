@@ -61,11 +61,10 @@ type dimension struct {
 	mobLootGround []*itemEntity
 	mobLootView   []entity.LootItem
 	mobLootGrid   entity.BoxGrid
-	// mobLootNear and mobLootFar are the chunks of the mobs that may take items;
-	// mobLootSeen is gatherLootItems' visited set.
-	mobLootNear map[world.ChunkPos]struct{}
-	mobLootFar  map[world.ChunkPos]struct{}
-	mobLootSeen map[world.ChunkPos]struct{}
+	// mobLootAreas are the chunks of the mobs that may take items; mobLootSeen
+	// is gatherLootItems' visited set.
+	mobLootAreas []lootArea
+	mobLootSeen  map[world.ChunkPos]struct{}
 	// spawnTuning is the plugin-set natural spawn limits and tick rates.
 	spawnTuning entity.SpawnTuning
 	// colliders belongs to each dimension/pass on the tick goroutine; grids

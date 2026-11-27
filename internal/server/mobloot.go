@@ -90,24 +90,14 @@ func (s *Server) tickMobLoot() {
 	anyLoot := false
 	s.lockTick(&s.mobsMu)
 	for _, dim := range dims {
-		clear(dim.mobLootNear)
-		clear(dim.mobLootFar)
+		dim.mobLootAreas = dim.mobLootAreas[:0]
 		for _, m := range dim.mobs.herd {
 			if !m.Alive() || (!m.LootPickupEnabled() && !m.BannerGrabbing()) {
 				continue
 			}
-			if dim.mobLootNear == nil {
-				dim.mobLootNear = make(map[world.ChunkPos]struct{})
-				dim.mobLootFar = make(map[world.ChunkPos]struct{})
-			}
-			at := world.ChunkPos{X: world.ChunkOf(m.X), Z: world.ChunkOf(m.Z)}
-			if m.Type == entity.TypePiglin || m.Type == entity.TypeAllay || m.Type == entity.TypeVillager {
-				dim.mobLootFar[at] = struct{}{}
-			} else {
-				dim.mobLootNear[at] = struct{}{}
-			}
+			dim.mobLootAreas = append(dim.mobLootAreas, lootAreaOf(m))
 		}
-		anyLoot = anyLoot || len(dim.mobLootNear) != 0 || len(dim.mobLootFar) != 0
+		anyLoot = anyLoot || len(dim.mobLootAreas) != 0
 	}
 	s.unlockTick(&s.mobsMu)
 	if !anyLoot {
@@ -288,18 +278,30 @@ func (s *Server) tickMobLoot() {
 	}
 }
 
-// Chunks around a looting mob whose items it may sense: a banner goal looks 16
-// blocks, a piglin, villager or allay 32, anything else less than a chunk.
-// vanilla: Raider.ObtainRaidLeaderBannerGoal, PiglinSpecificSensor
-const (
-	lootNearChunks = 1
-	lootFarChunks  = 3
-)
+// lootArea is the chunk rectangle a looting mob may sense items in.
+type lootArea struct{ minX, minZ, maxX, maxZ int32 }
+
+// lootAreaOf is the chunks within the mob's reach plus the box width and an
+// item's half size: a pickup 1 block, a sulfur cube's sense 8, a banner goal 16,
+// a piglin's, villager's or allay's sense 32.
+// vanilla: Mob.aiStep, Raider.ObtainRaidLeaderBannerGoal, PiglinSpecificSensor
+func lootAreaOf(m *entity.Mob) lootArea {
+	reach := 2.0
+	switch {
+	case m.Type == entity.TypePiglin || m.Type == entity.TypeAllay || m.Type == entity.TypeVillager:
+		reach = 33
+	case m.BannerGrabbing():
+		reach = 17
+	case m.Type == entity.TypeSulfurCube:
+		reach = 9
+	}
+	return lootArea{world.ChunkOf(m.X - reach), world.ChunkOf(m.Z - reach), world.ChunkOf(m.X + reach), world.ChunkOf(m.Z + reach)}
+}
 
 // gatherLootItems fills dim's loot snapshot with the pickup-due items in the
 // chunks around its looting mobs, in registration order. Caller holds itemsMu.
 func (s *Server) gatherLootItems(dim *dimension) {
-	if len(dim.mobLootNear) == 0 && len(dim.mobLootFar) == 0 {
+	if len(dim.mobLootAreas) == 0 {
 		return
 	}
 	if dim.mobLootSeen == nil {
@@ -307,9 +309,9 @@ func (s *Server) gatherLootItems(dim *dimension) {
 	}
 	clear(dim.mobLootSeen)
 	ground := dim.mobLootGround[:0]
-	visit := func(at world.ChunkPos, reach int32) {
-		for x := at.X - reach; x <= at.X+reach; x++ {
-			for z := at.Z - reach; z <= at.Z+reach; z++ {
+	for _, a := range dim.mobLootAreas {
+		for x := a.minX; x <= a.maxX; x++ {
+			for z := a.minZ; z <= a.maxZ; z++ {
 				pos := world.ChunkPos{X: x, Z: z}
 				if _, ok := dim.mobLootSeen[pos]; ok || !s.itemChunks.Has(pos) {
 					continue
@@ -322,12 +324,6 @@ func (s *Server) gatherLootItems(dim *dimension) {
 				}
 			}
 		}
-	}
-	for at := range dim.mobLootFar {
-		visit(at, lootFarChunks)
-	}
-	for at := range dim.mobLootNear {
-		visit(at, lootNearChunks)
 	}
 	slices.SortFunc(ground, func(a, b *itemEntity) int { return cmp.Compare(a.order, b.order) })
 	view := dim.mobLootView[:0]
