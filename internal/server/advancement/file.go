@@ -29,17 +29,36 @@ type savedProgress struct {
 // kept for the save, unlike vanilla, because the tree leaves out the
 // recipe-unlock advancements vanilla files are full of. A criterion the
 // advancement lacks, or with an unparsable time, is dropped.
-// vanilla: PlayerAdvancements.load, applyFrom
+// Ids and criteria older versions named differently are renamed first.
+// vanilla: PlayerAdvancements.load, applyFrom, DataFixTypes.ADVANCEMENTS
 func Parse(tree *Tree, data []byte) (*Progress, error) {
 	var root map[string]json.RawMessage
 	if err := json.Unmarshal(data, &root); err != nil {
 		return NewProgress(tree), err
 	}
 	p := NewProgress(tree)
+	version := DefaultDataVersion
+	if raw, ok := root[dataVersionKey]; ok {
+		var v int
+		if json.Unmarshal(raw, &v) == nil {
+			version = v
+		}
+	}
+	// An id already current in the file wins over a renamed old one.
+	current := make(map[string]json.RawMessage, len(root))
 	for id, raw := range root {
 		if id == dataVersionKey {
 			continue
 		}
+		if to := RenameAdvancementID(id, version); to != id {
+			if _, held := root[to]; held {
+				continue
+			}
+			id = to
+		}
+		current[id] = raw
+	}
+	for id, raw := range current {
 		n := tree.Get(id)
 		if n == nil {
 			if p.unknown == nil {
@@ -53,6 +72,7 @@ func Parse(tree *Tree, data []byte) (*Progress, error) {
 			continue
 		}
 		for name, when := range saved.Criteria {
+			name = RenameCriterion(id, name, version)
 			at, err := time.Parse(timeLayout, when)
 			if err != nil || !hasCriterion(n, name) {
 				continue
