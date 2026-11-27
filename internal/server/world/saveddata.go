@@ -37,25 +37,32 @@ func readSavedDataWithin(dir, name string, limit int) (nbt.Compound, error) {
 }
 
 func readSavedDataTags(dir, name string, limit int, ordered bool) (nbt.Compound, error) {
+	_, data, err := readSavedDataVersioned(dir, name, limit, ordered)
+	return data, err
+}
+
+// readSavedDataVersioned is readSavedDataTags that also returns the root's
+// DataVersion, 0 when the file has none.
+func readSavedDataVersioned(dir, name string, limit int, ordered bool) (int32, nbt.Compound, error) {
 	path := filepath.Join(dir, name)
 	file, err := os.Open(path)
 	if errors.Is(err, fs.ErrNotExist) {
-		return nil, errNoSavedData
+		return 0, nil, errNoSavedData
 	} else if err != nil {
-		return nil, err
+		return 0, nil, err
 	}
 	defer file.Close()
 	gz, err := gzip.NewReader(file)
 	if err != nil {
-		return nil, fmt.Errorf("decompress %s: %w", path, err)
+		return 0, nil, fmt.Errorf("decompress %s: %w", path, err)
 	}
 	defer gz.Close()
 	raw, err := io.ReadAll(io.LimitReader(gz, int64(limit)+1))
 	if err != nil {
-		return nil, fmt.Errorf("read %s: %w", path, err)
+		return 0, nil, fmt.Errorf("read %s: %w", path, err)
 	}
 	if len(raw) > limit {
-		return nil, fmt.Errorf("%s is larger than %d bytes", path, limit)
+		return 0, nil, fmt.Errorf("%s is larger than %d bytes", path, limit)
 	}
 	decode := nbt.Decode
 	if ordered {
@@ -63,17 +70,18 @@ func readSavedDataTags(dir, name string, limit int, ordered bool) (nbt.Compound,
 	}
 	_, tag, err := decode(raw)
 	if err != nil {
-		return nil, fmt.Errorf("parse %s: %w", path, err)
+		return 0, nil, fmt.Errorf("parse %s: %w", path, err)
 	}
 	root, ok := tag.(nbt.CompoundTag)
 	if !ok {
-		return nil, fmt.Errorf("%s root is a %s, want a compound", path, tag.Type())
+		return 0, nil, fmt.Errorf("%s root is a %s, want a compound", path, tag.Type())
 	}
 	data, ok := nbt.Get[nbt.CompoundTag](root.Entries(), "data")
 	if !ok {
-		return nil, fmt.Errorf("%s has no data compound", path)
+		return 0, nil, fmt.Errorf("%s has no data compound", path)
 	}
-	return data.Entries(), nil
+	version, _ := nbt.IntValue(root.Entries()["DataVersion"])
+	return version, data.Entries(), nil
 }
 
 // writeSavedData writes data as the saved data file name under dir. A tree past

@@ -439,3 +439,101 @@ func TestAFilledMapTogglesABannerMarker(t *testing.T) {
 	srv.SetBlock(2, 64, 2, 0)
 	awaitBannerMarkers(t, c, 0)
 }
+
+// TestAnOldMapFileIsUpgradedOnLoad: map files from before 1.16 (numeric
+// dimension) and before 1.20.5 (Pos/Color/Name keys) load with their colours,
+// markers and dimension.
+// vanilla: DataFixTypes.SAVED_DATA_MAP_DATA
+func TestAnOldMapFileIsUpgradedOnLoad(t *testing.T) {
+	t.Parallel()
+	cfg := servertest.BlockTestConfig()
+	cfg.LevelName = t.TempDir()
+	const name = "Cartographer"
+	colours := mapColours()
+	base := func(dimension nbt.Tag) nbt.Compound {
+		return nbt.Compound{
+			"dimension": dimension, "xCenter": nbt.Int(64), "zCenter": nbt.Int(64),
+			"scale": nbt.Byte(4), "locked": nbt.Byte(1), "colors": nbt.ByteArray(colours),
+		}
+	}
+	one := base(nbt.String("minecraft:overworld"))
+	one["banners"] = nbt.List{Elem: nbt.TypeCompound, Items: []nbt.Tag{nbt.Compound{
+		"Pos":   nbt.Compound{"X": nbt.Int(500), "Y": nbt.Int(64), "Z": nbt.Int(500)},
+		"Color": nbt.String("red"), "Name": nbt.String(`{"text":"Base"}`),
+	}}}
+	one["frames"] = nbt.List{Elem: nbt.TypeCompound, Items: []nbt.Tag{nbt.Compound{
+		"Pos":      nbt.Compound{"X": nbt.Int(1), "Y": nbt.Int(64), "Z": nbt.Int(1)},
+		"Rotation": nbt.Int(0), "EntityId": nbt.Int(7),
+	}}}
+	servertest.WriteMapFile(t, cfg.LevelName, 1, 3700, one)
+	servertest.WriteMapFile(t, cfg.LevelName, 2, 2230, base(nbt.Int(-1)))
+	servertest.WriteMapFile(t, cfg.LevelName, 3, 2230, base(nbt.Int(0)))
+	var items []nbt.Tag
+	for id := int32(1); id <= 3; id++ {
+		items = append(items, nbt.Compound{
+			"Slot": nbt.Byte(id - 1), "id": nbt.String("minecraft:filled_map"), "count": nbt.Int(1),
+			"components": nbt.Compound{"minecraft:map_id": nbt.Int(id)},
+		})
+	}
+	servertest.WritePlayerFile(t, servertest.PlayerFile(cfg.LevelName, name), nbt.Compound{
+		"Inventory":        nbt.List{Elem: nbt.TypeCompound, Items: items},
+		"SelectedItemSlot": nbt.Int(0),
+	})
+	// checkBanners drops the marker of a banner missing from a loaded chunk, so
+	// the banner stands in a chunk nobody has loaded, within a scale-4 map.
+	_, connect := servertest.Start(t, cfg)
+	c := connect()
+	c.Login(name)
+	c.Configure()
+	_, passed := c.JoinWindow(t)
+	updates := map[int32]servertest.MapDataUpdate{}
+	if passed != nil {
+		u := servertest.ParseMapData(t, passed)
+		updates[u.ID()] = u
+	}
+	for id, data := range c.Packets(servertest.JoinTimeout) {
+		if id != protocol.IDPlayMapData {
+			continue
+		}
+		u := servertest.ParseMapData(t, data)
+		if prev, ok := updates[u.ID()]; ok {
+			if len(u.Colours) == 0 {
+				u.Colours = prev.Colours
+			}
+			if !u.HasIcons {
+				u.HasIcons, u.Icons = prev.HasIcons, prev.Icons
+			}
+		}
+		updates[u.ID()] = u
+		if len(updates) == 3 && len(updates[1].Icons) > 2 {
+			break
+		}
+	}
+	for id := int32(1); id <= 3; id++ {
+		if u, ok := updates[id]; !ok || !bytes.Equal(u.Colours, colours) {
+			t.Fatalf("map %d: update %v has %d colour bytes, want the file's", id, ok, len(u.Colours))
+		}
+	}
+	// Markers ride on a later update when the data was already sent; wait for
+	// map 1's banner.
+	var banners []servertest.MapIcon
+	for _, icon := range updates[1].Icons {
+		if icon.TypeID == 24 {
+			banners = append(banners, icon)
+		}
+	}
+	if len(banners) != 1 {
+		t.Fatalf("map 1 has %d red banner markers, want 1; icons %+v", len(banners), updates[1].Icons)
+	}
+	if n, ok := banners[0].Name(); !ok || n != "Base" {
+		t.Errorf("banner name = %q, %v; want Base", n, ok)
+	}
+	// The holder is in the overworld: map 3 shows the player marker, the
+	// nether map 2 does not.
+	if playerMarkers(updates[3]) != 1 {
+		t.Errorf("map 3 has %d player markers, want 1", playerMarkers(updates[3]))
+	}
+	if playerMarkers(updates[2]) != 0 {
+		t.Errorf("map 2 (nether) has %d player markers, want 0", playerMarkers(updates[2]))
+	}
+}
