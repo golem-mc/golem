@@ -28,7 +28,7 @@ type options struct {
 	server, scenario, out, workdir string
 	golem, jar, java, heap         string
 	serverCPUs                     string
-	port, rconPort                 int // 0 until run picks a free one
+	port, rconPort, pprofPort      int // 0 until run picks a free one
 	seed                           string
 	view, sim                      int
 	warmup, measure                time.Duration
@@ -89,13 +89,8 @@ func run(o *options) error {
 	if err := os.MkdirAll(o.out, 0o755); err != nil {
 		return err
 	}
-	for _, p := range []*int{&o.port, &o.rconPort} {
-		if *p == 0 {
-			var err error
-			if *p, err = freePort(); err != nil {
-				return err
-			}
-		}
+	if err := o.pickPorts(); err != nil {
+		return err
 	}
 	if o.workdir == "" {
 		dir, err := os.MkdirTemp("", "loadtest-world-")
@@ -144,4 +139,28 @@ func run(o *options) error {
 	}
 	e.logf("done: %s", filepath.Join(o.out, "summary.json"))
 	return runErr
+}
+
+// pickPorts fills the unset game, RCON and pprof ports from one freePorts
+// call, so no two are the same and none equals a port set by flag.
+func (o *options) pickPorts() error {
+	for {
+		ports, err := freePorts(3)
+		if err != nil {
+			return err
+		}
+		clash := false
+		for _, p := range ports {
+			clash = clash || p == o.port || p == o.rconPort
+		}
+		if clash {
+			continue
+		}
+		for i, p := range []*int{&o.port, &o.rconPort, &o.pprofPort} {
+			if *p == 0 {
+				*p = ports[i]
+			}
+		}
+		return nil
+	}
 }
