@@ -8,6 +8,7 @@ import (
 	"github.com/golem-mc/golem/internal/server/entity"
 	"github.com/golem-mc/golem/internal/server/player"
 	"github.com/golem-mc/golem/internal/server/rules"
+	"github.com/golem-mc/golem/internal/server/world"
 	"github.com/golem-mc/golem/registry"
 )
 
@@ -112,5 +113,55 @@ func BenchmarkMobContactStrike(b *testing.B) {
 				}
 			})
 		}
+	}
+}
+
+// BenchmarkLandingMobBlowInHerd measures landingMobBlow for one iron golem
+// striking a zombie in a herd of 0 or 2000 cows.
+func BenchmarkLandingMobBlowInHerd(b *testing.B) {
+	for _, cows := range []int{0, 2000} {
+		b.Run("cows="+strconv.Itoa(cows), func(b *testing.B) {
+			var mix []mobMix
+			if cows > 0 {
+				mix = []mobMix{{entity.TypeCow, cows}}
+			}
+			s := benchMobHerd(b, mix, 94, cows)
+			dim := s.allDims()[0]
+			w := dim.w
+			y := float64(world.GroundLevel)
+			golemID := s.spawnMobInDim(dim, entity.TypeIronGolem, 0, y, 0, 1, nil)
+			zombieID := s.spawnMobInDim(dim, entity.TypeZombie, 1, y, 0, 2, nil)
+			s.mobsMu.Lock()
+			golem := s.mobByEntityIDLocked(w, golemID)
+			zombie := s.mobByEntityIDLocked(w, zombieID)
+			zombieHealth := zombie.mob.Health
+			s.mobsMu.Unlock()
+			strike := mobStrike{
+				w:        w,
+				mob:      golem.mob,
+				uuid:     golem.uuid,
+				uuidText: golem.uuidText,
+				victimID: zombie.mob.ID,
+				damage:   15,
+				x:        0,
+				y:        y,
+				z:        0,
+				killer:   &rules.Killer{},
+			}
+			b.ReportAllocs()
+			for b.Loop() {
+				s.mobsMu.Lock()
+				zombie.mob.Health, zombie.mob.HurtTime, zombie.mob.InvulnTicks = zombieHealth, 0, 0
+				zombie.mob.VX, zombie.mob.VY, zombie.mob.VZ = 0, 0, 0
+				s.mobsMu.Unlock()
+				s.landingMobBlow(strike)
+			}
+			s.mobsMu.Lock()
+			hurt := zombie.mob.Health < zombieHealth
+			s.mobsMu.Unlock()
+			if !hurt {
+				b.Fatalf("iron golem blow never hurt the zombie: health %v", zombie.mob.Health)
+			}
+		})
 	}
 }

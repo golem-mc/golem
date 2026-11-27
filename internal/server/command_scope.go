@@ -1528,7 +1528,15 @@ func (ws worldScope) PlaceTemplate(t *world.PlacedTemplate, strict bool) {
 			reshape(ch.X, ch.Y, ch.Z)
 			s.blockTemplatePlaced(w, ch.X, ch.Y, ch.Z, before)
 		}
-		wakes = append(wakes, fillWake{x: ch.X, y: ch.Y, z: ch.Z, old: before, template: true})
+		if !strict && registry.BlockOf(ch.State) == registry.BlockRedstoneWire {
+			// Dust checks its support as it is written, before the blocks the
+			// template lists after it (block entities last) exist.
+			// vanilla: RedStoneWireBlock.onPlace
+			s.blockChanged(w, ch.X, ch.Y, ch.Z, before)
+			note(world.BlockChange{X: ch.X, Y: ch.Y, Z: ch.Z, State: w.BlockAt(ch.X, ch.Y, ch.Z)})
+		} else {
+			wakes = append(wakes, fillWake{x: ch.X, y: ch.Y, z: ch.Z, old: before, template: true})
+		}
 		cells = append(cells, rules.TemplateCell{X: ch.X, Y: ch.Y, Z: ch.Z, WasSource: wasSource})
 		entityType, hasEntity := blockEntityTypeOf(ch.State)
 		if tags[i] == nil || !hasEntity {

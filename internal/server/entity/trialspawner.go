@@ -138,8 +138,8 @@ type TrialHost interface {
 	// LineClear reports whether nothing blocks the line from the point to
 	// the centre of the spawner block.
 	LineClear(x, y, z int32, px, py, pz float64) bool
-	// Bodies are the boxes that obstruct a spawn.
-	Bodies() []SpawnBody
+	// Bodies are the boxes intersecting area that obstruct a spawn.
+	Bodies(area AABB) []SpawnBody
 	// StandUp stands the mob up, reporting its UUID. equip, when set, dresses
 	// the body before it is added.
 	StandUp(t MobType, x, y, z float64, yaw float32, tag nbt.Compound, plain bool, equip func(*Mob)) (uuid.UUID, bool)
@@ -874,7 +874,7 @@ func (t *TrialSpawner) spawnMob(h TrialHost, x, y, z int32, now int64, cfg *tria
 		return
 	}
 	yaw := rng.Float32() * 360
-	if !TrialMobFits(w, kind, fx, fy, fz, h.Bodies()) {
+	if !TrialMobFits(w, kind, fx, fy, fz, h.Bodies(spawnBox(kind, fx, fy, fz).aabb())) {
 		return
 	}
 	plain := len(toSpawn) == 1

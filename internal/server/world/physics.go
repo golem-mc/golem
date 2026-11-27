@@ -726,7 +726,8 @@ type Physics struct {
 	// eventDelay is the head start of a piston event queued now: zero during
 	// the scheduled ticks and the event drain (vanilla handles events queued in
 	// either in the same pass), one while a ride lands (the block-entity pass
-	// after the events), so a finishing ride's event waits a tick.
+	// after the events) and between ticks, so the event runs after the ticks
+	// due in the game tick it waits for, not ahead of them.
 	eventDelay int64
 
 	// handlingTick is ServerLevel.handlingTick: true during the scheduled ticks
@@ -890,6 +891,7 @@ func NewPhysics(w *World) *Physics {
 		frogspawnBooked:     make(map[blockKey]bool),
 		snifferEggBooked:    make(map[blockKey]bool),
 		cauldronBooked:      make(map[blockKey]bool),
+		eventDelay:          1,
 		leafBooked:          make(map[blockKey]bool),
 		scaffoldingBooked:   make(map[blockKey]bool),
 		dirtPathBooked:      make(map[blockKey]bool),
@@ -1203,6 +1205,7 @@ func (p *Physics) Tick(gameTime int64) ([]BlockChange, []FallingSpawn, []TNTPrim
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.now = gameTime
+	p.eventDelay = 0
 	// A slab still held here belongs to a batch that was not recycled; leave
 	// it to that batch.
 	p.pushes, p.pushOwner = nil, nil
@@ -1468,6 +1471,7 @@ func (p *Physics) Tick(gameTime int64) ([]BlockChange, []FallingSpawn, []TNTPrim
 		p.pushTick(t)
 	}
 	p.handlingTick = false
+	p.eventDelay = 1
 	// The block entities tick after the scheduled ticks.
 	// vanilla: ServerLevel.tick
 	p.vibrationTicks(&changes)

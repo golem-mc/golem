@@ -22,11 +22,11 @@ type SpawnerHost interface {
 	SpawnersWork() bool
 	// Players are the living players of the dimension, spectators flagged.
 	Players() []SpawnPlayer
-	// Bodies are the boxes that obstruct a spawn.
-	Bodies() []SpawnBody
-	// MobBodies are the boxes of the mobs of the type, the corpses still
-	// lying there included.
-	MobBodies(t MobType) []SpawnBody
+	// Bodies are the boxes intersecting area that obstruct a spawn.
+	Bodies(area AABB) []SpawnBody
+	// MobBodies are the boxes intersecting area of the mobs of the type, the
+	// corpses still lying there included.
+	MobBodies(t MobType, area AABB) []SpawnBody
 	// StandUp stands up a mob at the position facing yaw. A plain spawn is
 	// finalized like a natural one; otherwise tag is its configuration. It
 	// reports the entity ID, false when the mob could not be added. A non-nil
@@ -274,6 +274,13 @@ func TickSpawner(h SpawnerHost, be *world.BlockEntity) {
 	w := h.World()
 
 	var bodies, mobs []SpawnBody
+	nearArea := spawnerNearArea(x, y, z, spawnRange)
+	var spawnArea AABB
+	if hasPos && len(fixedPos.Items) == 3 {
+		spawnArea = spawnBox(kind, listDouble(fixedPos, 0), listDouble(fixedPos, 1), listDouble(fixedPos, 2)).aabb()
+	} else {
+		spawnArea = spawnerSpawnArea(kind, x, y, z, spawnRange)
+	}
 	stale := true
 	spawned := false
 	for range count {
@@ -296,7 +303,7 @@ func TickSpawner(h SpawnerHost, be *world.BlockEntity) {
 			continue
 		}
 		if stale {
-			bodies, mobs, stale = h.Bodies(), h.MobBodies(kind), false
+			bodies, mobs, stale = h.Bodies(spawnArea), h.MobBodies(kind, nearArea), false
 		}
 		if spawnerMobsNear(mobs, x, y, z, spawnRange) >= nearbyCap {
 			giveUp()
@@ -357,6 +364,24 @@ func spawnerPlayerNear(players []SpawnPlayer, x, y, z int32, requiredRange int) 
 		}
 	}
 	return false
+}
+
+// spawnerNearArea is the spawner's block grown by spawnRange on every side.
+func spawnerNearArea(x, y, z int32, spawnRange int) AABB {
+	r := float64(spawnRange)
+	return NewAABB(float64(x)-r, float64(y)-r, float64(z)-r, float64(x)+1+r, float64(y)+1+r, float64(z)+1+r)
+}
+
+// spawnerSpawnArea is the union of spawnBox(t, ...) over every position
+// SpawnerSpawnPos can return.
+func spawnerSpawnArea(t MobType, x, y, z int32, spawnRange int) AABB {
+	r := math.Abs(float64(spawnRange))
+	k := kindOf(t)
+	hw := k.width / 2
+	return NewAABB(
+		float64(x)+0.5-r-hw, float64(y-1), float64(z)+0.5-r-hw,
+		float64(x)+0.5+r+hw, float64(y+1)+k.height, float64(z)+0.5+r+hw,
+	)
 }
 
 // spawnerMobsNear counts the boxes that overlap the spawner's block grown by
