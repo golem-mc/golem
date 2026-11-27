@@ -93,6 +93,20 @@ func MannequinDimensions(pose int32) (width, height float64) {
 	return MannequinWidth, MannequinHeight
 }
 
+// EyeHeight is the eyes' height above the feet in the current pose.
+// vanilla: Avatar.POSES, LivingEntity.SLEEPING_DIMENSIONS
+func (m *Mannequin) EyeHeight() float64 {
+	switch m.Pose {
+	case protocol.PoseSneaking:
+		return float64(float32(1.27))
+	case protocol.PoseSwimming, protocol.PoseFallFlying, protocol.PoseSpinAttack:
+		return float64(float32(0.4))
+	case protocol.PoseSleeping:
+		return float64(float32(0.2))
+	}
+	return float64(float32(1.62))
+}
+
 // Dimensions is the hit box width and height of the current pose under the
 // scale attribute.
 // vanilla: LivingEntity.getDimensions, getScale

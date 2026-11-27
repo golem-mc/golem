@@ -58,6 +58,8 @@ type entitySnapshot struct {
 	dim           string
 	pos           player.Position
 	box           [6]float64
+	// eye is the eyes' height above pos.
+	eye float64
 	// tags are captured alongside the other selector fields.
 	tags []string
 }
@@ -103,8 +105,13 @@ func (e *entitySnapshot) DimensionName() string { return e.dim }
 
 func (e *entitySnapshot) Position() player.Position { return e.pos }
 
-// EyePosition is the position itself.
-func (e *entitySnapshot) EyePosition() player.Position { return e.pos }
+// EyePosition is the position raised by the eye height captured with it.
+// vanilla: Entity.getEyePosition
+func (e *entitySnapshot) EyePosition() player.Position {
+	p := e.pos
+	p.Y += e.eye
+	return p
+}
 
 // Box is what a selector's dx, dy, dz volume is crossed with.
 func (e *entitySnapshot) Box() (minX, minY, minZ, maxX, maxY, maxZ float64) {
@@ -1717,6 +1724,7 @@ func (s *Server) snapshot(q *entityQuery, tags nbt.StringSet, ref any, id int32,
 	return &entitySnapshot{
 		srv: s, ref: ref, id: id, uuid: identity, typ: typ,
 		plain: plain, dim: dim, pos: pos, box: box, alive: true,
+		eye: float64(float32(box[4]-box[1]) * 0.85),
 	}
 }
 
@@ -1753,6 +1761,7 @@ func (s *Server) mobSnapshot(ent *mobEntity, dim string, q *entityQuery) *entity
 	if e == nil {
 		return nil
 	}
+	e.eye = m.EyeHeight()
 	e.alive = m.Alive()
 	e.bind(&s.mobsMu, &ent.tags, &mobEntityOps)
 	if m.Type == entity.TypeVillager {
@@ -1822,6 +1831,8 @@ func (s *Server) arrowSnapshot(it *arrowEntity, q *entityQuery) *entitySnapshot 
 	if e == nil {
 		return nil
 	}
+	_, e.eye, _ = a.EyePosition()
+	e.eye -= a.Y
 	e.bind(&s.arrowsMu, &it.tags, &arrowEntityOps)
 	e.setCustomName(it.custom.tag())
 	return e
@@ -1862,6 +1873,8 @@ func (s *Server) thrownSnapshot(it *thrownEntity, q *entityQuery) *entitySnapsho
 	if e == nil {
 		return nil
 	}
+	_, e.eye, _ = t.EyePosition()
+	e.eye -= t.Y
 	e.plain = itemEnglishName(typ)
 	e.bind(&s.arrowsMu, &it.tags, &thrownEntityOps)
 	e.setCustomName(it.custom.tag())
@@ -1902,6 +1915,8 @@ func (s *Server) boatSnapshot(it *boatEntity, q *entityQuery) *entitySnapshot {
 	if e == nil {
 		return nil
 	}
+	_, e.eye, _ = b.EyePosition()
+	e.eye -= b.Y
 	e.plain = itemEnglishName(it.kind.Name())
 	e.bind(&s.boatsMu, &it.tags, &boatEntityOps)
 	e.setCustomName(it.custom.tag())
@@ -1969,6 +1984,8 @@ func (s *Server) armorStandSnapshot(ent *armorStandEntity, q *entityQuery) *enti
 	if e == nil {
 		return nil
 	}
+	_, e.eye, _ = stand.EyePosition()
+	e.eye -= stand.Y
 	e.bind(&s.armorStandsMu, &ent.tags, &armorStandEntityOps)
 	e.setCustomName(ent.custom.tag())
 	return e
