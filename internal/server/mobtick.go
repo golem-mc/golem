@@ -446,7 +446,7 @@ type mobDimTick struct {
 	// hulls and foxItems are boat hulls and the foxes' item view, read under
 	// their own locks before the mob lock.
 	hulls    map[*world.World][]entity.AABB
-	foxItems map[*world.World][]entity.FoxItem
+	foxItems map[*entity.Mob][]entity.FoxItem
 	// raidCenters snapshots active raids before the mob lock.
 	raidCenters []raid.Pos
 	// corpses are deaths after the body's own tickDeath (in its aiStep); they
@@ -782,7 +782,7 @@ func (t *mobDimTick) advance(fx *mobEffects, in *mobTickInputs) (events []entity
 		case entity.TypeIllusioner:
 			m.Effective = s.effectiveDifficultyAt(w, m.X, m.Z)
 		case entity.TypeDolphin:
-			m.DolphinItems = t.foxItems[w]
+			m.DolphinItems = t.foxItems[m]
 		case entity.TypeNautilus, entity.TypeZombieNautilus:
 			m.NautilusIdentities = h
 		case entity.TypeWarden:
@@ -790,9 +790,9 @@ func (t *mobDimTick) advance(fx *mobEffects, in *mobTickInputs) (events []entity
 		case entity.TypeAllay, entity.TypeIronGolem, entity.TypeZombie, entity.TypeHusk, entity.TypeZombieVillager:
 			m.Village = t.dim.villageView
 		case entity.TypePanda:
-			m.SetPandaItems(t.foxItems[w])
+			m.SetPandaItems(t.foxItems[m])
 		case entity.TypeFox:
-			m.Fox.Items = t.foxItems[w]
+			m.Fox.Items = t.foxItems[m]
 			m.Village = t.dim.villageView
 		case entity.TypeCat:
 			if t.dim.chestOpen == nil {

@@ -432,7 +432,11 @@ type Server struct {
 	items      []*itemEntity
 	itemOrder  uint64
 	itemChunks entity.ChunkIndex[*itemEntity]
-	itemCols   *itemColumns
+	// foxView* are foxItemView's per-tick scratch, owned by the tick goroutine.
+	foxViewMobs []foxViewMob
+	foxViewBuf  []entity.FoxItem
+	foxView     map[*entity.Mob][]entity.FoxItem
+	itemCols    *itemColumns
 	// itemColBuffer retains storage between passes; itemCols is nil outside them.
 	itemColBuffer itemColumns
 	// deferItemSteps excludes arrivals during the entity passes ahead of

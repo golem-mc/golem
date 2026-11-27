@@ -1,6 +1,9 @@
 package server
 
 import (
+	"cmp"
+	"slices"
+
 	"github.com/google/uuid"
 
 	"github.com/golem-mc/golem/internal/protocol"
@@ -87,44 +90,37 @@ func (s *Server) tickMobLoot() {
 	anyLoot := false
 	s.lockTick(&s.mobsMu)
 	for _, dim := range dims {
-		dim.mobLootPicking, dim.mobLootGrabbing = false, false
+		clear(dim.mobLootNear)
+		clear(dim.mobLootFar)
 		for _, m := range dim.mobs.herd {
-			if !m.Alive() {
+			if !m.Alive() || !(m.LootPickupEnabled() || m.BannerGrabbing()) {
 				continue
 			}
-			dim.mobLootGrabbing = dim.mobLootGrabbing || m.BannerGrabbing()
-			if m.LootPickupEnabled() {
-				dim.mobLootPicking = true
-				break
+			if dim.mobLootNear == nil {
+				dim.mobLootNear = make(map[world.ChunkPos]struct{})
+				dim.mobLootFar = make(map[world.ChunkPos]struct{})
+			}
+			at := world.ChunkPos{X: world.ChunkOf(m.X), Z: world.ChunkOf(m.Z)}
+			if m.Type == entity.TypePiglin || m.Type == entity.TypeAllay || m.Type == entity.TypeVillager {
+				dim.mobLootFar[at] = struct{}{}
+			} else {
+				dim.mobLootNear[at] = struct{}{}
 			}
 		}
-		anyLoot = anyLoot || dim.mobLootPicking || dim.mobLootGrabbing
+		anyLoot = anyLoot || len(dim.mobLootNear) != 0 || len(dim.mobLootFar) != 0
 	}
 	s.unlockTick(&s.mobsMu)
 	if !anyLoot {
 		return
 	}
 
-	// Snapshot claimable items for both ordinary pickup and the banner goal,
-	// which can take a banner with mob_griefing disabled.
+	// Snapshot the claimable items near a mob that may take one, for both
+	// ordinary pickup and the banner goal, which can take a banner with
+	// mob_griefing disabled. Items keep their registration order.
 	// vanilla: Raider.ObtainRaidLeaderBannerGoal.tick
 	s.lockTick(&s.itemsMu)
-	for _, it := range s.items {
-		if it.item.Dead || it.item.Stack.Empty() || !it.item.PickupDue() {
-			continue
-		}
-		for _, dim := range dims {
-			if dim.w != it.w {
-				continue
-			}
-			if dim.mobLootPicking || dim.mobLootGrabbing {
-				dim.mobLootGround = append(dim.mobLootGround, it)
-				dim.mobLootView = append(dim.mobLootView, entity.LootItem{
-					X: it.item.X, Y: it.item.Y, Z: it.item.Z, Stack: it.item.Stack,
-				})
-			}
-			break
-		}
+	for _, dim := range dims {
+		s.gatherLootItems(dim)
 	}
 	s.unlockTick(&s.itemsMu)
 
@@ -290,4 +286,53 @@ func (s *Server) tickMobLoot() {
 		}
 		s.spawnItem(d.w, d.stack, d.x, d.y, d.z, vx, vy, vz, delay)
 	}
+}
+
+// Chunks around a looting mob whose items it may sense: a banner goal looks 16
+// blocks, a piglin, villager or allay 32, anything else less than a chunk.
+// vanilla: Raider.ObtainRaidLeaderBannerGoal, PiglinSpecificSensor
+const (
+	lootNearChunks = 1
+	lootFarChunks  = 3
+)
+
+// gatherLootItems fills dim's loot snapshot with the pickup-due items in the
+// chunks around its looting mobs, in registration order. Caller holds itemsMu.
+func (s *Server) gatherLootItems(dim *dimension) {
+	if len(dim.mobLootNear) == 0 && len(dim.mobLootFar) == 0 {
+		return
+	}
+	if dim.mobLootSeen == nil {
+		dim.mobLootSeen = make(map[world.ChunkPos]struct{})
+	}
+	clear(dim.mobLootSeen)
+	ground := dim.mobLootGround[:0]
+	visit := func(at world.ChunkPos, reach int32) {
+		for x := at.X - reach; x <= at.X+reach; x++ {
+			for z := at.Z - reach; z <= at.Z+reach; z++ {
+				pos := world.ChunkPos{X: x, Z: z}
+				if _, ok := dim.mobLootSeen[pos]; ok || !s.itemChunks.Has(pos) {
+					continue
+				}
+				dim.mobLootSeen[pos] = struct{}{}
+				for it := range s.itemChunks.In(pos) {
+					if it.w == dim.w && !it.item.Dead && !it.item.Stack.Empty() && it.item.PickupDue() {
+						ground = append(ground, it)
+					}
+				}
+			}
+		}
+	}
+	for at := range dim.mobLootFar {
+		visit(at, lootFarChunks)
+	}
+	for at := range dim.mobLootNear {
+		visit(at, lootNearChunks)
+	}
+	slices.SortFunc(ground, func(a, b *itemEntity) int { return cmp.Compare(a.order, b.order) })
+	view := dim.mobLootView[:0]
+	for _, it := range ground {
+		view = append(view, entity.LootItem{X: it.item.X, Y: it.item.Y, Z: it.item.Z, Stack: it.item.Stack})
+	}
+	dim.mobLootGround, dim.mobLootView = ground, view
 }
