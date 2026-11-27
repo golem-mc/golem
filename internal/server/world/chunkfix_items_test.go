@@ -1,6 +1,7 @@
 package world
 
 import (
+	"reflect"
 	"testing"
 
 	"github.com/golem-mc/golem/nbt"
@@ -46,7 +47,7 @@ func TestFixComponentShapes(t *testing.T) {
 			nbt.Compound{"name": nbt.String("Random spawn bonus"), "amount": nbt.Double(2)},
 		}}},
 	}
-	fixComponentShapes(c, 3837)
+	fixComponentShapes(c, "minecraft:diamond_sword", 3837)
 	cmd, _ := nbt.CompoundView(c["minecraft:custom_model_data"])
 	if floats, _ := cmd["floats"].(nbt.List); len(floats.Items) != 1 || floats.Items[0] != nbt.Float(7) {
 		t.Errorf("custom_model_data = %v", c["minecraft:custom_model_data"])
@@ -207,3 +208,92 @@ func TestComponentizeItemKinds(t *testing.T) {
 		t.Errorf("profile = %v", c["minecraft:profile"])
 	}
 }
+
+func TestComponentizeLegacyTagKinds(t *testing.T) {
+	t.Parallel()
+	componentize := func(id string, tag nbt.Compound) nbt.Compound {
+		entries := nbt.Compound{"id": nbt.String(id), "Count": nbt.Byte(1), "tag": tag}
+		componentizeTag(entries, id)
+		c, _ := entries["components"].(nbt.Compound)
+		fixComponentShapes(c, id, 3700)
+		return c
+	}
+	layer := nbt.List{Elem: nbt.TypeCompound, Items: []nbt.Tag{nbt.Compound{"Pattern": nbt.String("cbo"), "Color": nbt.Int(0)}}}
+	wantLayer := func(pattern string) nbt.Tag {
+		return nbt.List{Elem: nbt.TypeCompound, Items: []nbt.Tag{nbt.Compound{"pattern": nbt.String(pattern), "color": nbt.String("white")}}}
+	}
+
+	shield := componentize("minecraft:shield", nbt.Compound{"BlockEntityTag": nbt.Compound{"Base": nbt.Int(1), "Patterns": layer}})
+	if shield["minecraft:base_color"] != nbt.String("orange") || !nbtEqual(shield["minecraft:banner_patterns"], wantLayer("minecraft:curly_border")) || shield["minecraft:block_entity_data"] != nil {
+		t.Errorf("shield = %v", shield)
+	}
+	flo := nbt.List{Elem: nbt.TypeCompound, Items: []nbt.Tag{nbt.Compound{"Pattern": nbt.String("flo"), "Color": nbt.Int(0)}}}
+	banner := componentize("minecraft:red_banner", nbt.Compound{"BlockEntityTag": nbt.Compound{"Patterns": flo}})
+	if !nbtEqual(banner["minecraft:banner_patterns"], wantLayer("minecraft:flower")) || banner["minecraft:block_entity_data"] != nil {
+		t.Errorf("banner = %v", banner)
+	}
+
+	pick := componentize("minecraft:diamond_pickaxe", nbt.Compound{"AttributeModifiers": nbt.List{Elem: nbt.TypeCompound, Items: []nbt.Tag{
+		nbt.Compound{"AttributeName": nbt.String("generic.attack_damage"), "Name": nbt.String("n"), "Amount": nbt.Double(1), "Operation": nbt.Int(0), "UUID": nbt.IntArray{1, 2, 3, 4}},
+	}}})
+	mods := pick["minecraft:attribute_modifiers"].(nbt.List)
+	if m := mods.Items[0].(nbt.Compound); m["type"] != nbt.String("minecraft:attack_damage") {
+		t.Errorf("modifier = %v", m)
+	}
+
+	compass := componentize("minecraft:compass", nbt.Compound{
+		"LodestonePos": nbt.Compound{"X": nbt.Int(1), "Y": nbt.Int(2), "Z": nbt.Int(3)}, "LodestoneDimension": nbt.String("minecraft:overworld"),
+	})
+	target := compass["minecraft:lodestone_tracker"].(nbt.Compound)["target"].(nbt.Compound)
+	if !nbtEqual(target["pos"], nbt.IntArray{1, 2, 3}) {
+		t.Errorf("lodestone target = %v", target)
+	}
+
+	egg := componentize("minecraft:zombie_spawn_egg", nbt.Compound{"EntityTag": nbt.Compound{"CustomName": nbt.String(`"Z"`)}})
+	if data := egg["minecraft:entity_data"].(nbt.Compound); data["CustomName"] != nbt.String("Z") {
+		t.Errorf("entity_data = %v", data)
+	}
+
+	fish := componentize("minecraft:tropical_fish_bucket", nbt.Compound{"BucketVariantTag": nbt.Int(65536)})
+	if fish["minecraft:tropical_fish/pattern"] != nbt.String("kob") || fish["minecraft:tropical_fish/base_color"] != nbt.String("orange") ||
+		fish["minecraft:tropical_fish/pattern_color"] != nbt.String("white") {
+		t.Errorf("tropical fish = %v", fish)
+	}
+	if data := fish["minecraft:bucket_entity_data"].(nbt.Compound); data["BucketVariantTag"] != nil {
+		t.Errorf("bucket_entity_data = %v", data)
+	}
+
+	book := componentize("minecraft:written_book", nbt.Compound{
+		"title": nbt.String("t"), "author": nbt.String("a"),
+		"pages": nbt.List{Elem: nbt.TypeString, Items: []nbt.Tag{nbt.String(`{"text":"hello","bold":true}`), nbt.String(`"page two"`)}},
+	})
+	pages := book["minecraft:written_book_content"].(nbt.Compound)["pages"].(nbt.List)
+	first := pages.Items[0].(nbt.Compound)["raw"].(nbt.Compound)
+	if first["text"] != nbt.String("hello") || first["bold"] != nbt.Byte(1) || pages.Items[1].(nbt.Compound)["raw"] != nbt.String("page two") {
+		t.Errorf("pages = %v", pages)
+	}
+}
+
+func TestFixComponentShapesAfter1_20_5(t *testing.T) {
+	t.Parallel()
+	c := nbt.Compound{"minecraft:attribute_modifiers": nbt.Compound{"modifiers": nbt.List{Elem: nbt.TypeCompound, Items: []nbt.Tag{
+		nbt.Compound{"type": nbt.String("minecraft:generic.attack_damage"), "uuid": nbt.IntArray{1, 1, 1, 1}},
+		nbt.Compound{"type": nbt.String("minecraft:other"), "uuid": nbt.IntArray{2, 2, 2, 2}},
+	}}}}
+	fixComponentShapes(c, "minecraft:diamond_sword", 3900)
+	mods := c["minecraft:attribute_modifiers"].(nbt.List)
+	if mods.Items[0].(nbt.Compound)["type"] != nbt.String("minecraft:attack_damage") || mods.Items[1].(nbt.Compound)["type"] != nbt.String("minecraft:other") {
+		t.Errorf("modifiers = %v", mods)
+	}
+
+	book := nbt.Compound{"minecraft:written_book_content": nbt.Compound{"pages": nbt.List{Elem: nbt.TypeCompound, Items: []nbt.Tag{
+		nbt.Compound{"raw": nbt.String(`"hi"`)},
+	}}}}
+	fixComponentShapes(book, "minecraft:written_book", 4189)
+	pages := book["minecraft:written_book_content"].(nbt.Compound)["pages"].(nbt.List)
+	if pages.Items[0].(nbt.Compound)["raw"] != nbt.String("hi") {
+		t.Errorf("pages = %v", pages)
+	}
+}
+
+func nbtEqual(a, b nbt.Tag) bool { return reflect.DeepEqual(a, b) }

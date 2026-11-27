@@ -22,6 +22,78 @@ var (
 	dyeNames = []string{"white", "orange", "magenta", "light_blue", "yellow", "lime", "pink", "gray", "light_gray", "cyan", "purple", "blue", "brown", "green", "red", "black"}
 )
 
+// dyeName is the name of a dye colour id; an unknown id is white.
+// vanilla: ExtraDataFixUtils.dyeColorIdToName
+func dyeName(id int32) string {
+	if id >= 0 && int(id) < len(dyeNames) {
+		return dyeNames[id]
+	}
+	return "white"
+}
+
+// fixBlockPos turns a {X, Y, Z} position into an int array; anything else
+// stays as it is.
+// vanilla: ExtraDataFixUtils.fixBlockPos
+func fixBlockPos(tag nbt.Tag) nbt.Tag {
+	p, ok := nbt.CompoundView(tag)
+	if !ok {
+		return tag
+	}
+	x, okX := nbt.IntValue(p["X"])
+	y, okY := nbt.IntValue(p["Y"])
+	z, okZ := nbt.IntValue(p["Z"])
+	if !okX || !okY || !okZ {
+		return tag
+	}
+	return nbt.IntArray{x, y, z}
+}
+
+// bannerPatternIDs are the short pattern codes of a banner layer.
+// vanilla: BannerPatternFormatFix.PATTERN_ID_MAP
+var bannerPatternIDs = map[string]string{
+	"b": "base", "bl": "square_bottom_left", "br": "square_bottom_right", "tl": "square_top_left", "tr": "square_top_right",
+	"bs": "stripe_bottom", "ts": "stripe_top", "ls": "stripe_left", "rs": "stripe_right", "cs": "stripe_center",
+	"ms": "stripe_middle", "drs": "stripe_downright", "dls": "stripe_downleft", "ss": "small_stripes", "cr": "cross",
+	"sc": "straight_cross", "bt": "triangle_bottom", "tt": "triangle_top", "bts": "triangles_bottom",
+	"tts": "triangles_top", "ld": "diagonal_left", "rd": "diagonal_up_right", "lud": "diagonal_up_left",
+	"rud": "diagonal_right", "mc": "circle", "mr": "rhombus", "vh": "half_vertical", "hh": "half_horizontal",
+	"vhr": "half_vertical_right", "hhb": "half_horizontal_bottom", "bo": "border", "cbo": "curly_border",
+	"gra": "gradient", "gru": "gradient_up", "bri": "bricks", "glb": "globe", "cre": "creeper", "sku": "skull",
+	"flo": "flower", "moj": "mojang", "pig": "piglin",
+}
+
+// fixBannerPatterns renames a banner's Patterns to patterns and each layer's
+// Pattern and Color to a pattern id and a colour name.
+// vanilla: DataFixers.addFixers (BannerPatternFormatFix)
+func fixBannerPatterns(be nbt.Compound) {
+	v, ok := takeKey(be, "Patterns")
+	if !ok {
+		return
+	}
+	list, _ := v.(nbt.List)
+	layers := make([]nbt.Tag, 0, len(list.Items))
+	for _, item := range list.Items {
+		layer, ok := nbt.CompoundView(item)
+		if !ok {
+			layers = append(layers, item)
+			continue
+		}
+		if p, ok := takeKey(layer, "Pattern"); ok {
+			if code, isStr := p.(nbt.String); isStr {
+				if id, known := bannerPatternIDs[string(code)]; known {
+					p = nbt.String("minecraft:" + id)
+				}
+			}
+			layer["pattern"] = p
+		}
+		color, _ := nbt.IntValue(layer["Color"])
+		delete(layer, "Color")
+		layer["color"] = nbt.String(dyeName(color))
+		layers = append(layers, layer)
+	}
+	be["patterns"] = nbt.List{Elem: nbt.TypeCompound, Items: layers}
+}
+
 // componentizeBlockEntityTag turns a stack's BlockEntityTag into the
 // components of the block entity's kind; what is left becomes
 // minecraft:block_entity_data (kept with its id).
@@ -63,16 +135,13 @@ func componentizeBlockEntityTag(c, tag nbt.Compound) {
 			c["minecraft:container"] = nbt.ListOf([]nbt.Tag{nbt.Compound{"slot": nbt.Int(0), "item": item}})
 		}
 	case name == "minecraft:banner":
+		fixBannerPatterns(be)
 		if v, ok := takeKey(be, "patterns"); ok {
 			c["minecraft:banner_patterns"] = v
 		}
 		if base, ok := takeKey(be, "Base"); ok {
 			if n, isNum := nbt.IntValue(base); isNum {
-				color := "white"
-				if n >= 0 && int(n) < len(dyeNames) {
-					color = dyeNames[n]
-				}
-				c["minecraft:base_color"] = nbt.String(color)
+				c["minecraft:base_color"] = nbt.String(dyeName(n))
 			}
 		}
 	case slices.Contains(containerBEs, name):
@@ -246,6 +315,9 @@ func componentizeItemKind(c, tag nbt.Compound, id string) {
 			comp := nbt.Compound{}
 			if hasPos && hasDim {
 				comp["target"] = nbt.Compound{"pos": pos, "dimension": dim}
+			}
+			if p, ok := comp["target"].(nbt.Compound); ok {
+				p["pos"] = fixBlockPos(p["pos"])
 			}
 			if hasTracked && !boolValue(tracked) {
 				comp["tracked"] = nbt.Byte(0)

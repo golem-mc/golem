@@ -13,9 +13,11 @@ import (
 // still needs; the generated STRUCTURE chain starts at templateDataVersionFloor.
 const (
 	attributeModifierIdVersion = 3945 // vanilla: DataFixers.addFixers (AttributeModifierIdFix)
+	attributeIDPrefixVersion   = 4055 // vanilla: DataFixers.addFixers (AttributeIdPrefixFix)
 	foodConsumableVersion      = 4059 // vanilla: DataFixers.addFixers (FoodToConsumableFix)
 	customModelDataVersion     = 4175 // vanilla: DataFixers.addFixers (CustomModelDataExpandFix)
 	textComponentVersion       = 4290 // vanilla: DataFixers.addFixers (UnflattenTextComponentFix)
+	entityVariantVersion       = 4299 // vanilla: DataFixers.addFixers (EntitySpawnerItemVariantComponentFix)
 	tooltipDisplayVersion      = 4307 // vanilla: DataFixers.addFixers (TooltipDisplayComponentFix)
 )
 
@@ -29,9 +31,9 @@ func fixStoredComponents(tag nbt.Tag, version int32) {
 		}
 	case nbt.CompoundTag:
 		entries := v.Entries()
-		if _, isStack := entries["id"].(nbt.String); isStack {
+		if id, isStack := entries["id"].(nbt.String); isStack {
 			if components, ok := nbt.CompoundView(entries["components"]); ok {
-				fixComponentShapes(components, version)
+				fixComponentShapes(components, string(id), version)
 			}
 		}
 		for _, child := range entries {
@@ -40,10 +42,14 @@ func fixStoredComponents(tag nbt.Tag, version int32) {
 	}
 }
 
-// fixComponentShapes runs the component fixes after version, in version order.
-func fixComponentShapes(c nbt.Compound, version int32) {
+// fixComponentShapes runs the component fixes after version, in version order,
+// for the components of a stack of the item id.
+func fixComponentShapes(c nbt.Compound, id string, version int32) {
 	if version < attributeModifierIdVersion {
 		fixAttributeModifierIDs(c)
+	}
+	if version < attributeIDPrefixVersion {
+		fixAttributeIDPrefixes(c)
 	}
 	if version < foodConsumableVersion {
 		fixFoodToConsumable(c)
@@ -64,6 +70,15 @@ func fixComponentShapes(c nbt.Compound, version int32) {
 			}
 			c["minecraft:lore"] = mixedList(items)
 		}
+		unflattenBookText(c)
+		for _, key := range []string{"minecraft:entity_data", "minecraft:block_entity_data"} {
+			if data, ok := nbt.CompoundView(c[key]); ok {
+				unflattenText(data, "CustomName")
+			}
+		}
+	}
+	if version < entityVariantVersion {
+		fixEntityVariants(c, id)
 	}
 	if version < tooltipDisplayVersion {
 		fixTooltipDisplay(c)
@@ -430,3 +445,111 @@ func boolValue(tag nbt.Tag) bool {
 // additionalTooltipComponents are the components hide_additional_tooltip hid.
 // vanilla: TooltipDisplayComponentFix.CONVERTED_ADDITIONAL_TOOLTIP_TYPES
 var additionalTooltipComponents = []string{"minecraft:banner_patterns", "minecraft:bees", "minecraft:block_entity_data", "minecraft:block_state", "minecraft:bundle_contents", "minecraft:charged_projectiles", "minecraft:container", "minecraft:container_loot", "minecraft:firework_explosion", "minecraft:fireworks", "minecraft:instrument", "minecraft:map_id", "minecraft:painting/variant", "minecraft:pot_decorations", "minecraft:potion_contents", "minecraft:tropical_fish/pattern", "minecraft:written_book_content"}
+
+// fixAttributeIDPrefixes drops the generic., horse., player. and zombie.
+// prefix of the attribute ids of an attribute_modifiers component.
+// vanilla: AttributeIdPrefixFix
+func fixAttributeIDPrefixes(c nbt.Compound) {
+	var modifiers nbt.Tag
+	if wrapper, ok := nbt.CompoundView(c["minecraft:attribute_modifiers"]); ok {
+		modifiers = wrapper["modifiers"]
+	} else {
+		modifiers = c["minecraft:attribute_modifiers"]
+	}
+	list, _ := modifiers.(nbt.List)
+	for _, item := range list.Items {
+		m, ok := nbt.CompoundView(item)
+		if !ok {
+			continue
+		}
+		id, ok := m["type"].(nbt.String)
+		if !ok {
+			continue
+		}
+		name := string(id)
+		if !strings.Contains(name, ":") {
+			name = "minecraft:" + name
+		}
+		for _, prefix := range []string{"generic.", "horse.", "player.", "zombie."} {
+			if rest, found := strings.CutPrefix(name, "minecraft:"+prefix); found {
+				m["type"] = nbt.String("minecraft:" + rest)
+				break
+			}
+		}
+	}
+}
+
+// unflattenBookText parses the JSON of a written book's pages.
+// vanilla: UnflattenTextComponentFix (written_book_content)
+func unflattenBookText(c nbt.Compound) {
+	book, ok := nbt.CompoundView(c["minecraft:written_book_content"])
+	if !ok {
+		return
+	}
+	pages, _ := book["pages"].(nbt.List)
+	for _, page := range pages.Items {
+		if p, ok := nbt.CompoundView(page); ok {
+			unflattenText(p, "raw")
+			unflattenText(p, "filtered")
+		}
+	}
+}
+
+// tropicalPatterns maps the pattern bits of a packed tropical fish variant.
+// vanilla: EntitySpawnerItemVariantComponentFix.getPattern
+var tropicalPatterns = map[int32]string{
+	256: "sunstreak", 512: "snooper", 768: "dasher", 1024: "brinely", 1280: "spotty",
+	1: "flopper", 257: "stripey", 513: "glitter", 769: "blockfish", 1025: "betty", 1281: "clayfish",
+}
+
+var axolotlVariants = []string{"lucy", "wild", "gold", "cyan", "blue"}
+
+// fixEntityVariants moves the variant of a bucket, or the painting variant of
+// a painting, out of its entity data into its own component.
+// vanilla: EntitySpawnerItemVariantComponentFix
+func fixEntityVariants(c nbt.Compound, id string) {
+	bucket, _ := nbt.CompoundView(c["minecraft:bucket_entity_data"])
+	switch id {
+	case "minecraft:salmon_bucket":
+		if v, ok := takeKey(bucket, "type"); ok {
+			c["minecraft:salmon/size"] = v
+		}
+	case "minecraft:axolotl_bucket":
+		if v, ok := takeKey(bucket, "Variant"); ok {
+			if n, isNum := nbt.IntValue(v); isNum {
+				variant := "lucy"
+				if n >= 1 && int(n) < len(axolotlVariants) {
+					variant = axolotlVariants[n]
+				}
+				c["minecraft:axolotl/variant"] = nbt.String(variant)
+			} else {
+				bucket["Variant"] = v
+			}
+		}
+	case "minecraft:tropical_fish_bucket":
+		if v, ok := bucket["BucketVariantTag"]; ok {
+			if packed, isNum := nbt.IntValue(v); isNum {
+				pattern, known := tropicalPatterns[packed&0xFFFF]
+				if !known {
+					pattern = "kob"
+				}
+				delete(bucket, "BucketVariantTag")
+				c["minecraft:tropical_fish/pattern"] = nbt.String(pattern)
+				c["minecraft:tropical_fish/base_color"] = nbt.String(dyeName(packed >> 16 & 0xFF))
+				c["minecraft:tropical_fish/pattern_color"] = nbt.String(dyeName(packed >> 24 & 0xFF))
+			}
+		}
+	case "minecraft:painting":
+		data, ok := nbt.CompoundView(c["minecraft:entity_data"])
+		if !ok || data["id"] != nbt.String("minecraft:painting") {
+			return
+		}
+		variant, hasVariant := takeKey(data, "variant")
+		if len(data) == 1 {
+			delete(c, "minecraft:entity_data")
+		}
+		if hasVariant {
+			c["minecraft:painting/variant"] = variant
+		}
+	}
+}

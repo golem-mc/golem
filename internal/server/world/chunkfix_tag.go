@@ -65,6 +65,7 @@ func componentizeTag(entries nbt.Compound, id string) {
 	if v, ok := take("EntityTag"); ok {
 		c["minecraft:entity_data"] = v
 	}
+	addTagIDs(tag, item)
 	componentizeBlockEntityTag(c, tag)
 	if v, ok := take("Unbreakable"); ok && boolValue(v) {
 		u := nbt.Compound{}
@@ -113,6 +114,23 @@ func componentizeTag(entries nbt.Compound, id string) {
 	}
 	if len(c) > 0 {
 		entries["components"] = c
+	}
+}
+
+// addTagIDs gives a stack's BlockEntityTag and EntityTag the id of the kind
+// the item places.
+// vanilla: V99.addNames
+func addTagIDs(tag nbt.Compound, item registry.Item) {
+	if be, ok := nbt.CompoundView(tag["BlockEntityTag"]); ok && item >= 0 && (item == registry.ItemShield || item.InTag(registry.ItemTagOf("minecraft:banners"))) {
+		be["id"] = nbt.String("minecraft:banner")
+	}
+	if entity, ok := nbt.CompoundView(tag["EntityTag"]); ok && entity["id"] == nil {
+		switch item {
+		case registry.ItemPainting:
+			entity["id"] = nbt.String("minecraft:painting")
+		case registry.ItemArmorStand:
+			entity["id"] = nbt.String("minecraft:armor_stand")
+		}
 	}
 }
 
