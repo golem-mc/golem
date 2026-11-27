@@ -2,11 +2,13 @@ package world
 
 import (
 	"cmp"
+	"errors"
 	"math"
 	"slices"
 	"sync"
 
 	"github.com/golem-mc/golem/internal/server/world/levelgen"
+	"github.com/golem-mc/golem/nbt"
 	"github.com/golem-mc/golem/registry"
 )
 
@@ -24,6 +26,11 @@ type StructureLocator interface {
 // NearestStructure finds the nearest of the structures the dimension's
 // generator places, and reports false when it places none of them.
 func (w *World) NearestStructure(ids []string, x, y, z int32, radius int) (int32, int32, string, bool) {
+	if g, ok := w.gen.(interface {
+		locateStructure([]string, int32, int32, int32, int, func(string, int32, int32) bool, startLookup) (int32, int32, string, bool)
+	}); ok {
+		return g.locateStructure(ids, x, y, z, radius, nil, w.savedStart)
+	}
 	locator, ok := w.gen.(StructureLocator)
 	if !ok {
 		return 0, 0, "", false
@@ -173,7 +180,7 @@ func indicesFrom(lo, hi int) []int {
 // first and stops once no unresolved start can be closer than the best found,
 // since a start moves its chunk at most ringMoveBlocks on each axis.
 // vanilla: ChunkGenerator.getNearestGeneratedStructure (concentric rings)
-func (g *OverworldGenerator) nearestStronghold(ids []string, x, y, z int32, accept func(string, int32, int32) bool) (int32, int32, string, bool) {
+func (g *OverworldGenerator) nearestStronghold(ids []string, x, y, z int32, accept func(string, int32, int32) bool, saved startLookup) (int32, int32, string, bool) {
 	if g.noStructures || !containsID(ids, strongholdID) {
 		return 0, 0, "", false
 	}
@@ -219,6 +226,9 @@ func (g *OverworldGenerator) nearestStronghold(ids []string, x, y, z int32, acce
 			}
 			// vanilla: Structure.isValidBiome, read at the chunk's corner at y 0.
 			if !probe(c[0]*4, 0, c[1]*4).InTag(strongholdBiomeTag) {
+				continue
+			}
+			if saved != nil && saved(strongholdID, c[0], c[1]) == startAbsent {
 				continue
 			}
 			if accept != nil {
@@ -328,4 +338,104 @@ func (g *EndGenerator) NearestStructure(ids []string, x, _, z int32, radius int)
 		}
 	}
 	return 0, 0, "", false
+}
+
+// startState is what a chunk's saved data says about a structure's start.
+type startState uint8
+
+const (
+	startUnknown startState = iota // no saved chunk: the generator decides
+	startPresent
+	startAbsent
+)
+
+// startLookup answers whether chunk (cx, cz) saved a start of the structure.
+type startLookup func(id string, cx, cz int32) startState
+
+// savedStartCacheMax bounds savedStartCache.
+// vanilla: StructureCheck.chunksWithoutStartsInStorage cleared at 131072
+const savedStartCacheMax = 131072
+
+// savedStartCache holds the structure ids with a valid start in each saved
+// chunk read from disk; a saved chunk's starts never change.
+type savedStartCache struct {
+	mu sync.Mutex
+	m  map[ChunkPos][]string
+}
+
+// savedStart reads a chunk's structures.starts from memory, else from its
+// region file.
+// vanilla: StructureCheck.checkStart, tryLoadFromStorage
+func (w *World) savedStart(id string, cx, cz int32) startState {
+	pos := ChunkPos{cx, cz}
+	w.mu.RLock()
+	if l, ok := w.loadedAt(pos); ok {
+		ids := validStartIDs(l.chunk.savedRoot())
+		w.mu.RUnlock()
+		return startStateOf(ids, id)
+	}
+	w.mu.RUnlock()
+	c := &w.savedStarts
+	c.mu.Lock()
+	ids, cached := c.m[pos]
+	c.mu.Unlock()
+	if !cached {
+		found, err := w.withChunkRoot(pos, true, func(root nbt.Compound) error {
+			if full, err := chunkIsFull(root); !full {
+				if err == nil {
+					return errNotFull
+				}
+				return err
+			}
+			ids = validStartIDs(root)
+			return nil
+		})
+		if !found || err != nil {
+			return startUnknown
+		}
+		c.mu.Lock()
+		if c.m == nil || len(c.m) >= savedStartCacheMax {
+			c.m = map[ChunkPos][]string{}
+		}
+		c.m[pos] = ids
+		c.mu.Unlock()
+	}
+	return startStateOf(ids, id)
+}
+
+// errNotFull stops a read of a chunk that loading would generate again.
+var errNotFull = errors.New("chunk is not fully generated")
+
+// startStateOf maps a chunk's valid start ids (nil: the chunk saved no
+// structures.starts) to the state of one structure.
+// vanilla: StructureCheck.loadStructures returns null without structures.starts
+func startStateOf(ids []string, id string) startState {
+	if ids == nil {
+		return startUnknown
+	}
+	if slices.Contains(ids, id) {
+		return startPresent
+	}
+	return startAbsent
+}
+
+// validStartIDs lists the structures a chunk root has a start for: the id
+// matches its key and it has pieces. It is nil when the root has no
+// structures.starts compound, and empty when that compound holds none.
+func validStartIDs(root nbt.Compound) []string {
+	structures, _ := nbt.Get[nbt.Compound](root, "structures")
+	starts, ok := nbt.Get[nbt.Compound](structures, "starts")
+	if !ok {
+		return nil
+	}
+	ids := []string{}
+	for key, value := range starts {
+		start, _ := nbt.CompoundView(value)
+		savedID, _ := nbt.Get[nbt.String](start, "id")
+		children, _ := nbt.Get[nbt.List](start, "Children")
+		if string(savedID) == key && len(children.Items) > 0 {
+			ids = append(ids, key)
+		}
+	}
+	return ids
 }
