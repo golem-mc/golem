@@ -109,6 +109,21 @@ func (s *Server) mapFrameMarks(w *world.World, x, z float64, radius int32) map[i
 	if len(s.frames) == 0 {
 		return nil
 	}
+	// A frame given a map mid-tick is seen from the next tick, within the
+	// 10-tick cadence of vanilla's framed-map updates.
+	// vanilla: ServerEntity.sendChanges
+	if now := s.ticksRun.Load(); s.mapFrameWorlds == nil || s.mapFramesTick != now {
+		s.mapFramesTick = now
+		s.mapFrameWorlds = make(map[*world.World]bool)
+		for _, f := range s.frames {
+			if registry.Item(f.item.ItemID).IsMap() {
+				s.mapFrameWorlds[f.w] = true
+			}
+		}
+	}
+	if !s.mapFrameWorlds[w] {
+		return nil
+	}
 
 	pct := int(s.entityBroadcastRange.Load())
 	visible := func(f *frameEntity) bool {
