@@ -36,6 +36,9 @@ var frogVariants = [...]string{"minecraft:temperate", "minecraft:warm", "minecra
 // the fixes after it that make or edit a stack work on the pre-1.20.5 shape.
 func upgradeOldEntity(e nbt.CompoundTag, version int32) {
 	entries := e.Entries()
+	if version < entityFixesBelow {
+		upgradePre1165Entity(e, version)
+	}
 	id, _ := nbt.Get[nbt.String](entries, "id")
 	switch string(id) {
 	case "minecraft:arrow", "minecraft:spectral_arrow", "minecraft:trident":

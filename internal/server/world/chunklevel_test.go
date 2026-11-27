@@ -1,7 +1,6 @@
 package world
 
 import (
-	"errors"
 	"testing"
 
 	"github.com/golem-mc/golem/nbt"
@@ -39,18 +38,16 @@ func TestUnwrapLevelChunkBiomesAndRenames(t *testing.T) {
 	}
 }
 
-func TestUnwrapLevelChunkKeepsWhatItCannotUpgrade(t *testing.T) {
+func TestUnwrapLevelChunkKeepsEntitiesForTheLoader(t *testing.T) {
 	t.Parallel()
-	root := nbt.Compound{"Level": nbt.Compound{"Entities": nbt.List{Elem: nbt.TypeCompound, Items: []nbt.Tag{nbt.Compound{"id": nbt.String("minecraft:cow")}}}}}
-	if _, ok := errors.AsType[*unsupportedVersionError](unwrapLevelChunk(root, levelChunkFloor)); !ok {
-		t.Error("a chunk with entities from before 1.16.5 was upgraded")
-	}
-	root = nbt.Compound{"Level": nbt.Compound{"Entities": nbt.List{Elem: nbt.TypeCompound, Items: []nbt.Tag{nbt.Compound{"id": nbt.String("minecraft:cow")}}}}}
-	if err := unwrapLevelChunk(root, entityDataVersionFloor); err != nil {
-		t.Errorf("a 1.16.5 chunk with entities: %v", err)
-	}
-	if entities, _ := nbt.Get[nbt.List](root, "entities"); len(entities.Items) != 1 {
-		t.Errorf("entities = %v, want the cow left for the entity loader", entities)
+	for _, version := range []int32{levelChunkFloor, entityFixesBelow} {
+		root := nbt.Compound{"Level": nbt.Compound{"Entities": nbt.List{Elem: nbt.TypeCompound, Items: []nbt.Tag{nbt.Compound{"id": nbt.String("minecraft:cow")}}}}}
+		if err := unwrapLevelChunk(root, version); err != nil {
+			t.Errorf("version %d: %v", version, err)
+		}
+		if entities, _ := nbt.Get[nbt.List](root, "entities"); len(entities.Items) != 1 {
+			t.Errorf("version %d: entities = %v, want the cow left for the entity loader", version, entities)
+		}
 	}
 }
 

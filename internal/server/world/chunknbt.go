@@ -330,9 +330,13 @@ func biomeID(name string) int32 {
 const chunkDataVersionFloor = 2843
 
 // entityDataVersionFloor is the oldest DataVersion of a stored entity read:
-// older ones need the fixes of 1.16.4 and before, which are not ported.
-// vanilla: DataFixers.addFixers (v2586, 1.16.5)
-const entityDataVersionFloor = 2586
+// older ones are from before 1.15, whose fixes are not ported.
+const entityDataVersionFloor = levelChunkFloor
+
+// entityFixesBelow is the DataVersion of 1.16.5: an entity saved before it
+// goes through upgradePre1165Entity first.
+// vanilla: DataFixers.addFixers (v2586)
+const entityFixesBelow = 2586
 
 // Data versions of the block renames a chunk palette from below them gets.
 const (
