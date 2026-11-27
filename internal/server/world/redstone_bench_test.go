@@ -367,34 +367,3 @@ func BenchmarkPistonExtendRetract(b *testing.B) {
 		step(4)
 	}
 }
-
-// BenchmarkWireLineToggle toggles a redstone block beside a 15-block wire line,
-// exercising wireUpdatePower and wireWake across a full power-up and decay.
-func BenchmarkWireLineToggle(b *testing.B) {
-	w := newTestWorld(b, NewFlatGenerator())
-	b.Cleanup(func() { w.Close() })
-	w.Acquire(ChunkPos{})
-	w.Acquire(ChunkPos{X: 1})
-	p := NewPhysics(w)
-	const y = GroundLevel
-	wire := registry.BlockRedstoneWire.DefaultState()
-	for x := int32(1); x <= 15; x++ {
-		w.SetBlock(x, y, 4, wire)
-	}
-	source := registry.BlockRedstoneBlock.DefaultState()
-	set := func(s uint16) {
-		old := w.BlockAt(0, y, 4)
-		w.SetBlock(0, y, 4, s)
-		changes, _, _ := p.NotifyChanged(0, y, 4, old)
-		p.RecycleTickResults(changes, nil)
-	}
-	set(source)
-	set(airState)
-	w.FlushLighting()
-	b.ReportAllocs()
-	b.ResetTimer()
-	for b.Loop() {
-		set(source)
-		set(airState)
-	}
-}
