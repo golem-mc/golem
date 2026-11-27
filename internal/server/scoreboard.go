@@ -78,10 +78,11 @@ func (s *Server) newScoreboard(root string) *scoreboard.Board {
 			s.sendScoreboardEvent(s.scoreboard, id, payload)
 		}
 	})
-	data, ok, err := world.ReadSavedData(root, scoreboard.File, world.MaxSavedData)
+	data, version, ok, err := world.ReadSavedDataVersion(root, scoreboard.File, world.MaxSavedData)
 	if err != nil {
 		slog.Warn("could not read scoreboard.dat, starting with an empty scoreboard", "error", err)
 	} else if ok {
+		world.UpgradeScoreboard(data, version)
 		board.Load(data)
 	}
 	return board

@@ -131,3 +131,27 @@ func TestPlayerFileFrom1_21_1Upgrades(t *testing.T) {
 		t.Errorf("modifier type = %q", typ)
 	}
 }
+
+// TestPlayerFileBefore1_16KeepsItsDimension loads a 1.15.2 player file whose
+// Dimension is a number and finds the player saved in that dimension.
+// vanilla: LegacyDimensionIdFix.fixPlayer
+func TestPlayerFileBefore1_16KeepsItsDimension(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		dim  nbt.Tag
+		want string
+	}{
+		{nbt.Int(-1), "minecraft:the_nether"},
+		{nbt.Int(1), "minecraft:the_end"},
+		{nbt.Byte(0), "minecraft:overworld"},
+	} {
+		saved := joinOldPlayer(t, nbt.Compound{
+			"DataVersion": nbt.Int(2230),
+			"Dimension":   tc.dim,
+			"Pos":         nbt.ListOf([]nbt.Tag{nbt.Double(8), nbt.Double(70), nbt.Double(8)}),
+		})
+		if got, _ := nbt.Get[nbt.String](saved, "Dimension"); string(got) != tc.want {
+			t.Errorf("Dimension %v saved as %q, want %q", tc.dim, got, tc.want)
+		}
+	}
+}

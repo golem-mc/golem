@@ -880,10 +880,7 @@ func newServerWith(cfg *config.Config, seed int64, shared sharedNether, plugins 
 		storages:        world.NewCommandStorages(levelDir),
 		entityData:      world.NewCommandStorages(filepath.Join(levelDir, "plugin_entity_data")),
 		randomSequences: world.NewRandomSequences(levelDir),
-		bossBars:        world.NewBossBars(levelDir, command.ComponentDecodes),
 		stopwatches:     world.NewStopwatches(levelDir),
-		traderData:      world.NewWanderingTraderData(levelDir),
-		scheduled:       world.NewTimerQueue(levelDir),
 		maps:            world.NewMaps(levelDir),
 		timeSyncTicks:   defaultTimeSyncTicks,
 		lids:            make(map[lidRecheck]int32),
@@ -962,6 +959,13 @@ func newServerWith(cfg *config.Config, seed int64, shared sharedNether, plugins 
 	if err := world.MigrateLayout(levelDir); err != nil {
 		return nil, err
 	}
+	if err := world.MigrateLevelRecords(levelDir); err != nil {
+		return nil, err
+	}
+	// Read once the records level.dat held have moved into their files.
+	s.bossBars = world.NewBossBars(levelDir, command.ComponentDecodes)
+	s.traderData = world.NewWanderingTraderData(levelDir)
+	s.scheduled = world.NewTimerQueue(levelDir)
 	// vanilla: Main.main runs WorldUpgrader before the server starts
 	if cfg.ForceUpgrade || cfg.RecreateRegionFiles {
 		if err := world.UpgradeWorld(levelDir, world.UpgradeOptions{EraseCache: cfg.EraseCache, Recreate: cfg.RecreateRegionFiles}); err != nil {

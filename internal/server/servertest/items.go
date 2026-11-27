@@ -759,7 +759,13 @@ func WriteMapSavedData(t *testing.T, level string, id int32, scale byte, locked 
 	if locked {
 		data["locked"] = nbt.Byte(1)
 	}
-	encoded, err := nbt.Encode("", nbt.Compound{"data": data, "DataVersion": nbt.Int(4903)})
+	WriteMapFile(t, level, id, 4903, data)
+}
+
+// WriteMapFile writes data as map id's file with the given DataVersion.
+func WriteMapFile(t *testing.T, level string, id, dataVersion int32, data nbt.Compound) {
+	t.Helper()
+	encoded, err := nbt.Encode("", nbt.Compound{"data": data, "DataVersion": nbt.Int(dataVersion)})
 	if err != nil {
 		t.Fatalf("encode the map's saved data: %v", err)
 	}
@@ -794,6 +800,9 @@ type MapIcon struct {
 	name    string
 	hasName bool
 }
+
+// Name is the plain text of the marker's display name, false without one.
+func (i MapIcon) Name() (string, bool) { return i.name, i.hasName }
 
 // MapDataUpdate is a Map Item Data packet as a client keeps it: the map it
 // updates, how the map is drawn, the markers it carries and the colour

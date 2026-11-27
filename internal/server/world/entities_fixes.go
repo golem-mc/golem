@@ -11,6 +11,7 @@ import (
 const (
 	boatSplitVersion          = 4067 // vanilla: DataFixers.addFixers (BoatSplitFix)
 	salmonSizeVersion         = 4081 // vanilla: DataFixers.addFixers (EntitySalmonSizeFix)
+	followRangeUndoVersion    = 4187 // vanilla: DataFixers.addFixers (EntityAttributeBaseValueFix)
 	tntMinecartFuseVersion    = 4173 // vanilla: DataFixers.addFixers (Rename TNT Minecart fuse)
 	cloudDurationScaleVersion = 4296 // vanilla: DataFixers.addFixers (AreaEffectCloudDurationScaleFix)
 	fallDistanceVersion       = 4303 // vanilla: DataFixers.addFixers (EntityFallDistanceFloatToDoubleFix)
@@ -18,6 +19,18 @@ const (
 	copperGolemWeatherVersion = 4535 // vanilla: DataFixers.addFixers (CopperGolemWeatherStateFix)
 	villagerFinalizedVersion  = 4763 // vanilla: DataFixers.addFixers (VillagerSetVillagerDataFinalized)
 )
+
+// followRangeFixes maps an entity's saved follow_range base to the one
+// 4187 corrects it to; other bases stay.
+// vanilla: DataFixers.addFixers (EntityAttributeBaseValueFix)
+var followRangeFixes = map[string]map[float64]float64{
+	"minecraft:villager":     {48: 16},
+	"minecraft:bee":          {48: 16},
+	"minecraft:allay":        {48: 16},
+	"minecraft:llama":        {40: 16},
+	"minecraft:piglin_brute": {16: 12},
+	"minecraft:warden":       {16: 24},
+}
 
 // boatWoods are the boat variants BoatSplitFix gives an entity of their own;
 // any other Type is oak. The bamboo boat is a raft.
@@ -37,6 +50,21 @@ func upgradeEntityShapes(e nbt.CompoundTag, version int32) {
 	if version < salmonSizeVersion && id == "minecraft:salmon" {
 		if typ, _ := entries["type"].(nbt.String); typ != "large" {
 			entries["type"] = nbt.String("medium")
+		}
+	}
+	if fixes := followRangeFixes[string(id)]; fixes != nil && version < followRangeUndoVersion {
+		attributes, _ := nbt.Get[nbt.List](entries, "attributes")
+		for _, a := range attributes.Items {
+			m, ok := nbt.CompoundView(a)
+			if !ok {
+				continue
+			}
+			if name, _ := m["id"].(nbt.String); name != "minecraft:follow_range" {
+				continue
+			}
+			if to, ok := fixes[nbt.DoubleFieldOr(m, "base", 0)]; ok {
+				m["base"] = nbt.Double(to)
+			}
 		}
 	}
 	if version < tntMinecartFuseVersion && id == "minecraft:tnt_minecart" {

@@ -302,13 +302,14 @@ func (m *Maps) readCounter() int32 {
 // centre.
 // vanilla: MapItemSavedData.CODEC
 func (m *Maps) read(id int32) *MapData {
-	data, err := readSavedData(m.root, fmt.Sprintf("data/minecraft/maps/%d.dat", id))
+	data, version, err := readSavedDataVersion(m.root, fmt.Sprintf("data/minecraft/maps/%d.dat", id), MaxSavedData, false)
 	if errors.Is(err, errNoSavedData) {
 		return nil
 	} else if err != nil {
 		slog.Warn("could not read a map's saved data", "map", id, "error", err)
 		return nil
 	}
+	upgradeMapData(data, version)
 	dimension, ok := nbt.Get[nbt.String](data, "dimension")
 	if !ok {
 		return nil
@@ -351,6 +352,60 @@ func (m *Maps) read(id int32) *MapData {
 	saved.Decorations = decorations
 	saved.frames, _ = nbt.Get[nbt.List](data, "frames")
 	return saved
+}
+
+// upgradeMapData brings a map file written at DataVersion version to the shape
+// the codec reads.
+// vanilla: LegacyDimensionIdFix.fixMap, BlockPosFormatAndRenamesFix.fixMapSavedData, UnflattenTextComponentFix
+func upgradeMapData(data nbt.Compound, version int32) {
+	if version < 2537 {
+		if n, ok := nbt.IntValue(data["dimension"]); ok {
+			if _, isString := data["dimension"].(nbt.String); !isString {
+				switch n {
+				case -1:
+					data["dimension"] = nbt.String("minecraft:the_nether")
+				case 1:
+					data["dimension"] = nbt.String("minecraft:the_end")
+				default:
+					data["dimension"] = nbt.String("minecraft:overworld")
+				}
+			}
+		}
+	}
+	if version < 3813 {
+		for _, key := range []string{"banners", "frames"} {
+			list, ok := nbt.Get[nbt.List](data, key)
+			if !ok {
+				continue
+			}
+			for _, item := range list.Items {
+				entry, ok := item.(nbt.Compound)
+				if !ok {
+					continue
+				}
+				fixBlockPosField(entry, "Pos", "pos")
+				renameKey(entry, "Color", "color")
+				renameKey(entry, "Name", "name")
+				renameKey(entry, "Rotation", "rotation")
+				renameKey(entry, "EntityId", "entity_id")
+			}
+		}
+	}
+	if version < 4290 {
+		if list, ok := nbt.Get[nbt.List](data, "banners"); ok {
+			for _, item := range list.Items {
+				if entry, ok := item.(nbt.Compound); ok {
+					unflattenText(entry, "name")
+				}
+			}
+		}
+	}
+}
+
+func renameKey(c nbt.Compound, from, to string) {
+	if v, ok := takeKey(c, from); ok {
+		c[to] = v
+	}
 }
 
 // Save writes the maps made since the last save and the counter, if either
