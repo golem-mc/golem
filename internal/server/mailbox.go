@@ -19,13 +19,13 @@ type outbound struct {
 	id int32
 	// playerChat keeps converted System Chat subject to full-chat visibility.
 	playerChat bool
-	data       []byte
-	shared     *protocol.CachedPacket
 	// raw skips compression: set for a body deflate cannot shrink.
 	raw bool
 	// lazy: queued without waking the writer; it goes with the next flush
 	// (the tick end or any other wake).
-	lazy bool
+	lazy   bool
+	data   []byte
+	shared *protocol.CachedPacket
 }
 
 // mailbox is a client's queue of packets from goroutines other than its

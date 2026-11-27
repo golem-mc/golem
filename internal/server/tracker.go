@@ -470,6 +470,8 @@ type sendList struct{ entries *[]sendEntry }
 
 type sendEntry struct {
 	to *client
+	// slot is to.slot, kept here so grouping does not follow the pointer.
+	slot int32
 	// w, if not nil, is the world the packet belongs to; a client that left
 	// it is not sent the packet.
 	w *world.World
@@ -482,7 +484,7 @@ func (l *sendList) add(c *client, p outbound) {
 	if l.entries == nil {
 		l.entries = sendEntries.Get().(*[]sendEntry)
 	}
-	*l.entries = append(*l.entries, sendEntry{to: c, p: p})
+	*l.entries = append(*l.entries, sendEntry{to: c, slot: int32(c.slot), p: p})
 }
 
 // addIn queues a packet for c only while c stays in w.
@@ -523,20 +525,20 @@ func (l *sendList) send() {
 	}
 	src := *l.entries
 	sc := sendScratches.Get().(*sendScratch)
-	top := 0
+	top := int32(0)
 	for i := range src {
-		top = max(top, src[i].to.slot)
+		top = max(top, src[i].slot)
 	}
 	sc.starts = append(sc.starts[:0], make([]int, top+2)...)
 	for i := range src {
-		sc.starts[src[i].to.slot+1]++
+		sc.starts[src[i].slot+1]++
 	}
 	for i := 1; i < len(sc.starts); i++ {
 		sc.starts[i] += sc.starts[i-1]
 	}
 	sc.order = append(sc.order[:0], make([]int32, len(src))...)
 	for i := range src {
-		at := &sc.starts[src[i].to.slot]
+		at := &sc.starts[src[i].slot]
 		sc.order[*at] = int32(i)
 		*at++
 	}
