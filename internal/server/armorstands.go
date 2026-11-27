@@ -147,12 +147,26 @@ func (s *Server) armorStandSnapshots() map[*world.World][]entity.ArrowTarget {
 // invisible or invulnerable stand is no target. Nil when there is none.
 // vanilla: LivingEntity.canBeSeenAsEnemy, ArmorStand.canBeSeenByAnyone
 func (s *Server) armorStandRamTargets() map[*world.World][]entity.StandTarget {
+	var goatWorlds map[*world.World]bool
+	s.lockTick(&s.mobsMu)
+	for _, dim := range s.allDims() {
+		if dim.mobs.goats > 0 {
+			if goatWorlds == nil {
+				goatWorlds = make(map[*world.World]bool)
+			}
+			goatWorlds[dim.w] = true
+		}
+	}
+	s.unlockTick(&s.mobsMu)
+	if goatWorlds == nil {
+		return nil
+	}
 	s.armorStandsMu.Lock()
 	defer s.armorStandsMu.Unlock()
 	var byWorld map[*world.World][]entity.StandTarget
 	for _, ent := range s.armorStands {
 		st := ent.stand
-		if st.Dead || st.Marker || st.Invisible || st.Invulnerable {
+		if !goatWorlds[ent.w] || st.Dead || st.Marker || st.Invisible || st.Invulnerable {
 			continue
 		}
 		if byWorld == nil {

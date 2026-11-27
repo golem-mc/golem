@@ -66,6 +66,9 @@ type knotEntity struct {
 	tags nbt.StringSet
 	// custom is the custom name, guarded like tags.
 	custom customName
+	// silent is the Silent tag, guarded like tags; the knot's own sounds
+	// obey it.
+	silent bool
 }
 
 // knotTracker tracks the knots, measured from the fence cell's corner. A
@@ -157,11 +160,12 @@ type knotTell struct {
 	id           int32
 	x, y, z      float64
 	invulnerable bool
+	silent       bool
 }
 
 // knotTellOf copies the fields a tell reads out of k. The knot lock is held.
 func knotTellOf(k *knotEntity) knotTell {
-	return knotTell{w: k.w, id: k.id, x: knotX(k), y: knotY(k), z: knotZ(k), invulnerable: k.invulnerable}
+	return knotTell{w: k.w, id: k.id, x: knotX(k), y: knotY(k), z: knotZ(k), invulnerable: k.invulnerable, silent: k.silent}
 }
 
 // box is the knot body's box, the shape a blow's reach check meets.
@@ -301,6 +305,7 @@ func (s *Server) knotTwinAt(k *knotEntity, to *dimension, pos player.Position) *
 		invulnerable: k.invulnerable,
 		tags:         nbt.NewStringSet(k.tags.Values()),
 		custom:       k.custom,
+		silent:       k.silent,
 	}
 }
 
@@ -336,8 +341,10 @@ func (s *Server) downKnot(tell knotTell) {
 	})
 	s.knotsMu.Unlock()
 	s.broadcastWorld(tell.w, protocol.IDPlayRemoveEntities, removeEntitiesPayload([]int32{tell.id}))
-	s.broadcastSoundID(tell.w,
-		knotSoundUntied, protocol.SoundCategoryNeutral, tell.x, tell.y, tell.z, 1.0, 1.0)
+	if !tell.silent {
+		s.broadcastSoundID(tell.w,
+			knotSoundUntied, protocol.SoundCategoryNeutral, tell.x, tell.y, tell.z, 1.0, 1.0)
+	}
 
 }
 
@@ -629,8 +636,10 @@ func (c *client) useLeadOnFence(hand, x, y, z int32) (handled bool, err error) {
 	}
 	// The tie sound, said where the knot stands.
 	// vanilla: LeashFenceKnotEntity.playPlacementSound
-	s.broadcastSoundID(w,
-		knotSoundTied, protocol.SoundCategoryNeutral, tell.x, tell.y, tell.z, 1.0, 1.0)
+	if !tell.silent {
+		s.broadcastSoundID(w,
+			knotSoundTied, protocol.SoundCategoryNeutral, tell.x, tell.y, tell.z, 1.0, 1.0)
+	}
 
 	// InteractionResult.SUCCESS_SERVER: the server swings the arm.
 	c.useSwing = swingServer
@@ -693,8 +702,10 @@ func (c *client) useKnot(k *knotEntity, hand int32, sneaking bool) error {
 	for _, id := range boats {
 		s.broadcastWorld(w, protocol.IDPlaySetEntityLink, leashLinkPayload(id, holding))
 	}
-	s.broadcastSoundID(w,
-		knotSoundTied, protocol.SoundCategoryNeutral, tell.x, tell.y, tell.z, 1.0, 1.0)
+	if !tell.silent {
+		s.broadcastSoundID(w,
+			knotSoundTied, protocol.SoundCategoryNeutral, tell.x, tell.y, tell.z, 1.0, 1.0)
+	}
 
 	if emptyKnot != nil {
 		s.discardEmptiedKnot(k)

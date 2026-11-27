@@ -519,7 +519,7 @@ func knotTagAs(ent *knotEntity, id string) *nbt.OrderedCompound {
 	tag := orderedEntityBaseTag(id,
 		x, y, z, 0, 0, 0,
 		0, 0, ent.uuid, false, 0, restingFire, 0)
-	putEntityOptions(tag, ent.custom, false, false, entityLook{}, ent.tags)
+	putEntityOptions(tag, ent.custom, ent.silent, false, entityLook{}, ent.tags)
 	tag.Set("Invulnerable", boolTag(ent.invulnerable))
 	return tag
 }

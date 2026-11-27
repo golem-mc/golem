@@ -107,12 +107,25 @@ func (m *Mannequin) EyeHeight() float64 {
 	return float64(float32(1.62))
 }
 
+// Dimensions is the hit box width and height of the current pose under the
+// scale attribute.
+// vanilla: LivingEntity.getDimensions, getScale
+func (m *Mannequin) Dimensions() (width, height float64) {
+	width, height = MannequinDimensions(m.Pose)
+	if m.Pose == protocol.PoseSleeping || m.Pose == protocol.PoseDying {
+		// fixed dimensions: EntityDimensions.scale returns itself
+		return width, height
+	}
+	scale := float32(m.Attributes.Value(registry.AttributeScale))
+	return float64(float32(width) * scale), float64(float32(height) * scale)
+}
+
 // CapFall is Entity.checkFallDistanceAccumulation.
 func (m *Mannequin) CapFall() { CapFallAccumulation(m.VY, &m.FallDistance) }
 
 // BlastBox is the hit box of the current pose.
 func (m *Mannequin) BlastBox() (minX, minY, minZ, maxX, maxY, maxZ float64) {
-	width, height := MannequinDimensions(m.Pose)
+	width, height := m.Dimensions()
 	half := width / 2
 	return m.X - half, m.Y, m.Z - half, m.X + half, m.Y + height, m.Z + half
 }
@@ -226,7 +239,7 @@ func (m *Mannequin) Step(w World) (out MannequinStep) {
 	if m.Immovable {
 		return out
 	}
-	width, height := MannequinDimensions(m.Pose)
+	width, height := m.Dimensions()
 	m.updateFluids(w, NewAABB(m.BlastBox()), height*0.85)
 	if m.water.height > 0 {
 		m.FallDistance = 0

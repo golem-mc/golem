@@ -708,6 +708,10 @@ type Server struct {
 	frameChunks entity.ChunkIndex[*frameEntity]
 	frameCells  map[frameCell][]*frameEntity
 	frameOrder  uint64
+	// mapFrameWorlds holds the worlds with a frame holding a map, as of tick
+	// mapFramesTick (ticksRun); nil until first computed. Guarded by framesMu.
+	mapFramesTick  uint64
+	mapFrameWorlds map[*world.World]bool
 
 	// knotsMu guards knots, leash knots on fences. The main loop polls them
 	// under it; a lead used on a fence, a use on the knot or a blow adds,

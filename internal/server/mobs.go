@@ -283,6 +283,8 @@ type mobHerd struct {
 	colliders int32
 	// vexes lets the owner relink skip this herd. Guarded by mobsMu.
 	vexes int32
+	// goats lets the armor stand ram targets skip worlds without one. Guarded by mobsMu.
+	goats int32
 	// leashWaits is the mobs that joined carrying a saved lead, which the
 	// mob tick re-ties to their holder or lets go after the grace.
 	leashWaits []*mobEntity
@@ -306,6 +308,8 @@ func (h *mobHerd) count(m *entity.Mob, n int32) {
 		h.colliders += n
 	case entity.TypeVex:
 		h.vexes += n
+	case entity.TypeGoat:
+		h.goats += n
 	default:
 		if entity.IsIllagerType(m.Type) {
 			h.illagers += n
@@ -410,6 +414,7 @@ func (h *mobHerd) setHerd(herd entity.Mobs) {
 	h.illagers = 0
 	h.colliders = 0
 	h.vexes = 0
+	h.goats = 0
 	for _, m := range herd {
 		h.count(m, 1)
 	}
