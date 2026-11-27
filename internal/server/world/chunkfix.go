@@ -30,9 +30,10 @@ const (
 // fixOldChunkRoot, fixLegacyPalette and fixOldBlockEntity have run over it:
 // every chunk and block entity fix up to it is applied, so the claim keeps the
 // game, and this server, from running a fix such as the sign one over its own
-// output again. Plain item stacks are already in storedItemVersion's shape,
-// which the game's componentization leaves alone.
-const oldChunkFixedVersion = grassRenameVersion
+// output, or over a block entity created after the upgrade, again. Plain item
+// stacks are already in storedItemVersion's shape, which the game's
+// componentization leaves alone.
+const oldChunkFixedVersion = signsOpFlagVersion
 
 // storedItemVersion is the data version from which stored item stacks are
 // componentized.

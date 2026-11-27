@@ -365,7 +365,9 @@ func TestOldChunkClaimsTheFixedVersion(t *testing.T) {
 		status        string
 	}{
 		{2975, oldChunkFixedVersion, "full"},
-		{3700, 3700, "minecraft:full"},
+		{3955, oldChunkFixedVersion, "minecraft:full"},
+		{oldChunkFixedVersion, oldChunkFixedVersion, "minecraft:full"},
+		{5023, 5023, "minecraft:full"},
 	} {
 		c, err := decodeChunkNBT(nbt.Compound{
 			"DataVersion": nbt.Int(tc.version),

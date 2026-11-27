@@ -96,3 +96,38 @@ func TestACommandSignFromAnOldWorldRunsItsClickEvent(t *testing.T) {
 	gold := registry.BlockStates["minecraft:gold_block"]
 	servertest.UntilTicks(t, srv, 20, "the sign's command to run", func() bool { return srv.BlockAt(8, 6, 12) == gold })
 }
+
+// TestASignPlacedInAnUpgradedChunkKeepsItsOpFlagAcrossARestart places a sign
+// whose allow_op_features is false in an upgraded 1.21.1 chunk, restarts, and
+// finds its command still not run: the upgrade does not flag it again.
+// vanilla: SignsOpFlagFix runs once, at DataVersion 5002
+func TestASignPlacedInAnUpgradedChunkKeepsItsOpFlagAcrossARestart(t *testing.T) {
+	t.Parallel()
+	cfg := servertest.BlockTestConfig()
+	level := t.TempDir()
+	cfg.LevelName = level
+	writeRegion0(t, filepath.Join(level, "dimensions", "minecraft", "overworld", "region", "r.0.0.mca"), oldSignChunk(t))
+	gold := registry.BlockStates["minecraft:gold_block"]
+
+	srv, c := servertest.Join(t, cfg, "Placer", servertest.OpsListing(t, "Placer"))
+	release := srv.HoldChunk(0, 0)
+	c.ChatCommand(`setblock 10 4 12 minecraft:oak_sign[rotation=0]{front_text:{messages:[{text:"x",click_event:{action:"run_command",command:"/setblock 10 6 12 minecraft:gold_block"}},"","",""]}}`)
+	servertest.UntilTicks(t, srv, 20, "the sign to stand", func() bool { return srv.BlockAt(10, 4, 12) != 0 })
+	release()
+	c.Disconnect()
+	srv.Shutdown()
+
+	srv, c = servertest.Join(t, cfg, "Placer", servertest.OpsListing(t, "Placer"))
+	defer srv.HoldChunk(0, 0)()
+	c.MoveTo(8.5, 4, 13.6, 0, 0)
+	c.Settle()
+	c.UseBlock(10, 4, 12)
+	c.Settle()
+	servertest.RunTicks(t, srv, 10)
+	if srv.BlockAt(10, 6, 12) == gold {
+		t.Fatal("the sign placed after the upgrade ran its command: it was flagged again on reload")
+	}
+	c.UseBlock(8, 4, 12)
+	c.Settle()
+	servertest.UntilTicks(t, srv, 20, "the upgraded sign's command to run", func() bool { return srv.BlockAt(8, 6, 12) == gold })
+}
