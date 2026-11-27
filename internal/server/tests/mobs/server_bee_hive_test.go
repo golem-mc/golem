@@ -177,3 +177,31 @@ func TestACreativeBreakFreesNoBees(t *testing.T) {
 		t.Fatalf("%d bees left a nest broken in creative, want none", len(ids))
 	}
 }
+
+// Stored bees' clocks read the same on every tick and after a rewrite of the
+// hive's data.
+// vanilla: BeehiveBlockEntity.tickOccupants
+func TestAHiveReadsItsBeesClockEveryTickAndAfterARewrite(t *testing.T) {
+	t.Parallel()
+	_, _, srv := beeWorld(t, rules.DifficultyNormal)
+	putHive(srv, 5, 64, 2, registry.BlockBeehive.DefaultState(), storedBee(false))
+	ticks := func() int32 {
+		tag, _ := srv.BlockEntityTagAt(5, 64, 2)
+		list, _ := nbt.Get[nbt.List](tag, "bees")
+		bee, _ := nbt.CompoundView(list.Items[0])
+		n, _ := nbt.IntValue(bee["ticks_in_hive"])
+		return n
+	}
+	for want := int32(6); want <= 8; want++ {
+		servertest.RunTicks(t, srv, 1)
+		if got := ticks(); got != want {
+			t.Fatalf("ticks_in_hive = %d, want %d", got, want)
+		}
+	}
+	tag, _ := srv.BlockEntityTagAt(5, 64, 2)
+	srv.SetBlockEntityTagAt(5, 64, 2, "minecraft:beehive", tag)
+	servertest.RunTicks(t, srv, 2)
+	if got := ticks(); got != 10 {
+		t.Fatalf("ticks_in_hive after a rewrite = %d, want 10", got)
+	}
+}

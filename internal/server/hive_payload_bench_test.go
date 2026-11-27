@@ -1,6 +1,8 @@
 package server
 
 import (
+	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/golem-mc/golem/nbt"
@@ -65,3 +67,28 @@ func (p *hiveReleaseBenchPlugin) Enable(s plugin.Server) error {
 }
 
 func (*hiveReleaseBenchPlugin) Disable() {}
+
+func BenchmarkTickHivesFarm(b *testing.B) {
+	for _, n := range []int{1, 16, 100, 256} {
+		b.Run(strconv.Itoa(n), func(b *testing.B) {
+			s, _ := newTrackerBenchServer(b)
+			w := s.allDims()[0].w
+			tag, err := nbt.ParseOrderedSNBT(`{bees:[` + strings.Repeat(`{entity_data:{id:"minecraft:bee"},ticks_in_hive:1,min_ticks_in_hive:2147483647},`, 3) + `]}`)
+			if err != nil {
+				b.Fatal(err)
+			}
+			for i := range int32(n) {
+				x, y, z := i%16, 64+i/256, i/16%16
+				w.SetBlock(x, y, z, registry.BlockBeeNest.DefaultState())
+				w.SetBlockEntityTag(x, y, z, "minecraft:beehive", tag)
+			}
+			if len(w.Beehives()) != n {
+				b.Fatalf("occupied hives = %d, want %d", len(w.Beehives()), n)
+			}
+			b.ReportAllocs()
+			for b.Loop() {
+				s.tickHives(w, nil)
+			}
+		})
+	}
+}

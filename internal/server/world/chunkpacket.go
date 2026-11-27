@@ -82,7 +82,10 @@ func (w *World) CachedChunkPacket(c *Chunk) *protocol.CachedPacket {
 		// Snapshot the carried compounds under the lock: a command setting one
 		// replaces the list, and a save reads it. Trial spawners' block state
 		// is read under the same lock.
-		carried := slices.Clone(c.carriedBlockEntities.Items)
+		carried := c.carriedEntries()
+		if len(c.hiveTicks) == 0 {
+			carried = slices.Clone(carried)
+		}
 		active := c.activeTrialSpawners(carried)
 		w.mu.RUnlock()
 		sortPistonRides(rides)

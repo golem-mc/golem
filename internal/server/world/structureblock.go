@@ -268,7 +268,7 @@ func (w *World) forTickingCarriedOfKind(kind string, visit func(*loadedChunk, in
 				continue
 			}
 			if x, y, z, ok := carriedPosInTag(c); ok {
-				visit(loaded, i, CarriedAt{Pos: [3]int32{x, y, z}, Tag: c})
+				visit(loaded, i, CarriedAt{Pos: [3]int32{x, y, z}, Tag: loaded.chunk.foldHiveTicks(c)})
 			}
 		}
 	}
@@ -298,7 +298,7 @@ func (w *World) CarriedOfKind(kind string, lo, hi [3]int32) []CarriedAt {
 				if !ok || x < lo[0] || x > hi[0] || y < lo[1] || y > hi[1] || z < lo[2] || z > hi[2] {
 					continue
 				}
-				out = append(out, CarriedAt{Pos: [3]int32{x, y, z}, Tag: c})
+				out = append(out, CarriedAt{Pos: [3]int32{x, y, z}, Tag: loaded.chunk.foldHiveTicks(c)})
 			}
 		}
 	}

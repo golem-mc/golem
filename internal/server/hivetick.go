@@ -19,6 +19,12 @@ const hiveWorkChance = 0.005
 // up; a nectar-carrying bee raises the honey level.
 // vanilla: BeehiveBlockEntity.serverTick, tickOccupants
 func (s *Server) tickHives(w *world.World, ticks func(world.ChunkPos) bool) {
+	type dueHive struct {
+		world.BeehiveAt
+		state uint16
+	}
+	var due []dueHive
+	var positions []world.BeehiveAt
 	for _, hive := range w.Beehives() {
 		if ticks != nil && !ticks(blockChunk(hive.X, hive.Z)) {
 			continue
@@ -27,6 +33,15 @@ func (s *Server) tickHives(w *world.World, ticks func(world.ChunkPos) bool) {
 		if !registry.BlockOf(state).InTag(registry.TagIDBeehives) {
 			continue
 		}
+		due = append(due, dueHive{hive, state})
+		positions = append(positions, hive)
+	}
+	// Clocks advance under one lock; the chunk is marked only when a bee
+	// leaves. Releases below read the list from before this advance and the
+	// stored one from after it.
+	w.AdvanceHiveClocks(positions)
+	for _, d := range due {
+		hive, state := d.BeehiveAt, d.state
 		list, _ := nbt.Get[nbt.List](hive.Tag, "bees")
 		dx, dz := rules.HiveFacingStep(registry.StateValue(state, registry.PropFacing))
 		stays := w.BeesStayInHive()
@@ -41,6 +56,7 @@ func (s *Server) tickHives(w *world.World, ticks func(world.ChunkPos) bool) {
 				continue
 			}
 			ticks, _ := nbt.IntValue(occupant["ticks_in_hive"])
+			ticks += hive.Pending
 			minTicks, _ := nbt.IntValue(occupant["min_ticks_in_hive"])
 			next, due := rules.HiveOccupantDue(int(ticks), int(minTicks))
 			if due && !stays && !frontBlocked {
@@ -57,8 +73,6 @@ func (s *Server) tickHives(w *world.World, ticks func(world.ChunkPos) bool) {
 				}
 			}
 		}
-		// Clocks advance in place; the chunk is marked only when a bee leaves.
-		w.AdvanceHiveClocks(hive.X, hive.Y, hive.Z)
 		if len(gone) > 0 {
 			// Release from the advanced list, not the one read before the clocks
 			// moved.

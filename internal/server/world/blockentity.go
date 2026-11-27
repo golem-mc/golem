@@ -1188,6 +1188,7 @@ func (c *Chunk) countTickingCarried() {
 // having gone) and returns how many, usually none.
 func (c *Chunk) removeCarriedBlockEntity(x, y, z int32) int {
 	delete(c.carriedHandles, entityKey(x, y, z))
+	delete(c.hiveTicks, [3]int32{x, y, z})
 	kept := c.carriedBlockEntities.Items[:0]
 	dropped := 0
 	for _, item := range c.carriedBlockEntities.Items {
@@ -1221,10 +1222,61 @@ func (c *Chunk) carriedBlockEntityAt(x, y, z int32) (nbt.Compound, bool) {
 		}
 		cx, cy, cz := carriedPos(compound)
 		if cx == x && cy == y && cz == z {
-			return compound, true
+			return c.foldHiveTicks(compound), true
 		}
 	}
 	return nil, false
+}
+
+// foldHiveTicks returns the compound with the hive's pending clock written
+// into its bees, the compound itself when none is pending.
+func (c *Chunk) foldHiveTicks(entry nbt.Compound) nbt.Compound {
+	if len(c.hiveTicks) == 0 {
+		return entry
+	}
+	x, y, z := carriedPos(entry)
+	n := c.hiveTicks[[3]int32{x, y, z}]
+	if n == 0 {
+		return entry
+	}
+	list, _ := nbt.Get[nbt.List](entry, "bees")
+	bees := make([]nbt.Tag, len(list.Items))
+	for i, bee := range list.Items {
+		occupant, ok := nbt.CompoundView(bee)
+		if !ok {
+			bees[i] = bee
+			continue
+		}
+		var next nbt.CompoundTag
+		if ordered, ok := bee.(*nbt.OrderedCompound); ok {
+			next = ordered.Clone()
+		} else {
+			next = nbt.ShallowCopyCompound(bee.(nbt.CompoundTag))
+		}
+		ticks, _ := nbt.IntValue(occupant["ticks_in_hive"])
+		next.Set("ticks_in_hive", nbt.Int(ticks+n))
+		bees[i] = next
+	}
+	out := maps.Clone(entry)
+	list.Items = bees
+	out["bees"] = list
+	return out
+}
+
+// carriedEntries lists the carried compounds with pending hive clocks folded
+// in; the stored slice itself when there are none.
+func (c *Chunk) carriedEntries() []nbt.Tag {
+	items := c.carriedBlockEntities.Items
+	if len(c.hiveTicks) == 0 {
+		return items
+	}
+	out := slices.Clone(items)
+	for i, item := range out {
+		if entry, ok := nbt.CompoundView(item); ok {
+			out[i] = c.foldHiveTicks(entry)
+		}
+	}
+	return out
 }
 
 // removeBlockEntity removes and returns the chunk's entity at the position, nil
