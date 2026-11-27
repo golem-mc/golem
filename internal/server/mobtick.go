@@ -585,6 +585,17 @@ func (t *mobDimTick) leaveUnloadedChunks(fx *mobEffects, in *mobTickInputs) {
 			gone[d.pos] = nil
 		}
 	}
+	// An unlisted woken chunk that unloaded has nothing to write; forgetting it
+	// keeps the woken set to loaded chunks. The next load wakes it from disk.
+	for pos := range h.woken {
+		if _, ok := gone[pos]; ok || h.listed[pos] || !unloaded(pos) {
+			continue
+		}
+		delete(h.woken, pos)
+		delete(h.wokenForWrite, pos)
+		delete(h.carried, pos)
+		delete(h.listed, pos)
+	}
 	// An unwoken leaving chunk is read first so its saved mobs leave with it.
 	var live map[uuid.UUID]bool
 	for pos := range gone {
@@ -605,6 +616,7 @@ func (t *mobDimTick) leaveUnloadedChunks(fx *mobEffects, in *mobTickInputs) {
 		// The immutable pending snapshot is the source for the next load, even
 		// if disk I/O fails; the world retains it until a successful retry.
 		delete(h.carried, pos)
+		delete(h.listed, pos)
 		written[pos] = struct{}{}
 		// Drop records before a reload can wake the queued snapshot's UUIDs.
 		for _, m := range mobs {
