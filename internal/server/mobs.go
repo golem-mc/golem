@@ -285,6 +285,7 @@ type mobHerd struct {
 	version uint64
 	// chunks files the live mobs (book) by feet chunk, guarded by mobsMu.
 	chunks        entity.ChunkIndex[*entity.Mob]
+	nearSeen      map[world.ChunkPos]struct{} // scratch of mobsNearBoxes
 	pistonGrid    bodyPistonGrid[*entity.Mob]
 	pistonVersion uint64
 }
