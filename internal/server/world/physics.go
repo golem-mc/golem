@@ -1657,8 +1657,7 @@ func (p *Physics) ScheduleBlockTicks(ticks BlockTicks, offX, offY, offZ int32) {
 // inside the tick, the next when a landing queued it), at a priority after
 // every block tick of its game tick.
 func (p *Physics) schedulePistonEvent(x, y, z int32, dir int8, typ uint8) {
-	_, unloaded := p.w.prepareTick(x, z, false, false)
-	p.discardUnloadedTicks(unloaded)
+	p.discardUnloadedTicks(p.w.takeUnloads())
 	key := blockKey{x, y, z}
 	event := (typ + 1) | uint8(dir)<<2
 	if p.pendingEvent[key] == event {

@@ -195,6 +195,9 @@ type World struct {
 	// and loaded ticks before ticking; tickSource is its save view. Guarded by mu.
 	pendingLoaded  []loadedTick
 	unloadedChunks []ChunkPos
+	// unloadsPending is true while unloadedChunks is non-empty; set under mu,
+	// cleared where the list is taken, so takeUnloads can skip the lock.
+	unloadsPending atomic.Bool
 	tickSource     func(ChunkPos) chunkTicks
 
 	// chunkWriteGate is a test hook; see SetChunkWriteGate.
