@@ -40,7 +40,7 @@ func TestUnwrapLevelChunkBiomesAndRenames(t *testing.T) {
 
 func TestUnwrapLevelChunkKeepsEntitiesForTheLoader(t *testing.T) {
 	t.Parallel()
-	for _, version := range []int32{levelChunkFloor, entityDataVersionFloor} {
+	for _, version := range []int32{levelChunkFloor, entityFixesBelow} {
 		root := nbt.Compound{"Level": nbt.Compound{"Entities": nbt.List{Elem: nbt.TypeCompound, Items: []nbt.Tag{nbt.Compound{"id": nbt.String("minecraft:cow")}}}}}
 		if err := unwrapLevelChunk(root, version); err != nil {
 			t.Errorf("version %d: %v", version, err)

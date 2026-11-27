@@ -96,36 +96,3 @@ func TestOlderEntityFilesAreUpgradedOnLoad(t *testing.T) {
 		t.Error("saving no entities over a refused entity file erased it")
 	}
 }
-
-func TestMoveChunkEntitiesKeepsPre1165EntitiesAtTheirVersion(t *testing.T) {
-	t.Parallel()
-	w, err := NewWorld(t.TempDir(), NewFlatGenerator())
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = w.Close() })
-	pos := ChunkPos{X: 3, Z: 4}
-	root := nbt.Compound{"DataVersion": nbt.Int(levelChunkFloor), "entities": nbt.List{Elem: nbt.TypeCompound, Items: []nbt.Tag{nbt.Compound{"id": nbt.String("minecraft:cow")}}}}
-	if moved, err := w.moveChunkEntities(pos, root); err != nil || !moved {
-		t.Fatalf("moveChunkEntities = %v, %v", moved, err)
-	}
-	if _, _, err := w.LoadChunkEntities(pos); err == nil {
-		t.Error("entities below the floor loaded")
-	}
-	rf, err := w.entityRegion(regionCoords(pos))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer w.releaseEntityRegion(rf)
-	data, err := rf.peekChunk(pos)
-	if err != nil || data == nil {
-		t.Fatalf("stored record = %v, %v", data != nil, err)
-	}
-	stored, err := decodeRoot(data)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if v, _ := nbt.Get[nbt.Int](stored, "DataVersion"); v != levelChunkFloor {
-		t.Errorf("stored DataVersion = %d, want %d", v, levelChunkFloor)
-	}
-}

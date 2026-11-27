@@ -282,12 +282,6 @@ func moveEquipment(e nbt.CompoundTag) {
 // missing entry means no entities.
 // vanilla: IOWorker.STORE_EMPTY
 func (w *World) SaveChunkEntities(pos ChunkPos, entities []nbt.Tag) error {
-	return w.saveChunkEntitiesAt(pos, entities, dataVersion)
-}
-
-// saveChunkEntitiesAt writes the record stamped with version, so entities
-// this server cannot upgrade keep the DataVersion vanilla's fixers need.
-func (w *World) saveChunkEntitiesAt(pos ChunkPos, entities []nbt.Tag, version int32) error {
 	rx, rz := regionCoords(pos)
 	rf, err := w.entityRegion(rx, rz)
 	if err != nil {
@@ -298,7 +292,7 @@ func (w *World) saveChunkEntitiesAt(pos ChunkPos, entities []nbt.Tag, version in
 		return skipUnreadable(rf.removeChunk(pos), "chunk's entities", pos)
 	}
 	root := nbt.Compound{
-		"DataVersion": nbt.Int(version),
+		"DataVersion": nbt.Int(dataVersion),
 		"Position":    nbt.IntArray{int32(pos.X), int32(pos.Z)},
 		"Entities":    nbt.List{Elem: nbt.TypeCompound, Items: entities},
 	}
@@ -341,11 +335,6 @@ func (w *World) moveChunkEntities(pos ChunkPos, root nbt.Compound) (moved bool, 
 		return err == nil, err
 	}
 	version, _ := nbt.Get[nbt.Int](root, "DataVersion")
-	if version < entityDataVersionFloor {
-		// Unreadable here (LoadChunkEntities refuses and keeps the record),
-		// but stored with its own version for a vanilla load to upgrade.
-		return true, w.saveChunkEntitiesAt(pos, entities.Items, int32(version))
-	}
 	upgradeEntities(entities, int32(version))
 	return true, w.SaveChunkEntities(pos, entities.Items)
 }

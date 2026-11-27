@@ -76,6 +76,7 @@ func upgradeLegacyStacks(tag nbt.Tag, version int32) nbt.Tag {
 			entries["count"] = nbt.Int(count)
 			name, _ := nbt.Get[nbt.String](entries, "id")
 			if tag, ok := nbt.CompoundView(entries["tag"]); ok {
+				fixStackUUIDsAndNames(tag, string(name), version)
 				fixStackEffects(tag, string(name), version)
 			}
 			if name == "minecraft:pig_spawn_egg" && version < spawnEggVersion {
@@ -116,6 +117,9 @@ func renameOldItem(name string, version int32) string {
 		case "minecraft:soul_fire_lantern":
 			name = "minecraft:soul_lantern"
 		}
+	}
+	if name == "minecraft:zombie_pigman_spawn_egg" && version < zombifiedPiglinVersion {
+		name = "minecraft:zombified_piglin_spawn_egg"
 	}
 	if name == "minecraft:grass_path" && version < grassPathRenameVersion {
 		name = "minecraft:dirt_path"
