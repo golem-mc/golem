@@ -526,9 +526,13 @@ func (s *Server) killTNT(it *tntEntity) {
 // vanilla: Entity.teleportTo
 func (s *Server) teleportTNT(it *tntEntity, to player.Position, by string) {
 	tntTracker.teleport(s, it, func() {
+		it.look.yaw, it.look.pitch = to.Yaw, to.Pitch
+		if by == "rotate" {
+			// vanilla: RotateCommand.rotate only calls Entity.forceSetRotation
+			return
+		}
 		it.tnt.SetPos(to.X, to.Y, to.Z)
 		it.tnt.VX, it.tnt.VY, it.tnt.VZ = 0, 0, 0
-		it.look.yaw, it.look.pitch = to.Yaw, to.Pitch
 		it.usedPortal = true
 	})
 	logTeleported("primed tnt", to, by)
