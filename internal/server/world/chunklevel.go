@@ -47,8 +47,7 @@ var levelProtoKeys = []string{"Biomes", "Heightmaps", "CarvingMasks", "LiquidsTo
 // under a Level compound, one block palette and packed array per section, a
 // biome int array) in place to the 1.18 layout decodeChunkNBT reads. It
 // leaves the chunk's entities under "entities", for the caller to hand to the
-// entity loader; a chunk holding any from before entityDataVersionFloor is an
-// unsupportedVersionError.
+// entity loader, which keeps those from before entityDataVersionFloor as stored.
 //
 // Not carried over: the blending data and below-zero retrogeneration vanilla
 // adds for chunks of a noise world, which this server has no use for.
@@ -71,9 +70,6 @@ func unwrapLevelChunk(root nbt.Compound, version int32) error {
 			delete(structures, "Starts")
 			structures["starts"] = starts
 		}
-	}
-	if entities, ok := nbt.Get[nbt.List](root, "entities"); ok && len(entities.Items) > 0 && version < entityDataVersionFloor {
-		return &unsupportedVersionError{version: version}
 	}
 
 	oldBiomes, _ := nbt.Get[nbt.IntArray](level, "Biomes")
