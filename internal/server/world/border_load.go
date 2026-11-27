@@ -13,11 +13,11 @@ import (
 const borderFile = "data/minecraft/world_border.dat"
 
 // LoadBorder returns the saved border, or the default if nothing valid is
-// saved. Pre-26.1 worlds kept the overworld's border in level.dat's Border*
-// fields, the fallback there. A missing field or out-of-range centre fails
+// saved. Pre-26.1 worlds kept the border in the overworld's level.dat Border*
+// fields, the fallback for the three vanilla dimensions. A missing field or out-of-range centre fails
 // vanilla's codec.
 // vanilla: WorldBorder.Settings.CODEC, WorldBorder.applySettings, LegacyWorldBorderFix
-func (w *World) LoadBorder() *Border {
+func (w *World) LoadBorder(overworld *World) *Border {
 	data, err := readSavedData(w.storage, borderFile)
 	switch {
 	case err == nil:
@@ -28,9 +28,15 @@ func (w *World) LoadBorder() *Border {
 		slog.Warn("world_border.dat is not a valid border, using the default", "dimension", w.dimName)
 	case !errors.Is(err, errNoSavedData):
 		slog.Warn("could not read world_border.dat, using the default", "dimension", w.dimName, "error", err)
-	case w.dimName == DimensionName && w.level != nil:
-		if b, ok := legacyBorder(w.level.raw); ok {
-			return b
+	case overworld != nil && overworld.level != nil:
+		scale := 1.0
+		if w.dimName == NetherName {
+			scale = 8
+		}
+		if w.dimName == DimensionName || w.dimName == NetherName || w.dimName == EndName {
+			if b, ok := legacyBorder(overworld.level.raw, scale); ok {
+				return b
+			}
 		}
 	}
 	b := NewBorder()
@@ -123,32 +129,47 @@ func borderFromCompound(data nbt.Compound) (*Border, bool) {
 	return b, true
 }
 
-// legacyBorder reads a pre-26.1 level.dat's Border* fields, false if none.
-// Missing ones take LegacyWorldBorderFix's defaults, whose warning time is 15,
-// not a new border's 300.
-// vanilla: LegacyWorldBorderFix
-func legacyBorder(raw nbt.Compound) (*Border, bool) {
-	b := NewBorder()
-	b.SetWarningTime(15)
+// legacyBorder reads a pre-26.1 level.dat's Border* fields, false if none. A
+// missing field takes LegacyWorldBorderFix's default, whose warning time is
+// 15, not a new border's 300; the Nether's centre is divided by 8.
+// vanilla: LegacyWorldBorderFix, LevelDatToSavedDataFileFix.extractWorldBorderToFiles
+func legacyBorder(raw nbt.Compound, centerScale float64) (*Border, bool) {
 	found := false
-	double := func(name string, set func(float64)) {
-		if v, ok := nbt.Get[nbt.Double](raw, name); ok {
-			set(float64(v))
+	for _, k := range [...]string{"BorderCenterX", "BorderCenterZ", "BorderSize", "BorderSizeLerpTime",
+		"BorderSizeLerpTarget", "BorderSafeZone", "BorderDamagePerBlock", "BorderWarningBlocks", "BorderWarningTime"} {
+		if _, ok := raw[k]; ok {
 			found = true
 		}
 	}
-	integer := func(name string, set func(int32)) {
-		if v, ok := nbt.Get[nbt.Int](raw, name); ok {
-			set(int32(v))
-			found = true
-		}
+	if !found {
+		return nil, false
 	}
-	var cx, cz float64
-	double("BorderCenterX", func(v float64) { cx = v })
-	double("BorderCenterZ", func(v float64) { cz = v })
-	b.SetCenter(cx, cz)
-	double("BorderSize", b.SetSize)
-	integer("BorderWarningBlocks", b.SetWarningBlocks)
-	integer("BorderWarningTime", b.SetWarningTime)
-	return b, found
+	size := nbt.DoubleFieldOr(raw, "BorderSize", 5.9999968e7)
+	target := nbt.DoubleFieldOr(raw, "BorderSizeLerpTarget", 0)
+	var ticks int64
+	if v, ok := nbt.LongValue(raw["BorderSizeLerpTime"]); ok {
+		ticks = v
+	} else if f := nbt.DoubleFieldOr(raw, "BorderSizeLerpTime", 0); f > 0 {
+		ticks = int64(f)
+	}
+	b := NewBorder()
+	b.SetCenter(nbt.DoubleFieldOr(raw, "BorderCenterX", 0)/centerScale, nbt.DoubleFieldOr(raw, "BorderCenterZ", 0)/centerScale)
+	if ticks > 0 {
+		b.LerpSize(size, target, ticks)
+	} else {
+		b.SetSize(size)
+	}
+	b.SetDamagePerBlock(nbt.DoubleFieldOr(raw, "BorderDamagePerBlock", 0.2))
+	b.SetSafeZone(nbt.DoubleFieldOr(raw, "BorderSafeZone", 5))
+	blocks, _ := nbt.IntField(raw, "BorderWarningBlocks")
+	if _, ok := raw["BorderWarningBlocks"]; !ok {
+		blocks = 5
+	}
+	warn, _ := nbt.IntField(raw, "BorderWarningTime")
+	if _, ok := raw["BorderWarningTime"]; !ok {
+		warn = 15
+	}
+	b.SetWarningBlocks(blocks)
+	b.SetWarningTime(warn)
+	return b, true
 }
