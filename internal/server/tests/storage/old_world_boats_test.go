@@ -43,3 +43,25 @@ func TestAVanilla1_16_5WorldsBoatsLoadAsTheirWood(t *testing.T) {
 		t.Errorf("oak boat fall_distance: %v, want a double", got)
 	}
 }
+
+// TestAVanilla1_16_5WorldsVillagerFollowRangeIsSixteen loads the same
+// world's villager, saved with the follow range 48 the game itself gave it,
+// and finds the 16 vanilla 26.3 reads after its follow range undo.
+// vanilla: EntityAttributeBaseValueFix
+func TestAVanilla1_16_5WorldsVillagerFollowRangeIsSixteen(t *testing.T) {
+	t.Parallel()
+	cfg := servertest.SurvivalConfig()
+	cfg.LevelName, _ = oldWorld(t, "vanilla-1.16.5-boats-r.0.0.mca")
+
+	srv, _ := servertest.Start(t, cfg)
+	servertest.HoldTicks(t, srv)
+	release := srv.HoldChunk(0, 0)
+	defer release()
+	servertest.UntilTicks(t, srv, 5, "the villager loads", func() bool {
+		return strings.Contains(fmt.Sprint(srv.RunLine("execute if entity @e[type=villager]")), "commands.execute.conditional.pass")
+	})
+	got := srv.RunLine("attribute @e[type=villager,limit=1] minecraft:follow_range base get")
+	if len(got) != 1 || got[0].With[len(got[0].With)-1].Plain() != "16.0" {
+		t.Errorf("villager follow_range base: %+v, want 16.0", got)
+	}
+}
