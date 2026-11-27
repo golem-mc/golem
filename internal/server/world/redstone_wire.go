@@ -199,15 +199,45 @@ func (p *Physics) wireIncomingSignal(x, y, z int32) int {
 	return 0
 }
 
+// wireWakeBucket is Java HashMap's bucket index (capacity 16) for a BlockPos
+// using Vec3i.hashCode = (y + z*31)*31 + x.
+// vanilla: DefaultRedstoneWireEvaluator.updatePowerStrength, Vec3i.hashCode
+func wireWakeBucket(x, y, z int32) uint8 {
+	h := uint32((y+z*31)*31 + x)
+	return uint8((h ^ (h >> 16)) & 15)
+}
+
 // wireWake wakes the six neighbours of the wire's cell and of each of its six
 // neighbours, so a block two steps away (beside the conductor under the wire)
-// hears the change. Vanilla's HashSet iterates the seven in a fixed order, kept
-// here as a list.
-// vanilla: updatePowerStrength
+// hears the change. Vanilla collects the seven in a capacity-16 HashSet
+// (pos then Direction.values(): down, up, north, south, west, east), so the
+// wake order follows their HashMap bucket indices and is locational.
+// vanilla: DefaultRedstoneWireEvaluator.updatePowerStrength
 func (p *Physics) wireWake(x, y, z int32, changes *[]BlockChange) {
-	p.wireWakeNeighbors(x, y, z, changes)
-	for _, d := range updateNeighborOrder {
-		p.wireWakeNeighbors(x+dirDelta[d][0], y+dirDelta[d][1], z+dirDelta[d][2], changes)
+	type wakeCell struct {
+		x, y, z int32
+		bucket  uint8
+	}
+	cells := [7]wakeCell{
+		{x, y, z, wireWakeBucket(x, y, z)},
+		{x, y - 1, z, wireWakeBucket(x, y-1, z)},
+		{x, y + 1, z, wireWakeBucket(x, y+1, z)},
+		{x, y, z - 1, wireWakeBucket(x, y, z-1)},
+		{x, y, z + 1, wireWakeBucket(x, y, z+1)},
+		{x - 1, y, z, wireWakeBucket(x-1, y, z)},
+		{x + 1, y, z, wireWakeBucket(x+1, y, z)},
+	}
+	for i := 1; i < len(cells); i++ {
+		c := cells[i]
+		j := i - 1
+		for j >= 0 && cells[j].bucket > c.bucket {
+			cells[j+1] = cells[j]
+			j--
+		}
+		cells[j+1] = c
+	}
+	for _, c := range cells {
+		p.wireWakeNeighbors(c.x, c.y, c.z, changes)
 	}
 }
 
