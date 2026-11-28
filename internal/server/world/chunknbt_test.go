@@ -1061,7 +1061,7 @@ func TestChunkNBTReadsSectionYFromAnyNumericTag(t *testing.T) {
 	if loaded.X() != 3 {
 		t.Errorf("chunk x = %d, want 3", loaded.X())
 	}
-	for y := int32(0); y < 16; y++ {
+	for y := range int32(16) {
 		if got, want := loaded.BlockAt(5, y, 5), original.BlockAt(5, y, 5); got != want {
 			t.Errorf("block at y %d = %d, want %d", y, got, want)
 		}
