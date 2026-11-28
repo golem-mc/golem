@@ -21,7 +21,7 @@ func (m *Mob) villagerKidsStep(t *tickView) {
 	}
 	// Deliberately limit this play-only memory to PLAY: other activities use
 	// goal-local targets rather than vanilla's shared INTERACTION_TARGET.
-	if m.vb.activity != actPlay || k.interaction != nil && (!k.interaction.Alive() || !slices.Contains(t.others, k.interaction)) {
+	if m.vb.activity != actPlay || k.interaction != nil && (!k.interaction.Alive() || !t.containsMob(k.interaction)) {
 		k.interaction = nil
 	}
 	if k.scan--; k.scan > 0 {
@@ -30,8 +30,8 @@ func (m *Mob) villagerKidsStep(t *tickView) {
 	k.scan = villagerDangerScan
 	clear(k.visible)
 	k.visible = k.visible[:0]
-	for _, o := range t.others {
-		if o == m || o.Type != TypeVillager || !o.IsBaby() || !o.Alive() {
+	for _, o := range t.villagerMobs() {
+		if o == m || !o.IsBaby() || !o.Alive() {
 			continue
 		}
 		visibility := m.visibilityRange(&Player{Invisible: o.hasEffect(mobEffectInvisibility), Worn: o.Worn})
@@ -204,7 +204,7 @@ func (g *kidPlayGoal) ShouldContinue(t *tickView) bool {
 	if g.jumping != nil {
 		return g.jumping.ShouldContinue(t)
 	}
-	if g.target != nil && (!g.target.Alive() || !slices.Contains(t.others, g.target)) {
+	if g.target != nil && (!g.target.Alive() || !t.containsMob(g.target)) {
 		return false
 	}
 
@@ -224,7 +224,7 @@ func (g *kidPlayGoal) ShouldContinue(t *tickView) bool {
 	return len(g.m.navOf().nav.path) != 0 && manhattan3(g.m.cell(), p) > g.reach
 }
 func (g *kidPlayGoal) Tick(t *tickView) {
-	if !g.active() || g.target != nil && (!g.target.Alive() || !slices.Contains(t.others, g.target)) {
+	if !g.active() || g.target != nil && (!g.target.Alive() || !t.containsMob(g.target)) {
 		g.left = 0
 		g.m.stopSeeking()
 		return

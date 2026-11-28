@@ -120,6 +120,11 @@ type World struct {
 	tickEnvironment [envCount]envLayers
 	// testTimelines replaces the layers after the defaults during a game test.
 	testTimelines atomic.Pointer[[]registry.EnvTimeline]
+	// envSeq counts changes to environment inputs (clocks, sky levels, data-pack
+	// layers, test timelines) on the time world; bumped under timeMu.
+	envSeq atomic.Uint64
+	// envCache caches dimension-wide environment values for the envSeq it holds.
+	envCache atomic.Pointer[envSnapshot]
 	// spawnOwner is the overworld whose level.dat holds the spawn; nil on that
 	// world itself.
 	spawnOwner *World
@@ -620,11 +625,13 @@ func (w *World) Time() (worldAge, dayTime int64) {
 // from the overworld's.
 func (w *World) SetTimeSource(overworld *World) {
 	w.timeSource = overworld
+	w.envCache.Store(nil)
 	overworld.timeMu.Lock()
 	overworld.spawnWorlds = append(overworld.spawnWorlds, w)
 	if !w.ownRules {
 		w.spawnEnemies.Store(overworld.spawnEnemies.Load())
 	}
+	overworld.envSeq.Add(1)
 	overworld.timeMu.Unlock()
 	w.prepareWeather()
 }

@@ -129,6 +129,7 @@ func (w *World) prepareWeather() {
 		if t.level.Thundering {
 			w.sky.thunder = 1
 		}
+		t.envSeq.Add(1)
 	}
 	w.raining.Store(w.sky.raining() && w.CanHaveWeather())
 }
@@ -157,8 +158,12 @@ func (w *World) TickWeather() SkyChange {
 		w.advanceWeatherTimers(t.level)
 	}
 	sky := &w.sky
+	prev := *sky
 	sky.oThunder, sky.thunder = sky.thunder, stepLevel(sky.thunder, t.level.Thundering)
 	sky.oRain, sky.rain = sky.rain, stepLevel(sky.rain, t.level.Raining)
+	if *sky != prev {
+		t.envSeq.Add(1)
+	}
 	change := SkyChange{
 		Rain:         sky.rain,
 		Thunder:      sky.thunder,

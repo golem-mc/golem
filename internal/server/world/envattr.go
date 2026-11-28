@@ -55,6 +55,9 @@ func (w *World) LoadEnvironment() error {
 }
 
 func (w *World) setEnvironment(d registry.EnvDimension) {
+	t := w.timeWorld()
+	t.timeMu.Lock()
+	defer t.timeMu.Unlock()
 	w.environment = make(map[string]envLayers)
 	for _, name := range registry.EnvAttributeNames() {
 		l, ok := envLayersFor(d, name)
@@ -66,6 +69,34 @@ func (w *World) setEnvironment(d registry.EnvDimension) {
 	for i, name := range tickEnvironmentNames {
 		w.tickEnvironment[i] = w.environment[name]
 	}
+	t.envSeq.Add(1)
+}
+
+// envSnapshot caches dimension-wide (biome-less) environment values for one
+// envSeq on the time world.
+type envSnapshot struct {
+	seq            uint64
+	skyDarken      int
+	monstersBurn   bool
+	piglinsZombify bool
+}
+
+// envCached returns the cached dimension-wide snapshot, recomputing it when
+// any environment input on the time world has changed since the last fill.
+func (w *World) envCached() *envSnapshot {
+	// Load seq before computing so a concurrent write invalidates the stored snapshot.
+	seq := w.timeWorld().envSeq.Load()
+	if snap := w.envCache.Load(); snap != nil && snap.seq == seq {
+		return snap
+	}
+	snap := &envSnapshot{
+		seq:            seq,
+		skyDarken:      w.skyDarkenNow(),
+		monstersBurn:   w.environmentGlobal(envMonstersBurn) != 0,
+		piglinsZombify: w.environmentGlobal(envPiglinsZombify) != 0,
+	}
+	w.envCache.Store(snap)
+	return snap
 }
 
 func (w *World) envLayers(attribute string) (envLayers, bool) {
@@ -174,8 +205,18 @@ type envTrack struct {
 // a teardown restoring the previous layers, including an enclosing environment.
 // vanilla: TestEnvironmentDefinition.Timelines.setup, teardown
 func (w *World) SetTestTimelines(timelines []registry.EnvTimeline) func() {
+	t := w.timeWorld()
+	t.timeMu.Lock()
 	previous := w.testTimelines.Swap(&timelines)
-	return func() { w.testTimelines.Store(previous) }
+	t.envSeq.Add(1)
+	t.timeMu.Unlock()
+	return func() {
+		t := w.timeWorld()
+		t.timeMu.Lock()
+		w.testTimelines.Store(previous)
+		t.envSeq.Add(1)
+		t.timeMu.Unlock()
+	}
 }
 
 // envLayersFor collects one supported attribute's dimension and dynamic layers.

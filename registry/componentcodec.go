@@ -84,9 +84,25 @@ func (lookup *TagLookup) componentValueMalformed(key string, tag nbt.Tag) string
 		return bannerPatternsTagMalformed(tag)
 	case "minecraft:profile":
 		return ProfileComponentMalformed(tag)
-	case "minecraft:use_remainder":
-		// vanilla: UseRemainder.CODEC
+	case "minecraft:use_remainder", "minecraft:sulfur_cube_content":
+		// vanilla: UseRemainder.CODEC, ItemStackTemplate.CODEC
 		if msg, _ := lookup.itemTemplateDiagnostic(tag); msg != "" {
+			return msg
+		}
+		if lookup.componentRefused(key, tag) {
+			return componentCodecRefusal
+		}
+	case "minecraft:bundle_contents", "minecraft:charged_projectiles":
+		// vanilla: BundleContents.CODEC, ChargedProjectiles.CODEC
+		if msg, _ := codecListDiagnostic(tag, lookup.itemTemplateDiagnostic, false); msg != "" {
+			return msg
+		}
+		if lookup.componentRefused(key, tag) {
+			return componentCodecRefusal
+		}
+	case "minecraft:container":
+		// vanilla: ItemContainerContents.CODEC, ItemContainerContents.Slot.CODEC
+		if msg, _ := codecListDiagnostic(tag, lookup.containerSlotDiagnostic, false); msg != "" {
 			return msg
 		}
 		if lookup.componentRefused(key, tag) {
@@ -644,6 +660,26 @@ func (lookup *TagLookup) hoverEventMalformed(fields nbt.Compound) string {
 	default:
 		return "Unknown element name:" + action
 	}
+}
+
+// vanilla: ItemContainerContents.Slot.CODEC
+func (lookup *TagLookup) containerSlotDiagnostic(tag nbt.Tag) (string, bool) {
+	fields, ok := nbt.CompoundView(tag)
+	if !ok {
+		return "Not a map: " + nbt.Stringify(tag), false
+	}
+	slotErr := textFieldMalformed(fields, "slot", func(v nbt.Tag) string {
+		n, isNum := nbt.IntValue(v)
+		if !isNum {
+			return "Not a number"
+		}
+		if n < 0 || n > 255 {
+			return "Value must be within range [0;255]: " + strconv.Itoa(int(n))
+		}
+		return ""
+	})
+	itemErr, itemPartial := codecFieldDiagnostic(fields, "item", lookup.itemTemplateDiagnostic)
+	return JoinFieldErrors(itemErr, slotErr), slotErr == "" && itemPartial
 }
 
 // vanilla: ItemStackTemplate.MAP_CODEC

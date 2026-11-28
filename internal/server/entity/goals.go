@@ -63,6 +63,10 @@ type tickView struct {
 	// prey is the part of others a zombie's mob targets can match, when preyKnown.
 	prey      []*Mob
 	preyKnown bool
+	// villagers is the TypeVillager members of others in herd order, when
+	// villagersKnown.
+	villagers      []*Mob
+	villagersKnown bool
 	// stands is the world's visible armor stands, a goat ram's targets.
 	stands []StandTarget
 	events []MobEvent
@@ -71,6 +75,29 @@ type tickView struct {
 	corpses []*Mob
 	// shulkerView is the collision view Mob.shulkerWorld reuses.
 	shulkerView shulkerWorld
+}
+
+// villagerMobs returns the TypeVillager members of others in herd order.
+func (t *tickView) villagerMobs() []*Mob {
+	if t.villagersKnown {
+		return t.villagers
+	}
+	var out []*Mob
+	for _, o := range t.others {
+		if o.Type == TypeVillager {
+			out = append(out, o)
+		}
+	}
+	return out
+}
+
+// containsMob reports whether m is in others, scanning only villagers when m
+// is one.
+func (t *tickView) containsMob(m *Mob) bool {
+	if m.Type == TypeVillager {
+		return slices.Contains(t.villagerMobs(), m)
+	}
+	return slices.Contains(t.others, m)
 }
 
 // Goal is one behaviour the selector drives. CanStart is offered every

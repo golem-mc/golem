@@ -862,12 +862,12 @@ func blocksMotionInHeightmap(state uint16) bool {
 
 // MonstersBurn reads gameplay/monsters_burn from the dimension's layers.
 func (w *World) MonstersBurn() bool {
-	return w.environmentGlobal(envMonstersBurn) != 0
+	return w.envCached().monstersBurn
 }
 
 // PiglinsZombify is gameplay/piglins_zombify: true by default, false in the
 // Nether's dimension type.
-func (w *World) PiglinsZombify() bool { return w.environmentGlobal(envPiglinsZombify) != 0 }
+func (w *World) PiglinsZombify() bool { return w.envCached().piglinsZombify }
 
 // SkyDarken is Level.getSkyDarken: 15 less the dimension's sky_light_level,
 // truncated. In the overworld's type a clear day darkens 0 and a clear night
@@ -875,6 +875,10 @@ func (w *World) PiglinsZombify() bool { return w.environmentGlobal(envPiglinsZom
 // the end's keeps the default 15.
 // vanilla: Level.updateSkyBrightness
 func (w *World) SkyDarken() int {
+	return w.envCached().skyDarken
+}
+
+func (w *World) skyDarkenNow() int {
 	return int(float32(15) - w.envValue(&w.skyLight, ""))
 }
 
@@ -942,6 +946,7 @@ func (w *World) WakeUpFromSleep(clock string) {
 	overworld := w.clock(clock)
 	overworld.total += ticksPerDay - overworld.total%ticksPerDay
 	overworld.fractional = 0
+	w.timeWorld().envSeq.Add(1)
 }
 
 // syncLevelData writes what this server changes (age, difficulty, and game

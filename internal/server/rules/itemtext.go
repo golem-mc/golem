@@ -8,11 +8,11 @@ import (
 )
 
 // ItemText is a stack's display name with a show-item hover of count (/give
-// shows one whatever it gave, /item as many as it put). An empty stack shows
-// as air. The name sits in an empty text's Extra, as vanilla nests it.
+// shows one whatever it gave, /item as many as it put). An empty stack, or one of air at any
+// count, shows as air. The name sits in an empty text's Extra, as vanilla nests it.
 // vanilla: ItemStack.getDisplayName
 func ItemText(stack protocol.ItemStack, count int32) protocol.Text {
-	if stack.Empty() {
+	if stack.Empty() || registry.Item(stack.ItemID) == registry.ItemAir {
 		return protocol.Text{
 			Translate: "chat.square_brackets",
 			With:      []protocol.Text{nested(protocol.Text{Translate: "block.minecraft.air"})},

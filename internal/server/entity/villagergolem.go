@@ -54,8 +54,8 @@ func (m *Mob) spawnGolemIfNeeded(t *tickView, needed int) {
 		return
 	}
 	wanting := 1
-	for _, o := range t.others {
-		if o != m && o.Type == TypeVillager && o.Alive() && o.WantsGolem() && o.NearBox(m, golemVillagerBox) {
+	for _, o := range t.villagerMobs() {
+		if o != m && o.Alive() && o.WantsGolem() && o.NearBox(m, golemVillagerBox) {
 			wanting++
 		}
 	}

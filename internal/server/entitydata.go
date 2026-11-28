@@ -597,7 +597,7 @@ func itemOfTag(s *Server, w *world.World, compound nbt.Compound) *itemEntity {
 // stack a write removed — leaves the item empty, which the write discards.
 // vanilla: ItemEntity.readAdditionalSaveData
 func applyItemTag(it *itemEntity, compound nbt.Compound) {
-	if stack, ok := storedItemStackOf(compound); ok {
+	if stack, ok := storedItemStackPartialOf(compound); ok {
 		it.item.Stack = stack
 	} else if _, hasItem := compound["Item"]; !hasItem {
 		it.item.Stack = protocol.ItemStack{}
@@ -1186,7 +1186,7 @@ func frameOfTag(s *Server, w *world.World, compound nbt.Compound) *frameEntity {
 func applyFrameFields(f *frameEntity, compound nbt.Compound) {
 	f.look = entityLookOf(compound)
 	var item protocol.ItemStack
-	if stack, ok := storedItemStackOf(compound); ok {
+	if stack, ok := storedItemStackPartialOf(compound); ok {
 		item = stack
 		item.Count = 1
 	}
@@ -1214,6 +1214,16 @@ func storedItemStackOf(compound nbt.Compound) (protocol.ItemStack, bool) {
 		return protocol.ItemStack{}, false
 	}
 	return registry.StoredStack(item)
+}
+
+// storedItemStackPartialOf reads the Item stack, dropping refused components
+// rather than discarding the stack.
+func storedItemStackPartialOf(compound nbt.Compound) (protocol.ItemStack, bool) {
+	item, ok := nbt.Get[nbt.Compound](compound, "Item")
+	if !ok {
+		return protocol.ItemStack{}, false
+	}
+	return registry.StoredStackPartial(item)
 }
 
 // armorStandPoseList writes one pose part's three rotations as the float

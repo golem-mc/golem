@@ -668,24 +668,41 @@ func StoredStack(entry nbt.CompoundTag) (protocol.ItemStack, bool) {
 // written book pages while leaving unsupported components to the caller.
 // vanilla: ContainerHelper.loadAllItems, TagValueInput.TypedListWrapper.iterator
 func StoredContainerStack(entry nbt.CompoundTag) (protocol.ItemStack, bool) {
-	return CurrentTagLookup().storedStack(entry, true)
+	return CurrentTagLookup().readStoredStack(entry, true, false, false)
+}
+
+// StoredStackPartial reads one stack as TagValueInput.read(..., ItemStack.CODEC)
+// does: it keeps the stack and every valid component, dropping any component
+// whose codec refuses its value.
+// vanilla: ItemStack.MAP_CODEC, DataComponentPatch.CODEC, TagValueInput.read
+func StoredStackPartial(entry nbt.CompoundTag) (protocol.ItemStack, bool) {
+	return CurrentTagLookup().readStoredStack(entry, false, false, true)
 }
 
 // storedStack permits book page partial values only for container loading.
 // vanilla: TagValueInput.TypedListWrapper.iterator
 func (lookup *TagLookup) storedStack(tag nbt.CompoundTag, partial bool) (protocol.ItemStack, bool) {
+	return lookup.readStoredStack(tag, partial, false, false)
+}
+
+// storedStackStrict reads a nested required stack (ItemStackTemplate.CODEC /
+// ItemStack.CODEC): air and counts outside 1..99 are refused.
+func (lookup *TagLookup) storedStackStrict(tag nbt.CompoundTag) (protocol.ItemStack, bool) {
+	return lookup.readStoredStack(tag, false, true, false)
+}
+
+func (lookup *TagLookup) readStoredStack(tag nbt.CompoundTag, partialBook, strict, dropBad bool) (protocol.ItemStack, bool) {
 	entry := tag.Entries()
-	components, hasComponents := entry["components"].(nbt.CompoundTag)
-	if !hasComponents {
-		view, isView := nbt.Get[nbt.Compound](entry, "components")
-		components, hasComponents = view, isView
+	var components nbt.CompoundTag
+	hasComponents := false
+	if raw, present := entry["components"]; present {
+		if c, ok := raw.(nbt.CompoundTag); ok {
+			components, hasComponents = c, len(c.Entries()) > 0
+		} else if strict {
+			return protocol.ItemStack{}, false
+		}
 	}
-	if hasComponents && len(components.Entries()) == 0 {
-		// An empty components compound, which vanilla would not write,
-		// reads as the plain stack, as an empty patch does.
-		hasComponents = false
-	}
-	stack, ok := storedStackSans(entry)
+	stack, ok := storedStackSans(entry, strict)
 	if !ok {
 		return protocol.ItemStack{}, false
 	}
@@ -693,15 +710,21 @@ func (lookup *TagLookup) storedStack(tag nbt.CompoundTag, partial bool) (protoco
 		// Keys are read in the compound's native order, which the patch keeps.
 		for _, name := range nbt.HashOrderedKeys(components) {
 			value := components.Entries()[name]
-			if !lookup.readStoredComponent(&stack, name, value) {
-				if partial && Qualify(name) == "minecraft:written_book_content" {
-					book, ok := lookup.readWrittenBook(value, true)
-					if ok && stack.SetWrittenBook(book) {
-						continue
-					}
-				}
-				return protocol.ItemStack{}, false
+			candidate := stack
+			if lookup.readStoredComponent(&candidate, name, value) {
+				stack = candidate
+				continue
 			}
+			if partialBook && Qualify(name) == "minecraft:written_book_content" {
+				book, ok := lookup.readWrittenBook(value, true)
+				if ok && stack.SetWrittenBook(book) {
+					continue
+				}
+			}
+			if dropBad {
+				continue
+			}
+			return protocol.ItemStack{}, false
 		}
 		if !StackComponentsValid(stack) {
 			return protocol.ItemStack{}, false
@@ -925,8 +948,8 @@ func (lookup *TagLookup) readComponentKnown(stack *protocol.ItemStack, name stri
 		if !ok {
 			return false, true
 		}
-		content, ok := lookup.storedStack(tag, false)
-		if !ok || content.Empty() {
+		content, ok := lookup.storedStackStrict(tag)
+		if !ok {
 			return false, true
 		}
 		stack.SetSulfurCubeContent(content)
@@ -1124,7 +1147,7 @@ func (lookup *TagLookup) containerOf(value nbt.Tag) ([]protocol.ItemStack, bool)
 		if !ok {
 			return nil, false
 		}
-		stack, ok := lookup.storedStack(inner, false)
+		stack, ok := lookup.storedStackStrict(inner)
 		if !ok {
 			return nil, false
 		}
@@ -1172,7 +1195,7 @@ func (lookup *TagLookup) bundleContentsOf(value nbt.Tag) ([]protocol.ItemStack, 
 		if !ok {
 			return nil, false
 		}
-		stack, ok := lookup.storedStack(entry, false)
+		stack, ok := lookup.storedStackStrict(entry)
 		if !ok {
 			return nil, false
 		}
@@ -1502,15 +1525,17 @@ func BlockStatePropertiesTag(value nbt.Tag) (map[string]string, bool) {
 // unshowable component) still knows the item. False for no stack this
 // version has.
 func StoredStackBase(entry nbt.Compound) (protocol.ItemStack, bool) {
-	return storedStackSans(entry)
+	return storedStackSans(entry, false)
 }
 
 // storedStackSans reads a stored item's id (namespace defaulted) and count
-// (default 1, including partial results outside 1..99), ignoring components;
-// air is the empty stack. Numeric counts are narrowed: `count:5b` is five;
-// non-numeric counts are rejected.
-// vanilla: ItemStack.MAP_CODEC, TagValueInput.read
-func storedStackSans(entry nbt.Compound) (protocol.ItemStack, bool) {
+// (default 1), ignoring components. When strict is false (optional slots),
+// air reads as the empty stack and counts outside 1..99 recover to 1; when
+// strict is true (ItemStack.CODEC / ItemStackTemplate.CODEC), both are
+// refused. Numeric counts are narrowed: `count:5b` is five; non-numeric
+// counts are rejected.
+// vanilla: ItemStack.MAP_CODEC, ItemStackTemplate.MAP_CODEC, TagValueInput.read
+func storedStackSans(entry nbt.Compound, strict bool) (protocol.ItemStack, bool) {
 	name, ok := nbt.Get[nbt.String](entry, "id")
 	if !ok {
 		return protocol.ItemStack{}, false
@@ -1530,10 +1555,16 @@ func storedStackSans(entry nbt.Compound) (protocol.ItemStack, bool) {
 			return protocol.ItemStack{}, false
 		}
 		if count < 1 || count > 99 {
+			if strict {
+				return protocol.ItemStack{}, false
+			}
 			count = 1
 		}
 	}
 	if Item(id) == ItemAir {
+		if strict {
+			return protocol.ItemStack{}, false
+		}
 		// Air is empty whatever its count.
 		return protocol.ItemStack{}, true
 	}
@@ -1726,7 +1757,7 @@ func (lookup *TagLookup) potDecorationsOf(tag nbt.Compound) ([4]protocol.ItemSta
 		if !ok {
 			return sides, false
 		}
-		side, ok := lookup.storedStack(entry, false)
+		side, ok := lookup.storedStackStrict(entry)
 		if !ok {
 			return sides, false
 		}

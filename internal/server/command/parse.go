@@ -429,11 +429,16 @@ func walkNode(node *Node, input string, tokens []Token, idx int, allowSelectors 
 				continue
 			}
 		case ParserString:
-			// A quotable phrase is read while the walk is reading it: its
-			// quotes have to close, and nothing may stand behind the value.
+			// A quotable phrase or single word is read while the walk is
+			// reading it; nothing may stand behind the value.
 			// vanilla: StringArgumentType.parse
 			if child.Quotable {
 				if err := parseQuotablePhraseArgument(tokens[idx : idx+arity]); err != nil {
+					errs = append(errs, err)
+					continue
+				}
+			} else if !child.Greedy {
+				if err := parseWordArgument(tokens[idx]); err != nil {
 					errs = append(errs, err)
 					continue
 				}
@@ -801,6 +806,20 @@ func parseQuotablePhraseArgument(tokens []Token) *ParseError {
 	}
 	if n < len(span.text) {
 		return &ParseError{Key: keyExpectedSeparator, Cursor: span.absolute(n)}
+	}
+	return nil
+}
+
+// parseWordArgument reads a single-word string's allowed unquoted run; any
+// leftover tail (or a leading disallowed byte) is the separator check's.
+// vanilla: StringArgumentType.parse, StringReader.readUnquotedString
+func parseWordArgument(token Token) *ParseError {
+	n := 0
+	for n < len(token.Text) && isAllowedInUnquotedString(token.Text[n]) {
+		n++
+	}
+	if n < len(token.Text) {
+		return &ParseError{Key: keyExpectedSeparator, Cursor: token.Start + n}
 	}
 	return nil
 }
