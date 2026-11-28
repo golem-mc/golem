@@ -330,6 +330,14 @@ func (b *Board) JoinTeam(team string, players []string, instance ...InstanceID) 
 	}
 	b.membersChanged()
 	for _, player := range players {
+		if b.teamOf[player] == t {
+			// A member keeps its place in the list; clients still get
+			// the remove and add.
+			b.emit(&TeamMemberEvent{Team: team, Player: player})
+			b.emit(&TeamMemberEvent{Team: team, Player: player, Joined: true})
+			b.dirty = true
+			continue
+		}
 		b.leave(player)
 		b.teamOf[player] = t
 		t.Players = append(t.Players, player)
@@ -387,7 +395,9 @@ func (b *Board) unlink(player string) *Team {
 	if t != nil {
 		b.membersChanged()
 		delete(b.teamOf, player)
-		t.Players = slices.DeleteFunc(t.Players, func(p string) bool { return p == player })
+		if i := slices.Index(t.Players, player); i >= 0 {
+			t.Players = slices.Delete(t.Players, i, i+1)
+		}
 	}
 	return t
 }
