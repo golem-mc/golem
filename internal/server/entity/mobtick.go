@@ -28,7 +28,7 @@ func (m *Mob) baseTick(w World, scan *contactScan, players []Player, events []Mo
 	events = m.stepOnBlock(w, events)
 	events = m.fireContact(w, scan, events)
 	events = m.cactusContact(w, scan, events)
-	events = m.fireStep(w, events)
+	events = m.fireStep(events)
 	events = m.wallStep(w, events)
 	events = m.WaterSensitiveStep(w, events)
 	if m.Type == TypeEnderman {
@@ -43,6 +43,7 @@ func (m *Mob) baseTick(w World, scan *contactScan, players []Player, events []Mo
 	events = m.powderSnowContact(w, scan, events)
 	events = m.powderSnowFlakes(w, players, events)
 	events = m.cauldronContact(w, scan, events)
+	events = m.douseStep(w, events)
 	// Freeze runs after the fire and lava that clear it: vanilla's freeze
 	// bite lands after applyEffectsFromBlocks.
 	events = m.freezeStep(w, scan, events)

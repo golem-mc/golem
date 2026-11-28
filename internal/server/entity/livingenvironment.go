@@ -59,20 +59,16 @@ func livingLavaContact(w World, box AABB, inLava bool, ignite func(ticks int, x,
 	}
 }
 
-// livingFireTick returns whether water or rain extinguished a burning body.
+// livingFireTick burns a body and counts its fire down; water is not tested
+// here, it douses later in the tick (see douseFire).
 // vanilla: Entity.baseTick
-func livingFireTick(ticks *int, wet, immune, inLava bool, hurt func(float64, registry.DamageType)) bool {
+func livingFireTick(ticks *int, immune, inLava bool, hurt func(float64, registry.DamageType)) {
 	if *ticks == 0 {
-		return false
-	}
-	if wet {
-		burning := *ticks > 0 && !immune
-		*ticks = 0
-		return burning
+		return
 	}
 	if immune {
 		*ticks = 0
-		return false
+		return
 	}
 	if *ticks > 0 {
 		if *ticks%20 == 0 && !inLava {
@@ -80,7 +76,17 @@ func livingFireTick(ticks *int, wet, immune, inLava bool, hurt func(float64, reg
 		}
 		*ticks--
 	}
-	return false
+}
+
+// douseFire puts out a burning body touching water or rain and reports
+// whether it was burning.
+// vanilla: WaterFluid.entityInside, Entity.applyEffectsFromBlocks
+func douseFire(ticks *int, wet bool) bool {
+	if !wet || *ticks <= 0 {
+		return false
+	}
+	*ticks = 0
+	return true
 }
 
 // livingAirTick returns whether the air floor calls for a drowning bite.
