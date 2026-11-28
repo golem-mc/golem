@@ -2651,11 +2651,9 @@ func (s *Server) broadcastEntitySoundID(w *world.World, except *client, entityID
 		entitySoundEffectID(sound, category, entityID, volume, pitch))
 }
 
-// broadcastLight sends changed light sections to every player tracking the
-// chunk. Interior chunks also need these arrays: a client can leave a newly
-// occupied section dark after a block update, including while frozen.
-// Unlike vanilla's border-only delivery, this does not rely on client relighting.
-// The payload is built once per chunk, only if someone needs it.
+// broadcastLight sends changed light sections to players whose view the chunk
+// borders; clients relight interior chunks from the block updates. The payload
+// is built once per chunk, only if someone needs it.
 // vanilla: ChunkHolder.broadcastChanges
 func (s *Server) broadcastLight(w *world.World, changed []world.LightChange) {
 	for _, ch := range changed {
@@ -2663,7 +2661,7 @@ func (s *Server) broadcastLight(w *world.World, changed []world.LightChange) {
 		s.mu.RLock()
 		var recipients []*client
 		for _, c := range s.clients {
-			if c.theWorld() == w && c.tracks(w, pos) {
+			if c.theWorld() == w && c.tracksOnBorder(w, pos) {
 				recipients = append(recipients, c)
 			}
 		}

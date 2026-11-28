@@ -688,3 +688,22 @@ func (c *client) tracks(w *world.World, pos world.ChunkPos) bool {
 	defer c.sentViewMu.RUnlock()
 	return c.sentViewWorld == w && c.sentView.has(pos)
 }
+
+// tracksOnBorder reports whether the client tracks w's chunk at pos and lacks
+// at least one of its eight neighbours.
+// vanilla: ChunkMap.isChunkOnTrackedBorder
+func (c *client) tracksOnBorder(w *world.World, pos world.ChunkPos) bool {
+	c.sentViewMu.RLock()
+	defer c.sentViewMu.RUnlock()
+	if c.sentViewWorld != w || !c.sentView.has(pos) {
+		return false
+	}
+	for dx := int32(-1); dx <= 1; dx++ {
+		for dz := int32(-1); dz <= 1; dz++ {
+			if (dx != 0 || dz != 0) && !c.sentView.has(world.ChunkPos{X: pos.X + dx, Z: pos.Z + dz}) {
+				return true
+			}
+		}
+	}
+	return false
+}
