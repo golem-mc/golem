@@ -240,6 +240,7 @@ func (s *Server) applyBlast(b blast) blastEffects {
 	s.blastMinecarts(b, &in, &fx)
 	s.blastHanging(b, &in, &fx)
 	s.blastStands(b, &in, &fx)
+	s.blastMannequins(b, &in)
 	fx.crystals = s.blastEndCrystals(b, &in)
 	s.blastPushed(b, &in, &fx)
 	in.blocks.Release()
@@ -605,6 +606,46 @@ func (s *Server) blastStands(b blast, in *blastInputs, fx *blastEffects) {
 	// zeroed last slot.
 	for _, ent := range fx.stands {
 		s.removeArmorStandLocked(ent)
+	}
+}
+
+// blastMannequins hurts and pushes the mannequins in reach: a living body's
+// hurt, the push scaled by its explosion knockback resistance; a harmless
+// blast or a spared team only pushes. The hurts are told after the lock.
+// vanilla: ServerExplosion.hurtEntities
+func (s *Server) blastMannequins(b blast, in *blastInputs) {
+	var told []mannequinHurt
+	at := &[3]float64{b.x, b.y, b.z}
+	cause, direct := int32(0), int32(0)
+	if b.causeID != 0 {
+		cause = b.causeID + 1
+	}
+	if b.directID != 0 {
+		direct = b.directID + 1
+	}
+	s.mannequinsMu.Lock()
+	for _, ent := range s.mannequins {
+		m := ent.mannequin
+		if ent.w != b.w || m.Dead || m.Dying() {
+			continue
+		}
+		dist, ok := in.at.Reach(m.X, m.Y, m.Z)
+		if !ok {
+			continue
+		}
+		eyeY := m.Y + m.EyeHeight()
+		hit := in.at.Hit(in.blocks, dist, m.BlastBox, func() (x, y, z float64) { return m.X, eyeY, m.Z }).
+			Resisted(m.Attributes.Value(rules.ExplosionKnockbackResistanceAttribute))
+		if !b.harmless && !in.spares(ent.uuid) {
+			if fx, landed := s.hurtMannequinLocked(ent, hit.Damage, b.damageType, cause, direct, at, in.causeCreative, nil); landed {
+				told = append(told, fx)
+			}
+		}
+		m.Push(hit.KX, hit.KY, hit.KZ)
+	}
+	s.mannequinsMu.Unlock()
+	for _, fx := range told {
+		s.tellMannequinHurt(fx)
 	}
 }
 
