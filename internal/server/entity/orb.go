@@ -427,7 +427,7 @@ func (o *Orb) insideEffects(w World, move bodyMove, events *[]OrbEvent) {
 			*events = append(*events, OrbEvent{Kind: OrbSteppedOnRedstoneOre, X: x, Y: y, Z: z})
 		}
 	}
-	o.VY, _ = bubbleColumnDrift(w, o.orbBox(), o.VY)
+	var spots []bubbleSpot
 	wasOnFire := o.fireTicks > 0
 	// The movement read is after the move, which spends it when the snow
 	// held the orb from the tick before.
@@ -437,6 +437,10 @@ func (o *Orb) insideEffects(w World, move bodyMove, events *[]OrbEvent) {
 	var cauldrons, snows [][3]int32
 	walkInside(w, []bodyMove{move}, rel, func(x, y, z int32, state uint16, _ int, from AABB, dx, dy, dz float64) bool {
 		inSnow = inSnow || rules.IsPowderSnow(state)
+		if vy, ok := projectileBubblePush(w, x, y, z, state, from, dx, dy, dz, o.VY, true, &spots); ok {
+			o.VY = vy
+			spots = spots[:0] // the orb splashes no surface
+		}
 		if insideNonLiving(state, sideways, &o.stuck) {
 			*events = append(*events, OrbEvent{Kind: OrbSnowflake, Y: y})
 		}

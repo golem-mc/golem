@@ -687,10 +687,6 @@ func (it *Item) insideEffects(w World, events *[]ItemEvent) {
 	wasOnFire := it.isOnFire()
 	previousFireTicks := it.fireTicks
 	var spots []bubbleSpot
-	it.VY, _, _ = bubbleColumnPush(w, it.itemBox(), it.VY, &spots)
-	for _, p := range spots {
-		*events = append(*events, ItemEvent{Kind: ItemBubbleSurface, X: p.x, Y: p.y, Z: p.z})
-	}
 	var cauldrons [][3]int32
 	inSnow, inLava := false, false
 	var moves []bodyMove
@@ -699,6 +695,13 @@ func (it *Item) insideEffects(w World, events *[]ItemEvent) {
 	}
 	rel := AABB{-halfSize, -halfSize, -halfSize, halfSize, halfSize, halfSize}
 	walkInside(w, moves, rel, func(x, y, z int32, state uint16, _ int, from AABB, dx, dy, dz float64) bool {
+		if vy, ok := projectileBubblePush(w, x, y, z, state, from, dx, dy, dz, it.VY, true, &spots); ok {
+			it.VY = vy
+			for _, p := range spots {
+				*events = append(*events, ItemEvent{Kind: ItemBubbleSurface, X: p.x, Y: p.y, Z: p.z})
+			}
+			spots = spots[:0]
+		}
 		fluid := sweptFluid(w, x, y, z, state, from, dx, dy, dz)
 		switch {
 		case rules.IsLayeredCauldron(state):
