@@ -8031,6 +8031,19 @@ func (s *Server) SpawnMannequinForTest(x, y, z float64) int32 {
 	return ent.mannequin.ID
 }
 
+// MannequinHeadForTest is the stack on the head of the mannequin with the
+// entity ID given.
+func (s *Server) MannequinHeadForTest(id int32) protocol.ItemStack {
+	s.mannequinsMu.Lock()
+	defer s.mannequinsMu.Unlock()
+	for _, it := range s.mannequins {
+		if it.mannequin.ID == id {
+			return it.mannequin.Worn[3]
+		}
+	}
+	return protocol.ItemStack{}
+}
+
 // FixtureIDForTest returns the entity ID of the first live fixture of kind
 // (entity.FixtureInteraction, ...), or 0.
 func (s *Server) FixtureIDForTest(kind string) int32 {

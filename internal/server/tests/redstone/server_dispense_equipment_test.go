@@ -343,3 +343,20 @@ func TestADispenserBuildsAGolemWithItsCarvedPumpkin(t *testing.T) {
 		}
 	})
 }
+
+// TestADispenserDressesAMannequin checks a mannequin takes the piece for a
+// bare slot and the piece is not dropped.
+// vanilla: EquipmentDispenseItemBehavior.dispenseEquipment, LivingEntity.canEquipWithDispenser
+func TestADispenserDressesAMannequin(t *testing.T) {
+	t.Parallel()
+	var mannequin int32
+	srv, items, _ := equipDispense(t, "minecraft:diamond_helmet", func(srv *server.Server, _ *servertest.WindowedClient) {
+		mannequin = srv.SpawnMannequinForTest(4.5, 64, 1.5)
+	})
+	if got := srv.MannequinHeadForTest(mannequin); got.ItemID != registry.MustItem("minecraft:diamond_helmet") {
+		t.Errorf("the mannequin's head holds %+v, want the diamond helmet", got)
+	}
+	if n := countDropped(items, "minecraft:diamond_helmet"); n != 0 {
+		t.Errorf("%d helmets dropped, want 0", n)
+	}
+}
