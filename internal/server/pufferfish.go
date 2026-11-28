@@ -16,8 +16,11 @@ type pufferTouch struct {
 // pufferTouchOf is the touch a puffed living pufferfish makes on players; its
 // killer is resolved on contact (touchPuffers).
 func pufferTouchOf(w *world.World, m *entity.Mob, ent *mobEntity) (pufferTouch, bool) {
+	if m.Type != entity.TypePufferfish {
+		return pufferTouch{}, false
+	}
 	puff := m.PuffState()
-	if m.Type != entity.TypePufferfish || puff == 0 || !m.Alive() {
+	if puff == 0 || !m.Alive() {
 		return pufferTouch{}, false
 	}
 	return pufferTouch{
