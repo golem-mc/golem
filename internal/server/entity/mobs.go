@@ -543,6 +543,9 @@ type MobEvent struct {
 	// Roar marks a MobAttackedPlayer that was a ravager's roar, which neither
 	// swings nor carries the ravager's attack knockback.
 	Roar bool
+	// Throw is the roar's push of a mob victim, applied after the hurt.
+	// vanilla: Ravager.strongKnockback
+	Throw [3]float64
 	// Sonic is a warden ray, which bypasses the melee pipeline.
 	Sonic *SonicBoom
 	// Vibration rides a MobWardenVibration.

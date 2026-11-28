@@ -194,11 +194,13 @@ func (m *Mob) ravagerRoar(t *tickView) {
 		if oMaxX <= minX || oMinX >= maxX || oMaxZ <= minZ || oMinZ >= maxZ || oMaxY <= minY || oMinY >= maxY {
 			continue
 		}
-		if !IsIllagerType(o.Type) {
-			t.events = append(t.events, MobEvent{Mob: m, Kind: MobAttackedPlayer, Damage: ravagerRoarDamage, Player: o.asTarget(), Roar: true})
-		}
 		vx, vy, vz := RavagerThrow(o.X-m.X, o.Z-m.Z)
-		o.Push(vx, vy, vz)
+		if IsIllagerType(o.Type) {
+			o.Push(vx, vy, vz)
+			continue
+		}
+		// The throw lands after the hurt's knockback.
+		t.events = append(t.events, MobEvent{Mob: m, Kind: MobAttackedPlayer, Damage: ravagerRoarDamage, Player: o.asTarget(), Roar: true, Throw: [3]float64{vx, vy, vz}})
 	}
 	t.events = append(t.events, MobEvent{Mob: m, Kind: MobStatus, Status: protocol.EntityStatusRavagerRoar},
 		MobEvent{Mob: m, Kind: MobActed, X: m.X, Y: m.Y, Z: m.Z})
