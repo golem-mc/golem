@@ -63,3 +63,35 @@ func b2i(b bool) int {
 	}
 	return 0
 }
+
+// TestSortedLimitedSelectorVisitsInSortedOrder: the picks come back nearest or
+// furthest first, not in entity ID order.
+// vanilla: EntitySelector.sortAndLimit
+func TestSortedLimitedSelectorVisitsInSortedOrder(t *testing.T) {
+	t.Parallel()
+	srv, _ := servertest.Join(t, servertest.BlockTestConfig(), "Op", servertest.OpsListing(t, "Op"))
+	servertest.HoldTicks(t, srv)
+	srv.RunLine("scoreboard objectives add visit dummy")
+	// Spawn order is the reverse of the nearest-first order.
+	for i, x := range []int{9, 7, 5, 3} {
+		srv.RunLine(fmt.Sprintf(`summon minecraft:marker %d.5 64 0.5 {Tags:["m","v%d"]}`, x, i))
+	}
+	for _, tc := range []struct {
+		sel  string
+		want []string // tags in visiting order
+	}{
+		{"@e[tag=m,sort=nearest,limit=3]", []string{"v3", "v2", "v1"}},
+		{"@e[tag=m,sort=furthest,limit=3]", []string{"v0", "v1", "v2"}},
+	} {
+		srv.RunLine("scoreboard players reset * visit")
+		srv.RunLine("scoreboard players set #n visit 0")
+		// The counter's new value is stored on each body as it is visited.
+		srv.RunLine("execute positioned 0.5 64 0.5 as " + tc.sel + " store result score @s visit run scoreboard players add #n visit 1")
+		for i, tag := range tc.want {
+			line := fmt.Sprintf("execute if entity @e[tag=%s,scores={visit=%d}]", tag, i+1)
+			if !strings.Contains(fmt.Sprint(srv.RunLine(line)), "conditional.pass") {
+				t.Errorf("%s: %s was not visited number %d", tc.sel, tag, i+1)
+			}
+		}
+	}
+}

@@ -1574,6 +1574,10 @@ func (ws worldScope) query(q entityQuery) []command.Entity {
 			break
 		}
 	}
+	// A nearest or furthest limit already left the picks in that order.
+	if q.byDistance() {
+		return entities
+	}
 	// IDs are handed out in spawn order, the order vanilla's level lookup
 	// keeps; the herd's map and the per-kind lists above are not.
 	// vanilla: EntityLookup.byId
