@@ -401,20 +401,60 @@ func (s *Server) setPistonGrid(dim *dimension, active bool) {
 // nobody online.
 // vanilla: ServerChunkCache.tickChunks, ChunkMap.forEachBlockTickingChunk
 func (s *Server) tickRandomTicks(dim *dimension, gameTime int64) {
-	dim.randomTickPositions = s.gatherRandomTickChunks(dim, dim.randomTickPositions[:0])
+	s.refreshRandomTickChunks(dim)
 	s.randomTickChunks(dim, gameTime, dim.randomTickPositions)
+}
+
+// randomTickKey identifies the inputs of gatherRandomTickChunks.
+type randomTickKey struct {
+	valid                     bool
+	chunkSet, forced, tickets uint64
+	reach                     int32
+	centres, scratch          []world.ChunkPos
+	clients                   []*client
+}
+
+// refreshRandomTickChunks regathers and sorts dim's ticking chunks only when
+// the key inputs differ from the last gather.
+func (s *Server) refreshRandomTickChunks(dim *dimension) {
+	k := &dim.randomTickKey
+	s.mu.RLock()
+	k.clients = k.clients[:0]
+	for _, c := range s.clients {
+		k.clients = append(k.clients, c)
+	}
+	s.mu.RUnlock()
+	scratch := appendSimulationCentres(dim, k.clients, k.scratch[:0])
+	// Map order is random; sort so the comparison is stable.
+	world.SortChunkPositions(scratch)
+	scratch = slices.Compact(scratch)
+	k.scratch = scratch
+	chunkSet, forced, tickets := dim.w.ChunkSetVersion(), dim.w.ForcedGeneration(), dim.w.TicketGeneration()
+	reach := s.simulationDistance.Load()
+	if k.valid && k.chunkSet == chunkSet && k.forced == forced && k.tickets == tickets &&
+		k.reach == reach && slices.Equal(k.centres, scratch) {
+		return
+	}
+	dim.randomTickPositions = gatherRandomTickChunks(dim, dim.randomTickPositions[:0], scratch, reach)
+	world.SortChunkPositions(dim.randomTickPositions)
+	k.valid, k.chunkSet, k.forced, k.tickets, k.reach = true, chunkSet, forced, tickets, reach
+	k.centres = append(k.centres[:0], scratch...)
 }
 
 // randomTickSelection returns an independent slice for test hooks.
 func (s *Server) randomTickSelection(dim *dimension) []world.ChunkPos {
-	return s.gatherRandomTickChunks(dim, nil)
+	return gatherRandomTickChunks(dim, nil, s.simulationCentres(dim, nil), s.simulationDistance.Load())
 }
 
-func (s *Server) gatherRandomTickChunks(dim *dimension, buf []world.ChunkPos) []world.ChunkPos {
+// simulationCentres appends the chunk of each simulating player in dim.
+func (s *Server) simulationCentres(dim *dimension, centres []world.ChunkPos) []world.ChunkPos {
 	s.mu.RLock()
 	clients := s.clientsLocked()
 	s.mu.RUnlock()
-	var centres []world.ChunkPos
+	return appendSimulationCentres(dim, clients, centres)
+}
+
+func appendSimulationCentres(dim *dimension, clients []*client, centres []world.ChunkPos) []world.ChunkPos {
 	for _, c := range clients {
 		if c.theWorld() != dim.w || !c.simulates() {
 			continue
@@ -422,7 +462,10 @@ func (s *Server) gatherRandomTickChunks(dim *dimension, buf []world.ChunkPos) []
 		pos := c.player.Position()
 		centres = append(centres, world.ChunkPos{X: world.ChunkOf(pos.X), Z: world.ChunkOf(pos.Z)})
 	}
-	reach := s.simulationDistance.Load()
+	return centres
+}
+
+func gatherRandomTickChunks(dim *dimension, buf, centres []world.ChunkPos, reach int32) []world.ChunkPos {
 	anyForced := dim.w.AnyChunkForced()
 	anyTicketed := dim.w.AnyChunkTicketed()
 	loaded := dim.w.AppendLoadedChunkPositions(buf)

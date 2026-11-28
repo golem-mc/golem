@@ -1,6 +1,7 @@
 package world
 
 import (
+	"cmp"
 	"math/bits"
 	"slices"
 
@@ -230,7 +231,9 @@ func (p *Physics) RandomTick(gameTime int64, chunks []ChunkPos, speed, maxSnowHe
 	for _, c := range chunks {
 		keys = append(keys, packChunkKey(c))
 	}
-	slices.Sort(keys)
+	if !slices.IsSorted(keys) {
+		slices.Sort(keys)
+	}
 	p.randomTickKeys = keys
 
 	var changes []BlockChange
@@ -403,4 +406,12 @@ func (p *Physics) TakePortalTicks() []PortalTick {
 	out := p.portalTicks
 	p.portalTicks = nil
 	return out
+}
+
+// SortChunkPositions orders chunks as RandomTick visits them, so a caller
+// that reuses the slice lets RandomTick skip its sort.
+func SortChunkPositions(chunks []ChunkPos) {
+	slices.SortFunc(chunks, func(a, b ChunkPos) int {
+		return cmp.Or(cmp.Compare(a.X, b.X), cmp.Compare(a.Z, b.Z))
+	})
 }

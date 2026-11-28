@@ -93,8 +93,11 @@ type dimension struct {
 	tickingBuf []*world.BlockEntity
 	// Chunk positions are owned by their respective passes on the tick goroutine.
 	randomTickPositions []world.ChunkPos
-	spawningPositions   []world.ChunkPos
-	spawnablePositions  []entity.ChunkPos
+	// randomTickKey is what randomTickPositions was gathered from; the sorted
+	// list is reused while it holds.
+	randomTickKey      randomTickKey
+	spawningPositions  []world.ChunkPos
+	spawnablePositions []entity.ChunkPos
 	// spawnBodies is the natural spawning pass's obstruction list, reused across ticks.
 	spawnBodies entity.SpawnBodies
 	// phantoms is the dimension's insomnia spawner, ticked on the main loop;

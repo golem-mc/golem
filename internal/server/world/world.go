@@ -163,6 +163,8 @@ type World struct {
 	// chunkSet counts chunks entering or leaving w.chunks, so a reader that
 	// last saw the same count knows the loaded set is unchanged.
 	chunkSet atomic.Uint64
+	// forcedGen counts changes to the forced-chunk set.
+	forcedGen atomic.Uint64
 	// forced is the chunks /forceload keeps loaded, guarded by mu.
 	forced  *forcedChunks
 	tickets chunkTickets
@@ -1105,6 +1107,9 @@ func (w *World) ChunkDirty(pos ChunkPos) bool {
 	loaded, ok := w.chunks[pos]
 	return ok && loaded.dirtyGen.Load() > loaded.savedGen.Load()
 }
+
+// ForcedGeneration changes whenever a chunk is forced or unforced.
+func (w *World) ForcedGeneration() uint64 { return w.forcedGen.Load() }
 
 // ChunkSetVersion changes whenever a chunk is loaded or unloaded.
 func (w *World) ChunkSetVersion() uint64 { return w.chunkSet.Load() }
