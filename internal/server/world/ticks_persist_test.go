@@ -547,24 +547,170 @@ func TestSavedAirTickKeepsAirThroughCopyAndSave(t *testing.T) {
 	}
 }
 
-// TestPrepareTickFlags checks the lock-free path leaves nothing to take and
-// the pending flags follow the unload and loaded-tick lists.
+// cleanChunk marks the chunk at pos as saved, so ChunkDirty reads only what
+// follows.
+func cleanChunk(w *World, pos ChunkPos) {
+	w.mu.Lock()
+	loaded := w.chunks[pos]
+	loaded.savedGen.Store(loaded.dirtyGen.Load())
+	w.mu.Unlock()
+}
+
+// unloadChunk2 loads and releases chunk (2, 2), leaving it in the world's
+// unloaded list.
+func unloadChunk2(t *testing.T, w *World) ChunkPos {
+	t.Helper()
+	pos := ChunkPos{X: 2, Z: 2}
+	w.Acquire(pos)
+	w.Release(pos)
+	w.FlushSaves()
+	if w.ChunkLoaded(pos) {
+		t.Fatal("setup: the chunk is still loaded")
+	}
+	return pos
+}
+
+// TestPrepareTickFlags checks the lock-free path marks the chunk dirty and
+// takes nothing, and the pending flags follow the unload and loaded-tick lists.
 func TestPrepareTickFlags(t *testing.T) {
-	w, _, _ := newSavedWorld(t)
+	w, _, _ := newSavedWorldAround(t, 0, 0)
 	t.Cleanup(func() { w.Close() })
+	home := ChunkPos{}
+	cleanChunk(w, home)
+	if loaded, unloaded := w.prepareTick(0, 0, false, true); loaded != nil || unloaded != nil || w.ChunkDirty(home) {
+		t.Fatalf("idle prepareTick(dirty=false) = %v, %v, dirty %v; want nil, nil, false", loaded, unloaded, w.ChunkDirty(home))
+	}
 	if loaded, unloaded := w.prepareTick(0, 0, true, true); loaded != nil || unloaded != nil {
 		t.Fatalf("idle prepareTick = %v, %v; want nil, nil", loaded, unloaded)
 	}
+	if !w.ChunkDirty(home) {
+		t.Error("the lock-free path left the chunk clean")
+	}
+
+	one := loadedTick{id: "minecraft:water", x: 1, delay: 1, fluid: true}
+	two := one
+	two.x, two.z = 40, 40 // chunk (2, 2)
+	w.mu.Lock()
+	w.queueLoadedTicks(&Chunk{loadedTicks: []loadedTick{one, two}})
+	w.mu.Unlock()
+	if !w.loadedTicksPending.Load() {
+		t.Fatal("queueLoadedTicks left the flag clear")
+	}
+	cleanChunk(w, home)
+	if loaded, _ := w.prepareTick(0, 0, true, false); loaded != nil || !w.loadedTicksPending.Load() || !w.ChunkDirty(home) {
+		t.Errorf("takeLoaded=false took %v, flag %v, dirty %v; want nothing, set, dirty", loaded, w.loadedTicksPending.Load(), w.ChunkDirty(home))
+	}
 	w.mu.Lock()
 	w.dropChunkTicks(ChunkPos{X: 2, Z: 2})
-	w.pendingLoaded = []loadedTick{{}}
-	w.loadedTicksPending.Store(true)
+	w.mu.Unlock()
+	if !w.loadedTicksPending.Load() {
+		t.Error("dropping one chunk's ticks cleared the flag with another's still pending")
+	}
+	w.mu.Lock()
+	w.dropChunkTicks(home)
+	w.mu.Unlock()
+	if w.loadedTicksPending.Load() {
+		t.Error("flag still set after the last pending tick was dropped")
+	}
+
+	w.mu.Lock()
+	w.queueLoadedTicks(&Chunk{loadedTicks: []loadedTick{one}})
 	w.mu.Unlock()
 	loaded, unloaded := w.prepareTick(0, 0, false, true)
-	if len(loaded) != 1 || len(unloaded) != 1 {
-		t.Fatalf("prepareTick took %d loaded, %d unloaded; want 1, 1", len(loaded), len(unloaded))
+	if len(loaded) != 1 || len(unloaded) != 2 {
+		t.Fatalf("prepareTick took %d loaded, %d unloaded; want 1, 2", len(loaded), len(unloaded))
 	}
 	if w.loadedTicksPending.Load() || w.unloadsPending.Load() {
 		t.Error("flags still set after the lists were taken")
+	}
+}
+
+// TestBookTickTakesUnloadsAndLoadedTicks checks a fluid booking after a chunk
+// unloaded discards that chunk's bookings, adopts the loaded fluid ticks before
+// deduplicating, and marks its chunk dirty on the lock-free path.
+func TestBookTickTakesUnloadsAndLoadedTicks(t *testing.T) {
+	w, p, _ := newSavedWorldAround(t, 0, 0)
+	t.Cleanup(func() { w.Close() })
+	water := fluidTypeNamed("minecraft:water")
+	home := ChunkPos{}
+	cleanChunk(w, home)
+	p.mu.Lock()
+	p.bookTick(8, GroundLevel, 8, water, 5, tickPriorityNormal)
+	p.mu.Unlock()
+	if !w.ChunkDirty(home) {
+		t.Error("a lock-free booking left its chunk clean")
+	}
+
+	// A saved water visit at (9, y, 9) is adopted before the booking of the
+	// same cell, which then finds it queued.
+	w.mu.Lock()
+	w.queueLoadedTicks(&Chunk{loadedTicks: []loadedTick{{
+		id: "minecraft:water", x: 9, y: GroundLevel, z: 9, delay: 3,
+		fluid: true,
+	}}})
+	w.mu.Unlock()
+	p.mu.Lock()
+	p.bookTick(9, GroundLevel, 9, water, 20, tickPriorityNormal)
+	queued := len(p.queue)
+	_, adopted := p.fluidBooked[fluidBook{blockKey{9, GroundLevel, 9}, water}]
+	p.mu.Unlock()
+	if !adopted || queued != 2 {
+		t.Errorf("adopted = %v, queued = %d; want true, 2 (the saved visit, not a duplicate)", adopted, queued)
+	}
+
+	// A chunk with a booking unloads; the next booking discards it.
+	p.mu.Lock()
+	p.bookTick(40, GroundLevel, 40, water, 5, tickPriorityNormal)
+	p.mu.Unlock()
+	unloadChunk2(t, w)
+	p.mu.Lock()
+	p.bookTick(1, GroundLevel, 1, water, 5, tickPriorityNormal)
+	_, stale := p.fluidBooked[fluidBook{blockKey{40, GroundLevel, 40}, water}]
+	p.mu.Unlock()
+	if stale {
+		t.Error("the unloaded chunk's booking survived the next booking")
+	}
+}
+
+// TestScheduleBookedForTakesUnloads checks a booked-set booking discards an
+// unloaded chunk's ticks, leaves the loaded ticks for a fluid booking and marks
+// its chunk dirty on the lock-free path.
+func TestScheduleBookedForTakesUnloads(t *testing.T) {
+	w, p, _ := newSavedWorldAround(t, 0, 0)
+	t.Cleanup(func() { w.Close() })
+	home := ChunkPos{}
+	cleanChunk(w, home)
+	booked := map[blockKey]bool{}
+	p.mu.Lock()
+	p.scheduleBookedFor(booked, 8, GroundLevel, 8, 5, tickPriorityNormal, 1, registry.BlockStone)
+	p.mu.Unlock()
+	if !w.ChunkDirty(home) {
+		t.Error("a lock-free booking left its chunk clean")
+	}
+
+	p.mu.Lock()
+	p.scheduleBookedFor(booked, 40, GroundLevel, 40, 5, tickPriorityNormal, 1, registry.BlockStone)
+	p.mu.Unlock()
+	unloadChunk2(t, w)
+	w.mu.Lock()
+	w.queueLoadedTicks(&Chunk{loadedTicks: []loadedTick{{
+		id: "minecraft:water", x: 9, y: GroundLevel, z: 9,
+		fluid: true,
+	}}})
+	w.mu.Unlock()
+	before := len(p.queue)
+	p.mu.Lock()
+	p.scheduleBookedFor(booked, 1, GroundLevel, 1, 5, tickPriorityNormal, 1, registry.BlockStone)
+	after := len(p.queue)
+	p.mu.Unlock()
+	if w.unloadsPending.Load() {
+		t.Error("the unload was not taken")
+	}
+	if !w.loadedTicksPending.Load() {
+		t.Error("a block booking took the loaded ticks")
+	}
+	// The unloaded chunk's tick is gone and one new tick joined.
+	if after != before {
+		t.Errorf("queue %d -> %d; want the stale tick replaced by the new one", before, after)
 	}
 }
