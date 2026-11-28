@@ -35,6 +35,8 @@ type thrownEffects struct {
 	frameHits      []arrowFrameHit
 	standHits      []thrownStandHit
 	boatHits       []boatProjectileBlow
+	mannequinHits  []thrownMannequinHit
+	knotHits       []arrowKnotHit
 	crystalHits    []crystalProjectileHit
 	redirects      []redirectTell
 	windPlayerHits []windPlayerHit
@@ -118,6 +120,8 @@ func (fx *thrownEffects) apply(s *Server) {
 	applyEach(s, fx.cushionHits, func(s *Server, hit cushionProjectileHit) { s.projectileHitCushion(hit) })
 	applyEach(s, fx.frameHits, func(s *Server, hit arrowFrameHit) { s.arrowHitFrame(hit) })
 	applyEach(s, fx.standHits, (*Server).thrownHitArmorStand)
+	applyEach(s, fx.mannequinHits, (*Server).thrownHitMannequin)
+	applyEach(s, fx.knotHits, func(s *Server, hit arrowKnotHit) { s.arrowHitKnot(hit) })
 	applyEach(s, fx.crystalHits, func(s *Server, hit crystalProjectileHit) { _, _ = s.projectileHitEndCrystal(hit) })
 	applyEach(s, fx.boatHits, func(s *Server, hit boatProjectileBlow) { s.boatProjectileHit(hit) })
 	applyEach(s, fx.windPlayerHits, (*Server).windHitPlayer)

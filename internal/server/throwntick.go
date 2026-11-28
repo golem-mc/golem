@@ -75,6 +75,7 @@ type thrownWorld struct {
 	dim      *dimension
 	bodies   arrowBodies
 	frames   map[int32]entitySliver
+	knots    map[int32]bool
 	// targets is the players' targets; index is each one's entry in it, by
 	// entity ID. A body's mobs are gathered per body.
 	targets []entity.ArrowTarget
@@ -170,6 +171,10 @@ func (in *thrownTickInputs) stepWorld(s *Server, w *world.World) *thrownWorld {
 	tw.frames = make(map[int32]entitySliver, len(in.frames[w]))
 	for _, f := range in.frames[w] {
 		tw.frames[f.id] = f
+	}
+	tw.knots = make(map[int32]bool, len(in.knots[w]))
+	for _, k := range in.knots[w] {
+		tw.knots[k.id] = true
 	}
 	return tw
 }
@@ -330,10 +335,7 @@ func (s *Server) stepThrown(fx *thrownEffects, in *thrownTickInputs, it *thrownE
 // among them, which the first ticks cannot hit; nil when not there.
 func (s *Server) gatherTargets(in *thrownTickInputs, it *thrownEntity, tw *thrownWorld) (owner *entity.ArrowTarget) {
 	t := it.throwable
-	extra := len(tw.targets) + len(in.paintings.byWorld[it.w]) + len(in.frames[it.w]) + len(in.boatsByWorld[it.w]) + len(in.cushions[it.w]) + len(in.stands[it.w])
-	if t.Kind.IsPotion() {
-		extra += len(in.mannequins.byWorld[it.w])
-	}
+	extra := len(tw.targets) + len(in.paintings.byWorld[it.w]) + len(in.frames[it.w]) + len(in.boatsByWorld[it.w]) + len(in.cushions[it.w]) + len(in.stands[it.w]) + len(in.mannequins.byWorld[it.w]) + len(in.knots[it.w])
 	if !t.Kind.IsWindCharge() {
 		extra += len(in.crystals[it.w])
 	}
@@ -356,8 +358,10 @@ func (s *Server) gatherTargets(in *thrownTickInputs, it *thrownEntity, tw *throw
 			targets = append(targets, p)
 		}
 	}
-	if t.Kind.IsPotion() {
-		targets = append(targets, in.mannequins.byWorld[it.w]...)
+	targets = append(targets, in.mannequins.byWorld[it.w]...)
+	for _, k := range in.knots[it.w] {
+		targets = append(targets, entity.ArrowTarget{EntityID: k.id, Type: protocol.EntityTypeLeashKnot,
+			MinX: k.minX, MinY: k.minY, MinZ: k.minZ, MaxX: k.maxX, MaxY: k.maxY, MaxZ: k.maxZ})
 	}
 	in.buf, in.targets = targets, targets
 	if ownerAt >= 0 {
@@ -581,6 +585,16 @@ func (s *Server) thrownHitTarget(fx *thrownEffects, in *thrownTickInputs, tw *th
 			break
 		}
 		fx.frameHits = append(fx.frameHits, arrowFrameHit{w: it.w, frameID: target.EntityID, dropless: dropless, mob: ownerMob})
+	case in.mannequins.byID[target.EntityID] != nil:
+		// A potion or a bottle only breaks on it.
+		if t.Kind.IsPotion() || t.Kind == entity.ThrownExperienceBottle {
+			break
+		}
+		fx.mannequinHits = append(fx.mannequinHits, thrownMannequinHitOf(tw, it, in.mannequins.byID[target.EntityID], ev, ownerMob))
+	case tw.knots[target.EntityID]:
+		// vanilla: BlockAttachedEntity.hurtServer
+		fx.knotHits = append(fx.knotHits, arrowKnotHit{w: it.w, knotID: target.EntityID, mob: ownerMob,
+			creative: creativeClient(clients[t.OwnerID])})
 	case in.boatsByID[target.EntityID]:
 		// A broken hull's removal and drop are the boat tick's next pass.
 		// vanilla: VehicleEntity.hurtServer

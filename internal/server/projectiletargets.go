@@ -15,6 +15,7 @@ type projectileTargetSnapshots struct {
 	cushions    map[*world.World][]entity.ArrowTarget
 	mannequins  mannequinTargetSnapshot
 	stands      map[*world.World][]entity.ArrowTarget
+	knots       map[*world.World][]entitySliver
 }
 
 func (s *Server) readProjectileTargetSnapshots() projectileTargetSnapshots {
@@ -30,6 +31,12 @@ func (s *Server) readProjectileTargetSnapshots() projectileTargetSnapshots {
 	s.lockTick(&s.framesMu)
 	in.frames = s.snapshotFramesLocked()
 	s.unlockTick(&s.framesMu)
+	s.lockTick(&s.knotsMu)
+	in.knots = make(map[*world.World][]entitySliver)
+	for _, k := range s.knots {
+		in.knots[k.w] = append(in.knots[k.w], knotSliverOf(k))
+	}
+	s.unlockTick(&s.knotsMu)
 	s.lockTick(&s.arrowsMu)
 	in.projectiles = s.snapshotProjectileTargetsLocked()
 	s.unlockTick(&s.arrowsMu)
