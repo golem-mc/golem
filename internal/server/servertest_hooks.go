@@ -3973,6 +3973,47 @@ func (s *Server) EyeCount() int {
 	return len(s.eyes)
 }
 
+// FireworkPosition is the x coordinate of the rocket, false once it is gone.
+func (s *Server) FireworkPosition(id uuid.UUID) (x float64, ok bool) {
+	s.fireworksMu.Lock()
+	defer s.fireworksMu.Unlock()
+	for _, it := range s.fireworks {
+		if it.uuid == id && !it.rocket.Dead {
+			return it.rocket.X, true
+		}
+	}
+	return 0, false
+}
+
+// BlastMotion is the motion a blast left on the cloud or eye of ender with the
+// identity given.
+func (s *Server) BlastMotion(id uuid.UUID) (vx, vy, vz float64) {
+	s.arrowsMu.Lock()
+	for _, it := range s.clouds {
+		if it.uuid == id {
+			s.arrowsMu.Unlock()
+			return it.vx, it.vy, it.vz
+		}
+	}
+	s.arrowsMu.Unlock()
+	s.eyesMu.Lock()
+	defer s.eyesMu.Unlock()
+	for _, it := range s.eyes {
+		if it.uuid == id {
+			return it.eye.VX, it.eye.VY, it.eye.VZ
+		}
+	}
+	return 0, 0, 0
+}
+
+// NewestFangsMotion is the motion a blast left on the newest fangs.
+func (s *Server) NewestFangsMotion() (vx, vy, vz float64) {
+	s.fangs.mu.Lock()
+	defer s.fangs.mu.Unlock()
+	it := s.fangs.list[len(s.fangs.list)-1]
+	return it.vx, it.vy, it.vz
+}
+
 // SpawnFireworkEntity flies a rocket from where the tests put it, unowned and
 // without a flight attached to a glider.
 func (s *Server) SpawnFireworkEntity(x, y, z float64) TestTrackedBody {

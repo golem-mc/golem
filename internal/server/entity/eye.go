@@ -132,3 +132,21 @@ func (e *EyeOfEnder) Box() AABB {
 	return AABB{e.X - EyeHalfWidth, e.Y, e.Z - EyeHalfWidth,
 		e.X + EyeHalfWidth, e.Y + EyeHeight, e.Z + EyeHalfWidth}
 }
+
+// BlastBox is the eye's box for ServerExplosion.getSeenPercent.
+func (e *EyeOfEnder) BlastBox() (minX, minY, minZ, maxX, maxY, maxZ float64) {
+	b := e.Box()
+	return b.Corners()
+}
+
+// EyePosition is getEyePosition at the default eye height, 0.85 of the box.
+func (e *EyeOfEnder) EyePosition() (x, y, z float64) {
+	return e.X, e.Y + float64(float32(EyeHeight)*0.85), e.Z
+}
+
+// Push is Entity.push for an explosion's knockback.
+func (e *EyeOfEnder) Push(vx, vy, vz float64) {
+	e.VX += vx
+	e.VY += vy
+	e.VZ += vz
+}

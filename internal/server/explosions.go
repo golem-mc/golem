@@ -787,7 +787,104 @@ func (s *Server) blastPushed(b blast, in *blastInputs, fx *blastEffects) {
 		}
 	}
 	s.fallingMu.Unlock()
+	s.blastDrifters(b, in, fx)
 }
+
+// blastDrifters pushes the rockets and eyes of ender, which fly on with the
+// push, and adds it to the saved Motion of the clouds, fangs and fixtures,
+// which never move on it.
+// vanilla: ServerExplosion.hurtEntities, Entity.push
+func (s *Server) blastDrifters(b blast, in *blastInputs, fx *blastEffects) {
+	s.fireworksMu.Lock()
+	for _, it := range s.fireworks {
+		r := it.rocket
+		if r.Dead || it.w != b.w {
+			continue
+		}
+		if hit, ok := in.pushAt(r.X, r.Y, r.Z, r.BlastBox, r.EyePosition); ok {
+			r.Push(hit.KX, hit.KY, hit.KZ)
+			queueMotion(fx, &it.bodyTrack, r.ID, r.VX, r.VY, r.VZ)
+		}
+	}
+	s.fireworksMu.Unlock()
+	s.eyesMu.Lock()
+	for _, it := range s.eyes {
+		e := it.eye
+		if e.Dead || it.w != b.w {
+			continue
+		}
+		if hit, ok := in.pushAt(e.X, e.Y, e.Z, e.BlastBox, e.EyePosition); ok {
+			e.Push(hit.KX, hit.KY, hit.KZ)
+			queueMotion(fx, &it.bodyTrack, e.ID, e.VX, e.VY, e.VZ)
+		}
+	}
+	s.eyesMu.Unlock()
+
+	s.arrowsMu.Lock()
+	for _, it := range s.clouds {
+		if it.w != b.w {
+			continue
+		}
+		c := it.cloud
+		hit, ok := in.pushAt(c.X, c.Y, c.Z,
+			func() (float64, float64, float64, float64, float64, float64) { return c.Box().Corners() },
+			func() (float64, float64, float64) { return c.X, c.Y + eyeOfHeight(0.5), c.Z })
+		if ok {
+			it.vx, it.vy, it.vz = it.vx+hit.KX, it.vy+hit.KY, it.vz+hit.KZ
+		}
+	}
+	s.arrowsMu.Unlock()
+
+	s.fangs.mu.Lock()
+	for _, it := range s.fangs.list {
+		f := it.fangs
+		if f.Dead || it.w != b.w {
+			continue
+		}
+		hit, ok := in.pushAt(f.X, f.Y, f.Z,
+			func() (float64, float64, float64, float64, float64, float64) {
+				h := entity.FangsWidth / 2
+				return f.X - h, f.Y, f.Z - h, f.X + h, f.Y + entity.FangsHeight, f.Z + h
+			},
+			func() (float64, float64, float64) { return f.X, f.Y + eyeOfHeight(entity.FangsHeight), f.Z })
+		if ok {
+			it.vx, it.vy, it.vz = it.vx+hit.KX, it.vy+hit.KY, it.vz+hit.KZ
+		}
+	}
+	s.fangs.mu.Unlock()
+
+	s.fixturesMu.Lock()
+	for _, it := range s.fixtures {
+		if it.dead || it.w != b.w {
+			continue
+		}
+		box := func() (float64, float64, float64, float64, float64, float64) {
+			return entity.FixtureBox(it.kind, it.tag, it.x, it.y, it.z)
+		}
+		hit, ok := in.pushAt(it.x, it.y, it.z, box, func() (float64, float64, float64) {
+			_, minY, _, _, maxY, _ := box()
+			return it.x, it.y + eyeOfHeight(maxY-minY), it.z
+		})
+		if ok {
+			vx, vy, vz := entityMotionOfTag(it.tag)
+			it.tag["Motion"] = vec3Tag(vx+hit.KX, vy+hit.KY, vz+hit.KZ)
+		}
+	}
+	s.fixturesMu.Unlock()
+}
+
+// pushAt measures a body at (x, y, z) when it is in reach of the blast.
+func (in *blastInputs) pushAt(x, y, z float64, box func() (float64, float64, float64, float64, float64, float64), eye func() (float64, float64, float64)) (rules.BlastHit, bool) {
+	dist, ok := in.at.Reach(x, y, z)
+	if !ok {
+		return rules.BlastHit{}, false
+	}
+	return in.at.Hit(in.blocks, dist, box, eye), true
+}
+
+// eyeOfHeight is the default eye height of a body height tall.
+// vanilla: EntityType.dimensions eyeHeight, EntityDimensions.defaultEyeHeight
+func eyeOfHeight(height float64) float64 { return float64(float32(height) * 0.85) }
 
 // blastTNT pushes every primed TNT in reach of b. When at least parallelMin
 // TNT are in reach and workers > 1, exposures are computed in parallel against

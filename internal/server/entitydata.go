@@ -464,7 +464,7 @@ func cloudTag(ent *cloudEntity) *nbt.OrderedCompound {
 func cloudTagAs(ent *cloudEntity, id string) *nbt.OrderedCompound {
 	c := ent.cloud
 	tag := orderedEntityBaseTag(id,
-		c.X, c.Y, c.Z, 0, 0, 0,
+		c.X, c.Y, c.Z, ent.vx, ent.vy, ent.vz,
 		ent.look.yaw, ent.look.pitch, ent.uuid, false, 0, restingFire, 0)
 	putEntityOptions(tag, ent.custom, ent.look.silent, ent.look.noGravity, ent.look, ent.tags)
 	tag.Set("Invulnerable", boolTag(ent.look.invulnerable))
