@@ -8,11 +8,12 @@ func (m *Mob) baseTick(w World, scan *contactScan, players []Player, events []Mo
 	if m.BoardingCooldown > 0 {
 		m.BoardingCooldown--
 	}
-	// Fluids are read first (baseTick's updateFluidInteraction precedes the
-	// fire countdown), then fire blocks light and bite, then the standing
-	// fire ticks. Lava runs last so its relight lands after the countdown's
-	// spend: a body in lava stays at the full fifteen seconds, as vanilla's
-	// countdown also precedes the lava's block effects.
+	// Vanilla's order: fluids, the standing fire's burn, suffocation, drowning
+	// and the void, then the hurt countdowns, and only then the block
+	// contacts of aiStep's applyEffectsFromBlocks. A burn therefore sees the
+	// cooldown before it counts down, and a block hit's HurtTime survives the
+	// tick. Lava relights after the burn's countdown, so a body in lava stays
+	// at the full fifteen seconds.
 	wasInWater := m.InWater()
 	m.updateMobFluids(w)
 	if !wasInWater && m.InWater() && m.Age > 1 {
@@ -24,10 +25,6 @@ func (m *Mob) baseTick(w World, scan *contactScan, players []Player, events []Mo
 			m.striderColdStep(w)
 		}
 	}
-	events = m.hotFloorContact(w, events)
-	events = m.stepOnBlock(w, events)
-	events = m.fireContact(w, scan, events)
-	events = m.cactusContact(w, scan, events)
 	events = m.fireStep(events)
 	events = m.wallStep(w, events)
 	events = m.WaterSensitiveStep(w, events)
@@ -39,6 +36,14 @@ func (m *Mob) baseTick(w World, scan *contactScan, players []Player, events []Mo
 	if m.Type == TypeAxolotl {
 		events = m.axolotlAirStep(w, events)
 	}
+	if m.InvulnTicks > 0 {
+		m.InvulnTicks--
+	}
+	m.TickTimers()
+	events = m.hotFloorContact(w, events)
+	events = m.stepOnBlock(w, events)
+	events = m.fireContact(w, scan, events)
+	events = m.cactusContact(w, scan, events)
 	events = m.lavaContact(w, scan, events)
 	events = m.powderSnowContact(w, scan, events)
 	events = m.powderSnowFlakes(w, players, events)
@@ -50,7 +55,6 @@ func (m *Mob) baseTick(w World, scan *contactScan, players []Player, events []Mo
 	arrows := m.ArrowCount
 	rules.StuckStep(&arrows, &m.removeArrowTime)
 	m.SetMetadataArrowCount(arrows)
-	m.TickTimers()
 	// These bites land ahead of vanilla's tickDeath, so a body they kill
 	// counts from this tick rather than the next.
 	diedInBaseTick = m.Dead
