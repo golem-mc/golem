@@ -759,6 +759,34 @@ func TestOldBannerBlockEntityOminousName(t *testing.T) {
 	}
 }
 
+// TestFixOldBlockEntityTextAndPistonState checks the skull and command block
+// text fields and the moving piston's block state of a 4189 record.
+func TestFixOldBlockEntityTextAndPistonState(t *testing.T) {
+	skull := blockEntityTag(nbt.Compound{"id": nbt.String("minecraft:skull"), "custom_name": nbt.String(`{"text":"Bob"}`)})
+	fixOldBlockEntity(skull, 4189)
+	if got, _ := nbt.CompoundView(skull.Entries()["custom_name"]); got["text"] != nbt.String("Bob") {
+		t.Errorf("skull custom_name = %v, want {text:Bob}", skull.Entries()["custom_name"])
+	}
+	cmd := blockEntityTag(nbt.Compound{"id": nbt.String("minecraft:command_block"), "LastOutput": nbt.String(`{"text":"ok"}`)})
+	fixOldBlockEntity(cmd, 4189)
+	if got, _ := nbt.CompoundView(cmd.Entries()["LastOutput"]); got["text"] != nbt.String("ok") {
+		t.Errorf("LastOutput = %v, want {text:ok}", cmd.Entries()["LastOutput"])
+	}
+	piston := blockEntityTag(nbt.Compound{"id": nbt.String("minecraft:piston"), "blockState": nbt.Compound{"Name": nbt.String("minecraft:oak_log"), "Properties": nbt.Compound{"axis": nbt.String("z")}}})
+	fixOldBlockEntity(piston, 4556)
+	if got, _ := nbt.CompoundView(piston.Entries()["blockState"]); got["id"] != nbt.String("minecraft:oak_log") || got["properties"] == nil {
+		t.Errorf("blockState = %v, want id and properties", piston.Entries()["blockState"])
+	}
+}
+
+func blockEntityTag(c nbt.Compound) nbt.CompoundTag {
+	o := nbt.NewOrderedCompound(len(c))
+	for k, v := range c {
+		o.Set(k, v)
+	}
+	return o
+}
+
 func TestOldPotSherdsUnflatten(t *testing.T) {
 	t.Parallel()
 	names := func(key string, items ...string) nbt.Compound {

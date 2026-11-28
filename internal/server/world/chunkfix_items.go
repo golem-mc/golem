@@ -124,6 +124,10 @@ func fixComponentShapes(c nbt.Compound, id string, version int32) {
 		for _, key := range []string{"minecraft:entity_data", "minecraft:block_entity_data"} {
 			if data, ok := nbt.CompoundView(c[key]); ok {
 				unflattenText(data, "CustomName")
+				id, _ := nbt.Get[nbt.String](data, "id")
+				for _, k := range blockEntityTextKeys(string(id)) {
+					unflattenText(data, k)
+				}
 			}
 		}
 	}

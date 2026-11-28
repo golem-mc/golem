@@ -160,21 +160,49 @@ func renameEntityChain(entries nbt.Compound, id string) {
 // the block states an entity saves.
 // vanilla: BlockStateFieldNamesFix
 func renameEntityBlockStates(entries nbt.Compound, id string) {
-	key := ""
-	switch id {
-	case "minecraft:falling_block":
-		key = "BlockState"
-	case "minecraft:enderman":
-		key = "carriedBlockState"
-	case "minecraft:minecart", "minecraft:chest_minecart", "minecraft:furnace_minecart", "minecraft:tnt_minecart",
-		"minecraft:hopper_minecart", "minecraft:spawner_minecart", "minecraft:command_block_minecart":
-		key = "DisplayState"
-	default:
-		return
+	keys := entityBlockStateKeys[id]
+	for _, key := range keys {
+		renameBlockState(entries[key])
 	}
-	if state, ok := nbt.CompoundView(entries[key]); ok {
+	if cloud, ok := nbt.CompoundView(entries["custom_particle"]); ok && id == "minecraft:area_effect_cloud" {
+		renameParticleBlockState(cloud)
+	}
+}
+
+// entityBlockStateKeys are the fields holding a block state, by entity id;
+// vanilla: DataFixers V1451 (arrows), V3325 (block_display), V3683 (tnt), V3938
+var entityBlockStateKeys = map[string][]string{
+	"minecraft:falling_block":  {"BlockState"},
+	"minecraft:enderman":       {"carriedBlockState"},
+	"minecraft:block_display":  {"block_state"},
+	"minecraft:arrow":          {"inBlockState"},
+	"minecraft:spectral_arrow": {"inBlockState"},
+	"minecraft:trident":        {"inBlockState"},
+	"minecraft:tnt":            {"block_state"},
+
+	"minecraft:minecart":               {"DisplayState"},
+	"minecraft:chest_minecart":         {"DisplayState"},
+	"minecraft:furnace_minecart":       {"DisplayState"},
+	"minecraft:tnt_minecart":           {"DisplayState"},
+	"minecraft:hopper_minecart":        {"DisplayState"},
+	"minecraft:spawner_minecart":       {"DisplayState"},
+	"minecraft:command_block_minecart": {"DisplayState"},
+}
+
+// renameBlockState renames Name and Properties in a block state compound.
+func renameBlockState(tag nbt.Tag) {
+	if state, ok := nbt.CompoundView(tag); ok {
 		renameField(state, "Name", "id")
 		renameField(state, "Properties", "properties")
+	}
+}
+
+// renameParticleBlockState renames the block state of a block particle.
+// vanilla: V3818_4
+func renameParticleBlockState(particle nbt.Compound) {
+	switch typ, _ := particle["type"].(nbt.String); typ {
+	case "minecraft:block", "minecraft:block_marker", "minecraft:falling_dust", "minecraft:dust_pillar":
+		renameBlockState(particle["block_state"])
 	}
 }
 
