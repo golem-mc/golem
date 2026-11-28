@@ -626,3 +626,48 @@ func TestChunkFrom26_2GetsMapAndPotFixes(t *testing.T) {
 		t.Errorf("placed pot = %v", placed)
 	}
 }
+
+func TestSignStackInChestGetsTextAndOpFlag(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		version  int32
+		messages nbt.Tag
+	}{
+		{3955, nbt.String(`"a"`)},
+		{4903, nbt.Compound{"text": nbt.String("a")}},
+	} {
+		empty := nbt.Tag(nbt.String(`""`))
+		if tc.version >= textComponentVersion {
+			empty = nbt.String("")
+		}
+		data := nbt.Compound{
+			"id": nbt.String("minecraft:sign"),
+			"front_text": nbt.Compound{"messages": nbt.List{Elem: nbt.TypeString, Items: []nbt.Tag{
+				tc.messages, empty, empty, empty}}},
+		}
+		chest := nbt.Compound{
+			"id": nbt.String("minecraft:chest"), "x": nbt.Int(16), "y": nbt.Int(64), "z": nbt.Int(32),
+			"Items": nbt.List{Elem: nbt.TypeCompound, Items: []nbt.Tag{nbt.Compound{
+				"Slot": nbt.Byte(0), "id": nbt.String("minecraft:oak_sign"), "count": nbt.Int(1),
+				"components": nbt.Compound{"minecraft:block_entity_data": data}}}},
+		}
+		w, pos := oldChunkWorld(t, tc.version, chest)
+		w.Acquire(pos)
+		tag, ok := w.BlockEntityTag(16, 64, 32)
+		if !ok {
+			t.Fatalf("v%d: chest not loaded", tc.version)
+		}
+		items, _ := nbt.Get[nbt.List](tag, "Items")
+		stack, _ := nbt.CompoundView(items.Items[0])
+		comps, _ := nbt.Get[nbt.Compound](stack, "components")
+		got, _ := nbt.CompoundView(comps["minecraft:block_entity_data"])
+		if got["allow_op_features"] != nbt.Byte(1) {
+			t.Errorf("v%d: sign data %v lacks allow_op_features", tc.version, got)
+		}
+		front, _ := nbt.Get[nbt.Compound](got, "front_text")
+		msgs, _ := nbt.Get[nbt.List](front, "messages")
+		if tc.version == 3955 && msgs.Items[0] != nbt.String("a") {
+			t.Errorf("v%d: messages = %v, want a first", tc.version, msgs.Items)
+		}
+	}
+}
