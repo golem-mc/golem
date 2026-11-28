@@ -149,6 +149,9 @@ type World struct {
 	// count without it.
 	touchBlocks      int
 	comparatorBlocks atomic.Int64
+	// portalBlocks counts nether portal, end portal and end gateway blocks,
+	// so a mob tick in a dimension with none skips its portal pass.
+	portalBlocks atomic.Int64
 	// tickingChunks holds the loaded chunks with a trial spawner or vault, so a
 	// tick without any walks nothing. Guarded by mu.
 	tickingChunks map[ChunkPos]struct{}
@@ -847,7 +850,10 @@ func (w *World) putChunk(pos ChunkPos, c *Chunk, motion *[16][16]int32, fresh bo
 	c.rebuildRandomTickSections()
 	w.chunks[pos] = loaded
 	w.lodestones.drop(pos)
-	touches, comparators := c.redstoneBlockCounts()
+	touches, comparators, crossings := c.redstoneBlockCounts()
+	if crossings != 0 {
+		w.portalBlocks.Add(int64(crossings))
+	}
 	w.touchBlocks += touches
 	if comparators != 0 {
 		w.comparatorBlocks.Add(int64(comparators))
@@ -1040,7 +1046,10 @@ func (w *World) removeChunk(pos ChunkPos, loaded *loadedChunk) {
 	w.dropChunkTicks(pos)
 	w.dropNear(pos, loaded)
 	delete(w.chunks, pos)
-	touches, comparators := loaded.chunk.redstoneBlockCounts()
+	touches, comparators, crossings := loaded.chunk.redstoneBlockCounts()
+	if crossings != 0 {
+		w.portalBlocks.Add(-int64(crossings))
+	}
 	w.touchBlocks -= touches
 	if comparators != 0 {
 		w.comparatorBlocks.Add(-int64(comparators))
@@ -1050,13 +1059,22 @@ func (w *World) removeChunk(pos ChunkPos, loaded *loadedChunk) {
 	w.chunkUnloaded(pos, loaded.chunk)
 }
 
-func (c *Chunk) redstoneBlockCounts() (touches, comparators int) {
+func (c *Chunk) redstoneBlockCounts() (touches, comparators, crossings int) {
 	for i := range c.sections {
 		touches += int(c.sections[i].touches.Load())
 		comparators += int(c.sections[i].comparators)
+		crossings += int(c.sections[i].crossings)
 	}
-	return touches, comparators
+	return touches, comparators, crossings
 }
+
+var isCrossingBlock = registry.BlocksOf(func(b registry.Block) bool {
+	return b == registry.BlockNetherPortal || b == registry.BlockEndPortal || b == registry.BlockEndGateway
+})
+
+// HasPortalBlocks reports whether any loaded chunk holds a nether portal,
+// end portal or end gateway block.
+func (w *World) HasPortalBlocks() bool { return w.portalBlocks.Load() != 0 }
 
 // LoadedChunks is how many chunks are currently in memory and held by players.
 func (w *World) LoadedChunks() int {
@@ -1394,6 +1412,12 @@ func (w *World) updateRedstoneBlockCounts(old, state uint16) {
 		w.touchBlocks++
 	case before && !after:
 		w.touchBlocks--
+	}
+	switch {
+	case isCrossingBlock[block] && !isCrossingBlock[oldBlock]:
+		w.portalBlocks.Add(1)
+	case isCrossingBlock[oldBlock] && !isCrossingBlock[block]:
+		w.portalBlocks.Add(-1)
 	}
 	switch {
 	case block == registry.BlockComparator:

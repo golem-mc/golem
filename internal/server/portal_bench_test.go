@@ -72,3 +72,25 @@ func BenchmarkBoatPortalCrossing(b *testing.B) {
 		s.finishBoatTravel(it, rules.PortalNether)
 	}
 }
+
+// BenchmarkCrossPortalsIdleHerd is the portal pass over 2000 cows in a
+// dimension with no portal block.
+func BenchmarkCrossPortalsIdleHerd(b *testing.B) {
+	s, w := newCommandBenchServer(b, 0)
+	dim := s.allDims()[0]
+	for i := range 2000 {
+		s.spawnMobInDim(dim, entity.TypeCow, 1+float64(i%50), world.GroundLevel, 1+float64(i/50), int64(i), nil)
+	}
+	h := s.herdOf(w)
+	if len(h.herd) != 2000 {
+		b.Fatalf("herd holds %d mobs, want 2000", len(h.herd))
+	}
+	t := &mobDimTick{s: s, dim: dim, h: h, w: w}
+	fx := &mobEffects{}
+	t.crossPortals(fx)
+	b.ReportAllocs()
+	b.ResetTimer()
+	for range b.N {
+		t.crossPortals(fx)
+	}
+}
