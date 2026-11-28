@@ -587,6 +587,10 @@ func (o *Orb) move(w World) bool {
 			o.VZ = 0
 		}
 	}
+	// vanilla: Entity.move ends with the block speed factor
+	f := blockSpeedFactor(w, o.X, o.Y, o.Z)
+	o.VX *= f
+	o.VZ *= f
 	o.LandedFall = bankFall(&o.fallDistance, startY, o.Y, o.OnGround)
 	return o.OnGround
 }
