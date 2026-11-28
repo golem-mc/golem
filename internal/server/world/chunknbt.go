@@ -737,7 +737,7 @@ func decodeSectionBlocks(s *section, bs nbt.Compound) error {
 	s.sculk = nil
 	s.touches.Store(0)
 	s.shapes.Store(0)
-	s.colliding, s.comparators = 0, 0
+	s.colliding, s.comparators, s.crossings = 0, 0, 0
 	var sculkCounts [sculkCellKinds]int
 	var touches, shapes int32
 	// Invalid indices read as air, which contributes to none of these tallies.

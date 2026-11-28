@@ -3,6 +3,8 @@ package storage
 import (
 	"testing"
 
+	"github.com/google/uuid"
+
 	"github.com/golem-mc/golem/internal/server/servertest"
 	"github.com/golem-mc/golem/nbt"
 )
@@ -216,5 +218,56 @@ func TestPlayerFileTextEventsAreRenamed(t *testing.T) {
 	hover, _ = nbt.Get[nbt.Compound](name, "hover_event")
 	if v, _ := nbt.Get[nbt.String](hover, "value"); v != "t" {
 		t.Errorf("custom_name = %v, want hover_event value t", name)
+	}
+}
+
+// TestPlayerFileVehicleUpgrades loads a 1.20.1 player file riding a saddled,
+// armoured horse and finds the horse upgraded when it is saved again.
+// vanilla: DataFixTypes.PLAYER.updateToCurrentVersion (ENTITY_TREE)
+func TestPlayerFileVehicleUpgrades(t *testing.T) {
+	t.Parallel()
+	cfg := servertest.BlockTestConfig()
+	cfg.LevelName = t.TempDir()
+	const name = "Tester"
+	horseID := uuid.MustParse("0b0a7000-0000-4000-8000-0000000012e5")
+	pos := nbt.List{Elem: nbt.TypeDouble, Items: []nbt.Tag{nbt.Double(4.5), nbt.Double(64), nbt.Double(4.5)}}
+	servertest.WritePlayerFile(t, servertest.PlayerFile(cfg.LevelName, name), nbt.Compound{
+		"DataVersion": nbt.Int(3465),
+		"Pos":         pos,
+		"RootVehicle": nbt.Compound{
+			"Attach": nbt.UUIDToIntArray(horseID),
+			"Entity": nbt.Compound{
+				"id":         nbt.String("minecraft:horse"),
+				"UUID":       nbt.UUIDToIntArray(horseID),
+				"Pos":        pos,
+				"NoAI":       nbt.Byte(1),
+				"SaddleItem": nbt.Compound{"id": nbt.String("minecraft:saddle"), "Count": nbt.Byte(1)},
+				"ArmorItem":  nbt.Compound{"id": nbt.String("minecraft:diamond_horse_armor"), "Count": nbt.Byte(1)},
+				"Tame":       nbt.Byte(1),
+			},
+		},
+	})
+	srv, connect := servertest.Start(t, cfg)
+	c := connect()
+	c.Join(name)
+	servertest.UntilTicks(t, srv, 200, "the rider seated on the file's horse", func() bool {
+		for _, id := range srv.MobIDsOfKind("minecraft:horse") {
+			if len(srv.MobPassengerIDs(id)) == 1 {
+				return true
+			}
+		}
+		return false
+	})
+	c.Disconnect()
+	srv.Shutdown()
+	saved := servertest.ReadPlayerFile(t, servertest.PlayerFile(cfg.LevelName, name))
+	vehicle, _ := nbt.Get[nbt.Compound](saved, "RootVehicle")
+	horse, _ := nbt.Get[nbt.Compound](vehicle, "Entity")
+	equipment, _ := nbt.Get[nbt.Compound](horse, "equipment")
+	for slot, item := range map[string]string{"saddle": "minecraft:saddle", "body": "minecraft:diamond_horse_armor"} {
+		stack, _ := nbt.Get[nbt.Compound](equipment, slot)
+		if id, _ := nbt.Get[nbt.String](stack, "id"); string(id) != item {
+			t.Errorf("equipment.%s = %v, want %s (horse %v)", slot, stack, item, horse)
+		}
 	}
 }

@@ -112,7 +112,7 @@ func states(n int) []uint16 {
 func sameCounts(a, b *section) bool {
 	return a.ticking == b.ticking && a.emitting == b.emitting && a.rods == b.rods &&
 		a.eggs == b.eggs && a.portals == b.portals &&
-		a.pois == b.pois && a.colliding == b.colliding && a.comparators == b.comparators &&
+		a.pois == b.pois && a.colliding == b.colliding && a.comparators == b.comparators && a.crossings == b.crossings &&
 		a.touches.Load() == b.touches.Load() && a.shapes.Load() == b.shapes.Load() &&
 		slices.Equal(a.sculkCells(vibrationListenerCell), b.sculkCells(vibrationListenerCell)) &&
 		slices.Equal(a.sculkCells(sculkCatalystCell), b.sculkCells(sculkCatalystCell))
