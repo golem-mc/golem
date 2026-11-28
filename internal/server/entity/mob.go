@@ -1435,7 +1435,10 @@ const (
 // walk. The unexported machinery is driven by ticking, not by callers.
 type Mob struct {
 	LivingState
-	ID   int32
+	ID int32
+	// UUID is the mob's identity, set by the server; a victim saves its
+	// attacker by it.
+	UUID uuid.UUID
 	Type MobType
 
 	Place
@@ -2080,7 +2083,9 @@ type Mob struct {
 	playerMemoryTicks int
 	// playerCreditID is the player whose hurt set playerMemoryTicks; a later
 	// mob's blow overwrites retaliate but not this.
-	playerCreditID  int32
+	playerCreditID int32
+	// credit and grudge are playerCreditID's and the last attacker's UUIDs.
+	credit, grudge  hurtRef
 	lastDamageType  registry.DamageType
 	lastDamageStamp int
 	// blowAttacker is the entity ID behind lastDamageType, 0 for none; unlike
@@ -4344,12 +4349,14 @@ func (m *Mob) takeAttack(amount float64, damageType registry.DamageType, source 
 	m.hurtByMelee = true
 	m.playerMemoryTicks = playerMemoryTicks
 	m.playerCreditID = source.EntityID
+	m.credit.note(source.EntityID, source.UUID)
 	m.resetAmbientSoundTime()
 	// The striker is kept for every kind (only hostiles act on it), and the
 	// hurt resets the despawn's idleness.
 	// vanilla: lastHurtByMob, HurtByTargetGoal
 	m.setRetaliate(source.EntityID)
 	m.noteReinforcement(source.EntityID)
+	m.grudge.note(source.EntityID, source.UUID)
 	m.NoActionTicks = 0
 	m.noteLastDamage(damageType)
 	m.blowAttacker = source.EntityID
@@ -4652,6 +4659,7 @@ func (m *Mob) hurtByMob(amount float64, damageType registry.DamageType, source *
 	}
 	if !damageType.InTag(registry.DamageTypeTagIDNoAnger) {
 		m.setRetaliate(source.ID)
+		m.grudge.note(source.ID, source.UUID)
 		m.noteReinforcement(source.ID)
 	}
 	m.NoActionTicks = 0
@@ -5188,6 +5196,7 @@ func (m *Mob) tickInto(out []MobEvent, tick *tickView, w World, players []Player
 	if m.Dead {
 		return m.deathStep(out, w, players, others)
 	}
+	m.learnHurtRefs(players, others)
 	if m.discarded {
 		m.gone = true
 		return append(out, MobEvent{Mob: m, Kind: MobVanished})

@@ -334,6 +334,7 @@ func (h *mobHerd) record(m *entity.Mob) *mobEntity {
 // remember indexes a registered body. The caller holds mobsMu.
 func (h *mobHerd) remember(ent *mobEntity) {
 	h.portalAtRest = false
+	ent.mob.UUID = ent.uuid
 	slot := ent.mob.RecordSlot()
 	if h.record(ent.mob) == nil {
 		if n := len(h.freeRecords); n > 0 {

@@ -49,6 +49,7 @@ func (m *Mob) SaveTo(tag nbt.Compound, gameTime func() int64) {
 // SaveWith inserts server-owned attributes and leash data in their superclass phases.
 func (m *Mob) SaveWith(tag nbt.CompoundTag, gameTime func() int64, keptAttributes nbt.Tag, attributes, leash, raider func()) {
 	tag.Set("Health", nbt.Float(m.Health))
+	m.saveHurtBy(tag)
 	var sleepingPos nbt.IntArray
 	if m.Type == TypeVillager && m.Sleeping {
 		bed := m.vb.sleepPos
@@ -339,6 +340,7 @@ func (m *Mob) SaveWith(tag nbt.CompoundTag, gameTime func() int64, keptAttribute
 // where a read-back growth moves the body clear; gameTime is as for SaveTo.
 func (m *Mob) LoadFrom(compound nbt.Compound, w World, gameTime func() int64) {
 	m.LivingState.LoadFrom(compound)
+	m.loadHurtBy(compound)
 	m.dragonFields(compound, true)
 	m.pandaFields(compound, true)
 	m.loadDeathLootTable(compound)
@@ -763,6 +765,7 @@ var MobSavedKeys = []string{
 	"Tame", "Bred", "Temper", "Owner", "EatingHaystack", "Variant", "Lifetime", "SkeletonTrap", "SkeletonTrapTime",
 	"SpellTicks", "AttackTick", "StunTick", "RoarTick", "bound_pos", "life_ticks", "owner",
 	"patrol_target", "Patrolling", "PatrolLeader", "wander_target", "Johnny", "carriedBlockState", "anger_end_time", "angry_at", "AngerTime", "Sitting", "Sleeping", "Crouching", "Trusted",
+	"last_hurt_by_player", "last_hurt_by_player_memory_time", "last_hurt_by_mob", "ticks_since_last_hurt_by_mob",
 	"TimeInOverworld", "CannotHunt", "CannotBeHunted", "still_timeout",
 }
 
