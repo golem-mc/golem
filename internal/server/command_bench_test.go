@@ -17,14 +17,14 @@ const benchExecuteTp = "execute as @e[type=armor_stand,tag=mcb] at @s run tp @s 
 // newCommandBenchServer starts a server on the flat test world holding the
 // spawn chunk, with stands tagged armor stands standing in it. The tick loop
 // is never started.
-func newCommandBenchServer(b *testing.B, stands int) (*Server, *world.World) {
+func newCommandBenchServer(tb testing.TB, stands int) (*Server, *world.World) {
 	cfg := config.Default()
 	cfg.OnlineMode = false
-	cfg.LevelName = b.TempDir()
+	cfg.LevelName = tb.TempDir()
 	cfg.LevelType = TestFlatLevelType
 	s, err := newServer(cfg, 1)
 	if err != nil {
-		b.Fatalf("create server: %v", err)
+		tb.Fatalf("create server: %v", err)
 	}
 	s.SetSpawning(false)
 	// The command block's admin lines go to the log; keep them out of the
@@ -34,7 +34,7 @@ func newCommandBenchServer(b *testing.B, stands int) (*Server, *world.World) {
 	w := s.world
 	pos := world.ChunkPos{X: 0, Z: 0}
 	w.Acquire(pos)
-	b.Cleanup(func() {
+	tb.Cleanup(func() {
 		w.Release(pos)
 		s.Shutdown()
 		slog.SetDefault(logger)
