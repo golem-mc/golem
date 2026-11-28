@@ -296,3 +296,40 @@ func TestProtoReadBackHoldsNoStoreLock(t *testing.T) {
 		t.Fatalf("block after read-back = %d, %v", st, ok)
 	}
 }
+
+func TestProtoLookupRechecksSpillingAfterWaitingOnReadBack(t *testing.T) {
+	s := &decorProtoStore{dir: t.TempDir()}
+	s.init()
+	a := ChunkPos{X: 1, Z: 1}
+	s.ensure(a).set(1, 2, 3, 7)
+	s.spill(a)
+	entered, release := make(chan struct{}), make(chan struct{})
+	s.readHook = func(ChunkPos) {
+		close(entered)
+		<-release
+	}
+	first := make(chan *decorProto)
+	go func() { first <- s.lookup(a) }()
+	<-entered
+	s.resumeHook = func(pos ChunkPos) {
+		// A trim moves the read-back proto to spilling before the waiter resumes.
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		p := s.mem[pos]
+		delete(s.mem, pos)
+		e := &spillEntry{pos: pos, p: p, flags: flagsOf(p), done: make(chan struct{})}
+		close(e.done)
+		s.spilling[pos] = e
+	}
+	second := make(chan *decorProto)
+	go func() { second <- s.lookup(a) }()
+	time.Sleep(50 * time.Millisecond)
+	close(release)
+	p1, p2 := <-first, <-second
+	if p1 == nil || p2 == nil {
+		t.Fatalf("lookups returned %p and %p", p1, p2)
+	}
+	if st, ok := p2.get(1, 2, 3); !ok || st != 7 {
+		t.Fatalf("block = %d, %v", st, ok)
+	}
+}

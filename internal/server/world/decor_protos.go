@@ -301,8 +301,11 @@ type decorProtoStore struct {
 	reading map[ChunkPos]*readEntry
 	// readHook, when set, runs in a read-back after s.mu is released.
 	readHook func(ChunkPos)
-	dir      string
-	clock    uint64
+	// resumeHook, when set, runs in a lookup that waited on a read-back, after
+	// the wait and before it retakes s.mu.
+	resumeHook func(ChunkPos)
+	dir        string
+	clock      uint64
 	// cap is the most protos kept in memory with a directory attached.
 	cap int
 	// peak is the most protos held in memory at once.
@@ -368,35 +371,33 @@ func (s *decorProtoStore) lookupLocked(pos ChunkPos) *decorProto {
 		if p := s.mem[pos]; p != nil {
 			return p
 		}
-		e := s.spilling[pos]
-		if e == nil || e.cancelled {
-			break
+		if e := s.spilling[pos]; e != nil && !e.cancelled {
+			select {
+			case <-e.done:
+			default:
+				s.mu.Unlock()
+				<-e.done
+				s.mu.Lock()
+				continue
+			}
+			e.cancelled = true
+			e.p.finals = e.flags.finals
+			s.mem[pos] = e.p
+			s.peak = max(s.peak, len(s.mem))
+			return e.p
 		}
-		select {
-		case <-e.done:
-		default:
+		if re := s.reading[pos]; re != nil {
+			// A trim may move the read proto to spilling before this
+			// resumes, so every state is rechecked.
 			s.mu.Unlock()
-			<-e.done
+			<-re.done
+			if s.resumeHook != nil {
+				s.resumeHook(pos)
+			}
 			s.mu.Lock()
 			continue
 		}
-		e.cancelled = true
-		e.p.finals = e.flags.finals
-		s.mem[pos] = e.p
-		s.peak = max(s.peak, len(s.mem))
-		return e.p
-	}
-	for {
-		if p := s.mem[pos]; p != nil {
-			return p
-		}
-		re := s.reading[pos]
-		if re == nil {
-			break
-		}
-		s.mu.Unlock()
-		<-re.done
-		s.mu.Lock()
+		break
 	}
 	flags, ok := s.spilled[pos]
 	if !ok {
