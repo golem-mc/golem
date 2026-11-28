@@ -63,3 +63,22 @@ func teamCollisionsOf(b *Board) map[string]CollisionRule {
 	rules, _ := b.TeamCollisions()
 	return rules
 }
+
+// BenchmarkRejoinTeam re-joins every member of a team to its own team.
+func BenchmarkRejoinTeam(b *testing.B) {
+	for _, n := range []int{200, 2000} {
+		b.Run(strconv.Itoa(n), func(b *testing.B) {
+			board := New(nil)
+			board.AddTeam("red", nil)
+			members := make([]string, n)
+			for i := range members {
+				members[i] = "m" + strconv.Itoa(i)
+			}
+			board.JoinTeam("red", members)
+			b.ResetTimer()
+			for b.Loop() {
+				board.JoinTeam("red", members)
+			}
+		})
+	}
+}
