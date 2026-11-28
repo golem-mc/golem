@@ -297,8 +297,15 @@ type decorProtoStore struct {
 	// time; spilled lists the protos on disk, which are read back on first use.
 	spilling map[ChunkPos]*spillEntry
 	spilled  map[ChunkPos]spilledProto
-	dir      string
-	clock    uint64
+	// reading holds the spilled protos a lookup is reading back without s.mu.
+	reading map[ChunkPos]*readEntry
+	// readHook, when set, runs in a read-back after s.mu is released.
+	readHook func(ChunkPos)
+	// resumeHook, when set, runs in a lookup that waited on a read-back, after
+	// the wait and before it retakes s.mu.
+	resumeHook func(ChunkPos)
+	dir        string
+	clock      uint64
 	// cap is the most protos kept in memory with a directory attached.
 	cap int
 	// peak is the most protos held in memory at once.
@@ -329,11 +336,21 @@ type spillEntry struct {
 	cancelled bool
 }
 
+// readEntry is a proto being read back. done closes once the read finishes;
+// flags collects the finals markFinal records meanwhile, and dropped means the
+// proto is discarded instead of stored.
+type readEntry struct {
+	done    chan struct{}
+	flags   spilledProto
+	dropped bool
+}
+
 func (s *decorProtoStore) init() {
 	if s.mem == nil {
 		s.mem = map[ChunkPos]*decorProto{}
 		s.spilling = map[ChunkPos]*spillEntry{}
 		s.spilled = map[ChunkPos]spilledProto{}
+		s.reading = map[ChunkPos]*readEntry{}
 		s.cap = decorProtoCap
 	}
 }
@@ -346,54 +363,82 @@ func (s *decorProtoStore) lookup(pos ChunkPos) *decorProto {
 	return s.lookupLocked(pos)
 }
 
-// lookupLocked may release s.mu while a trim encodes the proto.
+// lookupLocked may release s.mu while a trim encodes the proto or while the
+// proto is read back from disk.
 func (s *decorProtoStore) lookupLocked(pos ChunkPos) *decorProto {
 	s.init()
 	for {
 		if p := s.mem[pos]; p != nil {
 			return p
 		}
-		e := s.spilling[pos]
-		if e == nil || e.cancelled {
-			break
+		if e := s.spilling[pos]; e != nil && !e.cancelled {
+			select {
+			case <-e.done:
+			default:
+				s.mu.Unlock()
+				<-e.done
+				s.mu.Lock()
+				continue
+			}
+			e.cancelled = true
+			e.p.finals = e.flags.finals
+			s.mem[pos] = e.p
+			s.peak = max(s.peak, len(s.mem))
+			return e.p
 		}
-		select {
-		case <-e.done:
-		default:
+		if re := s.reading[pos]; re != nil {
+			// A trim may move the read proto to spilling before this
+			// resumes, so every state is rechecked.
 			s.mu.Unlock()
-			<-e.done
+			<-re.done
+			if s.resumeHook != nil {
+				s.resumeHook(pos)
+			}
 			s.mu.Lock()
 			continue
 		}
-		e.cancelled = true
-		e.p.finals = e.flags.finals
-		s.mem[pos] = e.p
-		s.peak = max(s.peak, len(s.mem))
-		return e.p
+		break
 	}
 	flags, ok := s.spilled[pos]
 	if !ok {
 		return nil
 	}
 	delete(s.spilled, pos)
+	re := &readEntry{done: make(chan struct{}), flags: flags}
+	s.reading[pos] = re
 	s.readbacks.Add(1)
+	s.mu.Unlock()
+	if s.readHook != nil {
+		s.readHook(pos)
+	}
+	p, err := s.readFile(pos)
+	s.mu.Lock()
+	delete(s.reading, pos)
+	close(re.done)
+	if err != nil {
+		slog.Warn("could not read a proto chunk, decorating it again", "x", pos.X, "z", pos.Z, "error", err)
+		return nil
+	}
+	if re.dropped {
+		return nil
+	}
+	p.finals = re.flags.finals
+	s.mem[pos] = p
+	s.peak = max(s.peak, len(s.mem))
+	return p
+}
+
+// readFile reads, removes and decodes a spilled proto's file.
+func (s *decorProtoStore) readFile(pos ChunkPos) (*decorProto, error) {
 	path := s.path(pos)
 	data, err := os.ReadFile(path)
-	if err == nil {
-		os.Remove(path)
-		var p *decorProto
-		buf := decorProtoBufs.Get().(*decorProtoBuf)
-		p, err = decodeDecorProto(buf.inflate(data))
-		decorProtoBufs.Put(buf)
-		if err == nil {
-			p.finals = flags.finals
-			s.mem[pos] = p
-			s.peak = max(s.peak, len(s.mem))
-			return p
-		}
+	if err != nil {
+		return nil, err
 	}
-	slog.Warn("could not read a proto chunk, decorating it again", "x", pos.X, "z", pos.Z, "error", err)
-	return nil
+	os.Remove(path)
+	buf := decorProtoBufs.Get().(*decorProtoBuf)
+	defer decorProtoBufs.Put(buf)
+	return decodeDecorProto(buf.inflate(data))
 }
 
 // flags reports a chunk's proto flags without reading it back; ok is false
@@ -406,6 +451,9 @@ func (s *decorProtoStore) flags(pos ChunkPos) (f spilledProto, ok bool) {
 	}
 	if e := s.spilling[pos]; e != nil && !e.cancelled {
 		return e.flags, true
+	}
+	if re := s.reading[pos]; re != nil && !re.dropped {
+		return re.flags, true
 	}
 	f, ok = s.spilled[pos]
 	return f, ok
@@ -452,6 +500,9 @@ func (s *decorProtoStore) dropLocked(pos ChunkPos) {
 	if e := s.spilling[pos]; e != nil {
 		e.cancelled = true
 	}
+	if re := s.reading[pos]; re != nil {
+		re.dropped = true
+	}
 	if _, ok := s.spilled[pos]; ok {
 		delete(s.spilled, pos)
 		os.Remove(s.path(pos))
@@ -477,6 +528,10 @@ func (s *decorProtoStore) markFinal(pos ChunkPos) {
 				e.flags.finals |= bit
 				e.flags.dirty = true
 				finals = e.flags.finals
+			} else if re := s.reading[q]; re != nil && !re.dropped {
+				re.flags.finals |= bit
+				re.flags.dirty = true
+				finals = re.flags.finals
 			} else if f, ok := s.spilled[q]; ok {
 				f.finals |= bit
 				f.dirty = true
@@ -988,11 +1043,15 @@ func (s *decorProtoStore) flush() {
 	if s.dir == "" {
 		return
 	}
+	var dirty []ChunkPos
 	for pos, f := range s.spilled {
-		// A deflated header cannot be patched: read back and spill again.
 		if f.dirty {
-			s.lookupLocked(pos)
+			dirty = append(dirty, pos)
 		}
+	}
+	// A deflated header cannot be patched: read back and spill again.
+	for _, pos := range dirty {
+		s.lookupLocked(pos)
 	}
 	for pos := range s.mem {
 		s.spillLocked(pos)
