@@ -161,6 +161,26 @@ func (e *entitySnapshot) DataTag() (nbt.CompoundTag, bool) {
 	return tag, true
 }
 
+// BaseDataTag is the one-entry compound a Pos or UUID read needs, built
+// without the whole saved tag; false for another key or a kind whose Pos is
+// not its plain body position. Pos is read under the kind's lock because an
+// earlier command may have moved the entity since the selector ran.
+func (e *entitySnapshot) BaseDataTag(key string) (nbt.CompoundTag, bool) {
+	switch key {
+	case "UUID":
+		return nbt.Compound{key: nbt.UUIDToIntArray(e.uuid)}, true
+	case "Pos":
+		if e.ops == nil || e.ops.pos == nil {
+			return nil, false
+		}
+		e.mu.Lock()
+		x, y, z := e.ops.pos(e.ref)
+		e.mu.Unlock()
+		return nbt.Compound{key: vec3Tag(x, y, z)}, true
+	}
+	return nil, false
+}
+
 // tagAndRiders builds the saved compound and collects a boat's or cart's mob
 // riders under the kind's lock, released even if the kind's tag panics.
 func (e *entitySnapshot) tagAndRiders() (tag nbt.CompoundTag, w *world.World, riders []*mobEntity) {

@@ -26,6 +26,15 @@ type nbtPlace struct {
 	set func(nbt.Tag)
 }
 
+// hasRootMatch reports a leading {...} filter, which tests the whole root.
+func (p nbtPath) hasRootMatch() bool {
+	if len(p.nodes) == 0 {
+		return false
+	}
+	_, ok := p.nodes[0].(matchRootObjectNode)
+	return ok
+}
+
 // rootKey is the only root entry this path can edit, if it names one.
 func (p nbtPath) rootKey() (string, bool) {
 	nodes := p.nodes

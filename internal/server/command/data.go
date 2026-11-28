@@ -276,6 +276,12 @@ type DataTarget interface {
 	DataTag() (nbt.CompoundTag, bool)
 }
 
+// BaseDataTarget is a DataTarget that builds the one-entry compound of a
+// key such as Pos or UUID without its whole tag; false defers to DataTag.
+type BaseDataTarget interface {
+	BaseDataTag(key string) (nbt.CompoundTag, bool)
+}
+
 // DataWriter is a DataTarget the /data command can write back: the
 // compound loaded onto the live body. A target that is no DataWriter — a
 // player — refuses the write the way the command refuses a player's.
@@ -464,6 +470,15 @@ func (t dataTarget) readData(fn func(nbt.CompoundTag)) {
 // getTag snapshots only the tag at path before releasing the storage lock.
 func (t dataTarget) getTag(path nbtPath) (nbt.Tag, *pathError) {
 	if t.kind != dataTargetStorage {
+		if t.kind == dataTargetEntity {
+			if base, ok := t.entity.(BaseDataTarget); ok {
+				if key, scoped := path.rootKey(); scoped && !path.hasRootMatch() {
+					if data, ok := base.BaseDataTag(key); ok {
+						return getSingleTag(path, data)
+					}
+				}
+			}
+		}
 		return getSingleTag(path, t.getData())
 	}
 	var tag nbt.Tag
