@@ -310,7 +310,7 @@ func (w *World) savedLodestones(pos ChunkPos, ps []LodestonePos) (map[LodestoneP
 			if !ok {
 				continue
 			}
-			sy, _ := nbt.Get[nbt.Byte](sec, "Y")
+			sy, _ := nbt.ByteField(sec, "Y")
 			var asked []LodestonePos
 			for _, p := range ps {
 				if p.Y>>4 == int32(sy) {

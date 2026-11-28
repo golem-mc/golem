@@ -1035,3 +1035,38 @@ func TestChunkNBTUniformAndInvalidTickStates(t *testing.T) {
 		})
 	}
 }
+
+func TestChunkNBTReadsSectionYFromAnyNumericTag(t *testing.T) {
+	t.Parallel()
+	original := flatChunk(3, -7)
+	original.SetBlock(5, 5, 5, stoneState)
+	root, err := encodeChunkNBT(original)
+	if err != nil {
+		t.Fatalf("encodeChunkNBT: %v", err)
+	}
+	// An upgraded world stores later sections' Y as an int.
+	sections, _ := nbt.Get[nbt.List](root, "sections")
+	for _, item := range sections.Items {
+		sec := item.(nbt.Compound)
+		y, _ := nbt.ByteField(sec, "Y")
+		if y != 0 {
+			sec["Y"] = nbt.Int(y)
+		}
+	}
+	root["xPos"] = nbt.Short(3)
+	loaded, err := decodeChunkNBT(root)
+	if err != nil {
+		t.Fatalf("decodeChunkNBT: %v", err)
+	}
+	if loaded.X() != 3 {
+		t.Errorf("chunk x = %d, want 3", loaded.X())
+	}
+	for y := int32(0); y < 16; y++ {
+		if got, want := loaded.BlockAt(5, y, 5), original.BlockAt(5, y, 5); got != want {
+			t.Errorf("block at y %d = %d, want %d", y, got, want)
+		}
+	}
+	if loaded.BlockAt(5, 5, 5) != stoneState {
+		t.Error("the stone at y 5 is lost")
+	}
+}

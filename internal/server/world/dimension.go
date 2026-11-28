@@ -279,7 +279,7 @@ func (w *World) clipChunkNBT(root nbt.Compound) nbt.Compound {
 				kept = append(kept, item)
 				continue
 			}
-			y, ok := nbt.Get[nbt.Byte](sec, "Y")
+			y, ok := nbt.ByteField(sec, "Y")
 			if !ok || int32(y) < firstY || int32(y) >= lastY {
 				continue // outside the dimension's band, as a vanilla world never stores it
 			}
