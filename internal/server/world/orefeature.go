@@ -104,6 +104,7 @@ func (r *decorRegion) placeOre(p [3]int32, cfg *oreConfig) bool {
 	placed := false
 	var data [maxOreSize * 4]float64
 	n := int(size)
+	zStride := sizeXZ * sizeY
 	for i := range n {
 		step := float32(i) / float32(size)
 		ss := rng.NextDouble() * float64(size) / 16.0
@@ -127,6 +128,7 @@ func (r *decorRegion) placeOre(p [3]int32, cfg *oreConfig) bool {
 					data[i2*4+3] = -1
 				} else {
 					data[i1*4+3] = -1
+					break // every later dr is negative and only re-kills i1
 				}
 			}
 		}
@@ -152,22 +154,29 @@ func (r *decorRegion) placeOre(p [3]int32, cfg *oreConfig) bool {
 		xMax := max(int32(math.Floor(xx+rad)), xMin)
 		yMax := max(int32(math.Floor(yy+rad)), yMin)
 		zMax := max(int32(math.Floor(zz+rad)), zMin)
+		yMin = max(yMin, r.minY)
+		yMax = min(yMax, r.minY+r.height-1)
+		if yMin > yMax {
+			continue
+		}
 		for x := xMin; x <= xMax; x++ {
 			xd := (float64(x) + 0.5 - xx) / rad
-			if !(xd*xd < 1.0) {
+			xd2 := xd * xd
+			if !(xd2 < 1.0) {
 				continue
 			}
 			for y := yMin; y <= yMax; y++ {
 				yd := (float64(y) + 0.5 - yy) / rad
-				if !(xd*xd+yd*yd < 1.0) {
+				xy2 := xd2 + yd*yd
+				if !(xy2 < 1.0) {
 					continue
 				}
-				for z := zMin; z <= zMax; z++ {
+				idx := (x - xStart) + (y-yStart)*sizeXZ + (zMin-zStart)*zStride
+				for z := zMin; z <= zMax; z, idx = z+1, idx+zStride {
 					zd := (float64(z) + 0.5 - zz) / rad
-					if !(xd*xd+yd*yd+zd*zd < 1.0) || y < r.minY || y >= r.minY+r.height {
+					if !(xy2+zd*zd < 1.0) {
 						continue
 					}
-					idx := (x - xStart) + (y-yStart)*sizeXZ + (z-zStart)*sizeXZ*sizeY
 					if tested[idx] {
 						continue
 					}
