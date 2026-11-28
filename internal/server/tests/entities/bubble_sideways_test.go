@@ -34,6 +34,7 @@ func TestBodiesMovingSidewaysAreMovedByEachBubbleColumnLeg(t *testing.T) {
 	}
 	srv.RunLine(`summon minecraft:item 8.5 60 4.5 {Item:{id:"minecraft:stone",count:1},Motion:[0d,0.1d,0.6d]}`)
 	srv.RunLine("summon minecraft:tnt 8.5 60 4.5 {fuse:400s,Motion:[0d,0.1d,0.6d]}")
+	srv.RunLine(`summon minecraft:falling_block 8.5 60 4.5 {BlockState:{Name:"minecraft:sand"},Time:1,Motion:[0d,0.1d,0.6d]}`)
 	srv.RunLine("summon minecraft:armor_stand 8.5 60 4.5 {Motion:[0d,0.1d,0.6d]}")
 	srv.RunLine("summon minecraft:experience_orb 8.5 60 4.5 {Motion:[0d,0.1d,0.6d]}")
 	srv.RunLine("summon minecraft:minecart 8.5 60 4.5 {Motion:[0d,0.1d,0.6d]}")
@@ -66,6 +67,22 @@ func TestBodiesMovingSidewaysAreMovedByEachBubbleColumnLeg(t *testing.T) {
 	}
 	if vy, _ := srv.MinecartVelocityY(carts[0].ID); math.Abs(vy-0.7) > 1e-4 {
 		t.Errorf("derailed minecart after 2 ticks Motion[1] = %v, want 0.7 (cap)", vy)
+	}
+	if n := srv.FallingCount(); n != 1 {
+		t.Fatalf("falling blocks = %d, want one", n)
+	}
+	// Entity IDs are not known here; probe the ID range of the live block.
+	found := false
+	for id := int32(1); id < 200 && !found; id++ {
+		if vy, ok := srv.FallingBlockVelocityY(id); ok {
+			found = true
+			if math.Abs(vy-0.60172) > 1e-4 {
+				t.Errorf("falling block after 2 ticks Motion[1] = %v, want 0.60172", vy)
+			}
+		}
+	}
+	if !found {
+		t.Error("falling block not found")
 	}
 	tnts := srv.TNTsInDimension("minecraft:overworld")
 	if len(tnts) != 1 || math.Abs(tnts[0].VY-0.60172) > 1e-4 {
