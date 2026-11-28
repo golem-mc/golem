@@ -153,9 +153,9 @@ func (m *Mob) vexWant(x, y, z, pace float64) {
 	v.wanted, v.wx, v.wy, v.wz, v.pace = true, x, y, z, pace
 }
 
-// vexMoveStep is the vex's tick after its goals: the move control, the flight
-// through blocks and the life's countdown.
-// vanilla: Vex.tick, Vex.VexMoveControl.tick
+// vexMoveStep is the vex's tick after its goals: the move control and flight
+// through blocks.
+// vanilla: Vex.VexMoveControl.tick
 func (m *Mob) vexMoveStep(t *tickView) {
 	v := &m.vex
 	if v.wanted {
@@ -197,16 +197,23 @@ func (m *Mob) vexMoveStep(t *tickView) {
 		m.VY *= verticalDrag
 		m.VZ *= airDrag
 	}
+}
 
-	if v.limited {
-		v.lifeTicks--
-		if v.lifeTicks <= 0 {
-			v.lifeTicks = vexLifeBeat
-			if landed, soft := m.plainHurt(vexStarveDamage, rules.DamageTypeStarve, false); landed {
-				m.noteLastDamage(rules.DamageTypeStarve)
-				if !soft {
-					t.events = append(t.events, MobEvent{Mob: m, Kind: MobBurned, DamageType: rules.DamageTypeStarve})
-				}
+// vexLifeStep counts down a summoned vex's limited life and deals starvation
+// damage every beat once it runs out, including with NoAI.
+// vanilla: Vex.tick
+func (m *Mob) vexLifeStep(t *tickView) {
+	v := &m.vex
+	if !v.limited {
+		return
+	}
+	v.lifeTicks--
+	if v.lifeTicks <= 0 {
+		v.lifeTicks = vexLifeBeat
+		if landed, soft := m.plainHurt(vexStarveDamage, rules.DamageTypeStarve, false); landed {
+			m.noteLastDamage(rules.DamageTypeStarve)
+			if !soft {
+				t.events = append(t.events, MobEvent{Mob: m, Kind: MobBurned, DamageType: rules.DamageTypeStarve})
 			}
 		}
 	}

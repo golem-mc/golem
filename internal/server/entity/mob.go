@@ -5379,14 +5379,7 @@ func (m *Mob) tickInto(out []MobEvent, tick *tickView, w World, players []Player
 		// vanilla: LivingEntity.travelRidden
 		m.VX, m.VY, m.VZ = 0, 0, 0
 	}
-	// The ravager's countdowns, trample and roar run with NoAI too.
-	// vanilla: Ravager.aiStep
-	if m.Type == TypeRavager {
-		m.ravagerStep(tick)
-	}
-	if m.Type == TypeVillager {
-		m.villagerGossipStep(tick)
-	}
+	m.noAIStep(tick)
 	if wardenHeld && !m.NoAI && !seated {
 		m.stopSeeking()
 		events = m.step(w, events)
@@ -5713,6 +5706,26 @@ const (
 	ambientDie         = 1000
 	mobAmbientInterval = 80
 )
+
+// noAIStep runs the kind-specific countdowns and steps vanilla executes in
+// aiStep or tick even when NoAI is set.
+// vanilla: Ravager.aiStep, Villager.tick, GlowSquid.aiStep, Vex.tick, Bee.aiStep, Allay.aiStep
+func (m *Mob) noAIStep(t *tickView) {
+	switch m.Type {
+	case TypeRavager:
+		m.ravagerStep(t)
+	case TypeVillager:
+		m.villagerGossipStep(t)
+	case TypeGlowSquid:
+		m.glowSquidStep()
+	case TypeVex:
+		m.vexLifeStep(t)
+	case TypeBee:
+		m.beeAIStep(t)
+	case TypeAllay:
+		m.allayCooldownStep()
+	}
+}
 
 func (m *Mob) animalAIStep(t *tickView) {
 	if m.Type == TypePanda {

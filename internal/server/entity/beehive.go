@@ -160,24 +160,30 @@ func (m *Mob) setNectar(v bool) {
 	m.SetMetadataBeeNectar(v)
 }
 
-// beeMemoryStep is the countdowns of Bee.aiStep and customServerAiStep, and
-// the check that the hive and flower still stand.
-// vanilla: Bee.aiStep, Bee.customServerAiStep, Bee.ValidateFlowerGoal
-func (m *Mob) beeMemoryStep(t *tickView) {
+// beeAIStep is the part of Bee.aiStep that runs with NoAI too: the hive and
+// flower cooldowns and the every-20-ticks hive validity drop.
+// vanilla: Bee.aiStep
+func (m *Mob) beeAIStep(t *tickView) {
 	b := &m.bee.mem
 	b.stayOut = max(0, b.stayOut-1)
 	b.hiveCooldown = max(0, b.hiveCooldown-1)
 	b.flowerCooldown = max(0, b.flowerCooldown-1)
+	if m.Age%20 == 0 && b.hasHive && !m.beeHiveValid(t.w) {
+		b.hasHive = false
+	}
+}
+
+// beeMemoryStep is the AI-gated part of the bee's memory: counting ticks
+// without nectar and dropping an invalid remembered flower.
+// vanilla: Bee.customServerAiStep, Bee.ValidateFlowerGoal
+func (m *Mob) beeMemoryStep(t *tickView) {
+	b := &m.bee.mem
 	if !m.bee.nectar {
 		b.noNectar++
 	}
-	// vanilla: ValidateHiveGoal and ValidateFlowerGoal are BaseBeeGoals, so
-	// anger skips them
+	// vanilla: ValidateFlowerGoal is a BaseBeeGoal, so anger skips it.
 	if m.Age%20 != 0 || m.Angry() {
 		return
-	}
-	if b.hasHive && !m.beeHiveValid(t.w) {
-		b.hasHive = false
 	}
 	if b.hasFlower && !rules.BeeAttracts(t.w.BlockAt(b.flower[0], b.flower[1], b.flower[2])) {
 		m.dropFlower()

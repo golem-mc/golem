@@ -54,3 +54,62 @@ func TestANoAICowStandsStill(t *testing.T) {
 		}
 	}
 }
+
+// TestNoAIMobCountdowns holds the countdowns vanilla runs in aiStep / tick
+// rather than serverAiStep: glow squid dark ticks, vex limited life (including
+// starvation hurt), bee stay-out and hive validity drop, and allay duplication
+// cooldown all advance with NoAI, while AI-gated fields like bee
+// TicksSincePollination do not.
+// vanilla: GlowSquid.aiStep, Vex.tick, Bee.aiStep, Bee.customServerAiStep, Allay.aiStep
+func TestNoAIMobCountdowns(t *testing.T) {
+	t.Parallel()
+	srv, _ := servertest.Join(t, servertest.MobTestConfig(), "Watcher", func(s *server.Server) {
+		servertest.FreezeUntilHeld(t, s)
+	})
+	servertest.HoldTicks(t, srv)
+
+	for _, line := range []string{
+		`summon minecraft:glow_squid 2.5 64 2.5 {DarkTicksRemaining:50,NoAI:1b}`,
+		`summon minecraft:vex 4.5 64 2.5 {life_ticks:500,NoAI:1b}`,
+		`summon minecraft:vex 6.5 64 2.5 {life_ticks:5,NoAI:1b,Tags:["starving"]}`,
+		`summon minecraft:bee 8.5 64 2.5 {CannotEnterHiveTicks:400,hive_pos:[I;0,0,0],NoAI:1b}`,
+		`summon minecraft:allay 10.5 64 2.5 {DuplicationCooldown:300L,NoAI:1b}`,
+	} {
+		srv.RunLine(line)
+	}
+
+	servertest.RunTicks(t, srv, 30)
+
+	query := func(selector, path string) (string, bool) {
+		for _, text := range srv.RunLine("data get entity " + selector + " " + path) {
+			if text.Translate == "commands.data.entity.query" && len(text.With) == 2 {
+				return text.With[1].Plain(), true
+			}
+		}
+		return "", false
+	}
+
+	for _, tc := range []struct {
+		selector, path, want string
+	}{
+		{`@e[type=minecraft:glow_squid,limit=1]`, "DarkTicksRemaining", "20"},
+		{`@e[type=minecraft:vex,tag=!starving,limit=1]`, "life_ticks", "470"},
+		{`@e[type=minecraft:vex,tag=starving,limit=1]`, "life_ticks", "15"},
+		{`@e[type=minecraft:vex,tag=starving,limit=1]`, "Health", "12.0f"},
+		{`@e[type=minecraft:bee,limit=1]`, "CannotEnterHiveTicks", "370"},
+		{`@e[type=minecraft:bee,limit=1]`, "TicksSincePollination", "0"},
+		{`@e[type=minecraft:allay,limit=1]`, "DuplicationCooldown", "270L"},
+	} {
+		got, ok := query(tc.selector, tc.path)
+		if !ok {
+			t.Errorf("%s %s missing, want %s", tc.selector, tc.path, tc.want)
+			continue
+		}
+		if got != tc.want {
+			t.Errorf("%s %s = %s, want %s", tc.selector, tc.path, got, tc.want)
+		}
+	}
+	if got, ok := query(`@e[type=minecraft:bee,limit=1]`, "hive_pos"); ok {
+		t.Errorf("NoAI bee kept invalid hive_pos = %s, want dropped", got)
+	}
+}
