@@ -47,6 +47,8 @@ type fixtureEntity struct {
 // fixtureTracker tracks the fixtures, each at its kind's range. A fixture
 // moves only when teleported, and a dimension arrival shows none.
 var fixtureTracker = trackedKind[*fixtureEntity, struct{}]{
+	// Any fixture sets the cushions bit; a push that finds no cushion clears it.
+	pistonBit:        pistonCushions,
 	invalidatePiston: func(dim *dimension) { dim.pistons.fixtures.built = false },
 
 	rangeOf: func(ent *fixtureEntity) int { return entity.FixtureTrackingRange(ent.kind) },
@@ -83,9 +85,6 @@ func fixtureOfTag(s *Server, w *world.World, compound nbt.Compound) *fixtureEnti
 		identity = uuid.New()
 	}
 	yaw, pitch := entityRotationOfTag(compound)
-	if id == entity.FixtureCushion {
-		s.cushionsMade.Store(true)
-	}
 	ent := &fixtureEntity{
 		id: s.nextEntity(), w: w, uuid: identity, kind: string(id),
 		x: x, y: y, z: z, yaw: yaw, pitch: pitch,

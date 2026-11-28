@@ -295,6 +295,7 @@ func (s *Server) initDimension(d *dimension, followSpawn bool) error {
 	d.physics.SetVineSpreadRule(func() bool { return d.w.BoolRule(world.RuleSpreadVines) })
 	d.mobs = newMobHerd(d.w)
 	d.mobs.lootExtra = s.mobLootExtra
+	d.mobs.pistonPopulated = &s.pistonPopulated
 	d.w.SetSaveFailureHook(s.sendLowDiskSpaceWarning)
 	d.w.SetSignResolver(signResolver{s: s, w: d.w})
 	d.w.SetBookResolver(bookResolver{s: s, w: d.w})
