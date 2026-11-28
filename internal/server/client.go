@@ -18,6 +18,12 @@ func (c *client) writePacket(id int32, name string, data []byte) error {
 }
 
 func (c *client) writePacketCached(id int32, name string, data []byte, cached *protocol.CachedPacket) error {
+	return c.writePackets(name, []outbound{{id: id, data: data, shared: cached}})
+}
+
+// writePackets writes packets in one socket write, behind the mailbox's
+// queued packets when the client has joined and the mailbox is not held.
+func (c *client) writePackets(name string, packets []outbound) error {
 	var err error
 	if m := c.out; m != nil && c.joined() && !m.held.Load() {
 		m.writing.Lock()
@@ -26,20 +32,22 @@ func (c *client) writePacketCached(id int32, name string, data []byte, cached *p
 		m.queue = nil
 		m.queued = 0
 		m.mu.Unlock()
-		batch = append(batch, outbound{id: id, data: data, shared: cached})
-		err = c.conn.WritePacketsCached(len(batch), func(i int) (int32, []byte, *protocol.CachedPacket) {
-			return batch[i].id, batch[i].data, batch[i].shared
-		})
+		batch = append(batch, packets...)
+		err = c.writeOutbound(batch)
 		m.writing.Unlock()
-	} else if cached != nil {
-		err = c.conn.WriteCachedPacket(cached)
 	} else {
-		err = c.conn.WritePacket(id, data)
+		err = c.writeOutbound(packets)
 	}
 	if err != nil {
 		return fmt.Errorf("write %s: %w", name, err)
 	}
 	return nil
+}
+
+func (c *client) writeOutbound(batch []outbound) error {
+	return c.conn.WritePacketsCached(len(batch), func(i int) (int32, []byte, *protocol.CachedPacket) {
+		return batch[i].id, batch[i].data, batch[i].shared
+	})
 }
 
 // write builds a packet with build, writes it, and wraps errors with name.

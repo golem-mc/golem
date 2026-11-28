@@ -230,12 +230,10 @@ func (c *client) updateChunks() error {
 	c.center, c.radius, c.load, c.skipGen = center, radius, load, skip
 
 	// The centre must arrive before the chunks it is about.
-	if err := c.write(protocol.IDPlayCenterChunk, "set center chunk", func(b *protocol.Buffer) {
-		b.PutVarInt(center.X)
-		b.PutVarInt(center.Z)
-	}); err != nil {
-		return err
-	}
+	var cb protocol.Buffer
+	cb.PutVarInt(center.X)
+	cb.PutVarInt(center.Z)
+	out := []outbound{{id: protocol.IDPlayCenterChunk, data: cb.Bytes()}}
 
 	// Unload first so the client never holds both areas. Outside the load
 	// radius the chunk is released; outside only the send radius it stays held
@@ -248,16 +246,18 @@ func (c *client) updateChunks() error {
 			}
 			if c.sent.has(pos) && !world.InSendView(pos, center, radius) {
 				c.unmarkSent(pos)
-				if err := c.writeUnload(pos); err != nil {
-					return err
-				}
+				out = append(out, unloadPacket(pos))
 			}
 			continue
 		}
-		if err := c.unloadChunk(pos); err != nil {
-			return err
+		if c.unloadChunk(pos) {
+			out = append(out, unloadPacket(pos))
 		}
 		unloaded++
+	}
+	// One write: a packet per syscall costs about 7 µs each.
+	if err := c.writePackets("view move", out); err != nil {
+		return err
 	}
 
 	// Departures are gone before wrapping the window onto the new centre.
@@ -469,10 +469,13 @@ func (c *client) sendChunkBatch() error {
 	w := c.loadedWorld
 	batch := c.pendingSend[:size:size]
 
-	if err := c.writePacket(protocol.IDPlayChunkBatchStart, "chunk batch start", nil); err != nil {
-		return err
-	}
+	out := make([]outbound, 1, len(batch)+2)
+	out[0] = outbound{id: protocol.IDPlayChunkBatchStart}
 	if c.srv.chunkBatchSeam != nil {
+		if err := c.writePackets("chunk batch start", out); err != nil {
+			return err
+		}
+		out = out[:0]
 		c.srv.chunkBatchSeam()
 	}
 	sent := 0
@@ -482,23 +485,27 @@ func (c *client) sendChunkBatch() error {
 		// vanilla: PlayerChunkSender.sendNextChunks
 		c.markSent(pos)
 		chunk, _ := w.Acquire(pos)
-		err := c.writePacketCached(protocol.IDPlayChunkData, "chunk data", nil, w.CachedChunkPacket(chunk))
+		out = append(out, outbound{id: protocol.IDPlayChunkData, shared: w.CachedChunkPacket(chunk)})
 		c.releasePendingPacket(pos)
 		// Acquire only fetched the chunk to encode; the client's hold is the one
 		// the loaded set represents.
 		w.Release(pos)
-		if err != nil {
-			return err
-		}
 		sent++
 	}
 	if c.wakeBeforeBatch && len(c.generating) == 0 && len(c.pendingGeneration) == 0 && size == len(c.pendingSend) {
 		c.wakeBeforeBatch = false
+		// The chunks go out first; packets queued during the wait precede
+		// Batch Finished.
+		if err := c.writePackets("chunk batch", out); err != nil {
+			return err
+		}
+		out = out[:0]
 		c.srv.awaitTickEnds(2, joinWakeLimit)
 	}
-	if err := c.write(protocol.IDPlayChunkBatchFinished, "chunk batch finished", func(b *protocol.Buffer) {
-		b.PutVarInt(int32(sent))
-	}); err != nil {
+	var fb protocol.Buffer
+	fb.PutVarInt(int32(sent))
+	out = append(out, outbound{id: protocol.IDPlayChunkBatchFinished, data: fb.Bytes()})
+	if err := c.writePackets("chunk batch", out); err != nil {
 		return err
 	}
 	// Batch Finished has been written, so the chunks precede anything the tick
@@ -601,33 +608,29 @@ func (c *client) missingChunks() []world.ChunkPos {
 	return missing
 }
 
-// writeUnload tells the client to forget a chunk.
-func (c *client) writeUnload(pos world.ChunkPos) error {
-	return c.write(protocol.IDPlayUnloadChunk, "unload chunk", func(b *protocol.Buffer) {
-		// Z first: the client reads both as one big-endian long.
-		b.PutI32(pos.Z)
-		b.PutI32(pos.X)
-	})
+// unloadPacket is the packet telling the client to forget a chunk.
+func unloadPacket(pos world.ChunkPos) outbound {
+	var b protocol.Buffer
+	// Z first: the client reads both as one big-endian long.
+	b.PutI32(pos.Z)
+	b.PutI32(pos.X)
+	return outbound{id: protocol.IDPlayUnloadChunk, data: b.Bytes()}
 }
 
-// unloadChunk releases a chunk, telling the client to forget it only if it
-// was sent; load-radius-only holds were never the client's.
-func (c *client) unloadChunk(pos world.ChunkPos) error {
+// unloadChunk releases a chunk and reports whether the client must be told
+// to forget it: load-radius-only holds were never the client's.
+func (c *client) unloadChunk(pos world.ChunkPos) bool {
 	if request, ok := c.generating[pos]; ok {
 		request.Cancel()
 		delete(c.generating, pos)
 		c.loaded.delete(pos)
-		return nil
+		return false
 	}
 	wasSent := c.sent.has(pos)
 	c.unmarkSent(pos)
 	c.loaded.delete(pos)
 	c.loadedWorld.Release(pos)
-
-	if !wasSent {
-		return nil
-	}
-	return c.writeUnload(pos)
+	return wasSent
 }
 
 // forgetChunks releases every chunk the client held, on disconnect or
