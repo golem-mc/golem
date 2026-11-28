@@ -626,14 +626,9 @@ func runFunctionIn(src Source, input string, args []string, f *frame, cb storeFn
 	// sum, once all have run.
 	// vanilla: FunctionCommand.queueFunctionsNoReturn
 	inner := cb
-	var sum int32
-	var anyResult bool
+	var flush func(r *execRun)
 	if !ret && len(fns) > 1 && cb != nil {
-		inner = func(success bool, result int32) error {
-			anyResult = true
-			sum += result
-			return nil
-		}
+		inner, flush = sumResults(cb)
 	}
 	if ret {
 		inner = chainStores(cb, f.returnValue)
@@ -666,15 +661,8 @@ func runFunctionIn(src Source, input string, args []string, f *frame, cb storeFn
 		// vanilla: CallFunction, FallthroughTask
 		f.run.later(func(r *execRun) { callFunction(fsrc, inst, f, callback, ret) })
 	}
-	if !ret && len(fns) > 1 && cb != nil {
-		f.run.later(func(r *execRun) {
-			if !anyResult {
-				return
-			}
-			if err := cb(true, sum); err != nil {
-				r.fail(err)
-			}
-		})
+	if flush != nil {
+		f.run.later(flush)
 	}
 	if ret {
 		f.run.later(func(r *execRun) {
@@ -852,6 +840,28 @@ func functionArguments(src Source, input string, args []string) (nbt.Compound, e
 		arguments = nbt.Compound{}
 	}
 	return nbt.PlainCopy(arguments).(nbt.Compound), nil
+}
+
+// sumResults returns the callback each of several functions reports to and
+// the step, queued behind them, that hands cb their sum if any reported.
+// Kept apart so a single function allocates none of its state.
+func sumResults(cb storeFn) (each storeFn, flush func(*execRun)) {
+	var sum int32
+	var anyResult bool
+	each = func(success bool, result int32) error {
+		anyResult = true
+		sum += result
+		return nil
+	}
+	flush = func(r *execRun) {
+		if !anyResult {
+			return
+		}
+		if err := cb(true, sum); err != nil {
+			r.fail(err)
+		}
+	}
+	return each, flush
 }
 
 // callFunction starts fn's commands in a new frame under f, ret receiving
