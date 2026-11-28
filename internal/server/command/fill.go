@@ -230,7 +230,7 @@ func runFill(src Source, input string, args []string) (int32, error) {
 	if count == 0 {
 		return 0, refuse(src, fillFailedKey)
 	}
-	src.Info("region filled", "count", count,
+	src.Debug("region filled", "count", count,
 		"from", []int32{x0, y0, z0}, "to", []int32{x1, y1, z1}, "by", src.Name())
 	changed := int64(count)
 	return resultOf(int32(count), feedbackToAdmins(src, fillSuccessKey, protocol.Text{Number: &changed}))

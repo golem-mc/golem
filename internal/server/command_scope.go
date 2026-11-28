@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"errors"
 	"log/slog"
 	"math"
@@ -48,12 +49,14 @@ func (ws worldScope) summonReason() plugin.SpawnReason {
 	return plugin.SpawnCommand
 }
 
-// logSummon logs a summon the source made.
+// logSummon logs a summon the source made at Debug: a data pack summons every
+// tick, and vanilla writes nothing for it. The level is checked before the
+// arguments are built.
 func (ws worldScope) logSummon(msg string, args ...any) {
-	if ws.quiet {
+	if ws.quiet || !slog.Default().Enabled(context.Background(), slog.LevelDebug) {
 		return
 	}
-	slog.Info(msg, append(args, "by", ws.by().Name)...)
+	slog.Debug(msg, append(args, "by", ws.by().Name)...)
 }
 
 // OnlinePlayers returns every player's profile in player-list order, /list's
