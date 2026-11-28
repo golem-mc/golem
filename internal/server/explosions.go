@@ -756,25 +756,25 @@ func (s *Server) blastPushed(b blast, in *blastInputs, fx *blastEffects) {
 func (s *Server) blastDrifters(b blast, in *blastInputs, fx *blastEffects) {
 	s.fireworksMu.Lock()
 	for _, it := range s.fireworks {
-		if it.rocket.Dead || it.w != b.w {
+		r := it.rocket
+		if r.Dead || it.w != b.w {
 			continue
 		}
-		if dist, ok := in.at.Reach(it.rocket.X, it.rocket.Y, it.rocket.Z); ok {
-			hit := in.at.Hit(in.blocks, dist, it.rocket.BlastBox, it.rocket.EyePosition)
-			it.rocket.Push(hit.KX, hit.KY, hit.KZ)
-			queueMotion(fx, &it.bodyTrack, it.rocket.ID, it.rocket.VX, it.rocket.VY, it.rocket.VZ)
+		if hit, ok := in.pushAt(r.X, r.Y, r.Z, r.BlastBox, r.EyePosition); ok {
+			r.Push(hit.KX, hit.KY, hit.KZ)
+			queueMotion(fx, &it.bodyTrack, r.ID, r.VX, r.VY, r.VZ)
 		}
 	}
 	s.fireworksMu.Unlock()
 	s.eyesMu.Lock()
 	for _, it := range s.eyes {
-		if it.eye.Dead || it.w != b.w {
+		e := it.eye
+		if e.Dead || it.w != b.w {
 			continue
 		}
-		if dist, ok := in.at.Reach(it.eye.X, it.eye.Y, it.eye.Z); ok {
-			hit := in.at.Hit(in.blocks, dist, it.eye.BlastBox, it.eye.EyePosition)
-			it.eye.Push(hit.KX, hit.KY, hit.KZ)
-			queueMotion(fx, &it.bodyTrack, it.eye.ID, it.eye.VX, it.eye.VY, it.eye.VZ)
+		if hit, ok := in.pushAt(e.X, e.Y, e.Z, e.BlastBox, e.EyePosition); ok {
+			e.Push(hit.KX, hit.KY, hit.KZ)
+			queueMotion(fx, &it.bodyTrack, e.ID, e.VX, e.VY, e.VZ)
 		}
 	}
 	s.eyesMu.Unlock()
@@ -785,9 +785,10 @@ func (s *Server) blastDrifters(b blast, in *blastInputs, fx *blastEffects) {
 			continue
 		}
 		c := it.cloud
-		if dist, ok := in.at.Reach(c.X, c.Y, c.Z); ok {
-			hit := in.at.Hit(in.blocks, dist, func() (float64, float64, float64, float64, float64, float64) { return c.Box().Corners() },
-				func() (float64, float64, float64) { return c.X, c.Y + eyeOfHeight(0.5), c.Z })
+		hit, ok := in.pushAt(c.X, c.Y, c.Z,
+			func() (float64, float64, float64, float64, float64, float64) { return c.Box().Corners() },
+			func() (float64, float64, float64) { return c.X, c.Y + eyeOfHeight(0.5), c.Z })
+		if ok {
 			it.vx, it.vy, it.vz = it.vx+hit.KX, it.vy+hit.KY, it.vz+hit.KZ
 		}
 	}
@@ -799,12 +800,13 @@ func (s *Server) blastDrifters(b blast, in *blastInputs, fx *blastEffects) {
 		if f.Dead || it.w != b.w {
 			continue
 		}
-		if dist, ok := in.at.Reach(f.X, f.Y, f.Z); ok {
-			box := func() (float64, float64, float64, float64, float64, float64) {
+		hit, ok := in.pushAt(f.X, f.Y, f.Z,
+			func() (float64, float64, float64, float64, float64, float64) {
 				h := entity.FangsWidth / 2
 				return f.X - h, f.Y, f.Z - h, f.X + h, f.Y + entity.FangsHeight, f.Z + h
-			}
-			hit := in.at.Hit(in.blocks, dist, box, func() (float64, float64, float64) { return f.X, f.Y + eyeOfHeight(entity.FangsHeight), f.Z })
+			},
+			func() (float64, float64, float64) { return f.X, f.Y + eyeOfHeight(entity.FangsHeight), f.Z })
+		if ok {
 			it.vx, it.vy, it.vz = it.vx+hit.KX, it.vy+hit.KY, it.vz+hit.KZ
 		}
 	}
@@ -815,20 +817,28 @@ func (s *Server) blastDrifters(b blast, in *blastInputs, fx *blastEffects) {
 		if it.dead || it.w != b.w {
 			continue
 		}
-		if dist, ok := in.at.Reach(it.x, it.y, it.z); ok {
-			box := func() (float64, float64, float64, float64, float64, float64) {
-				return entity.FixtureBox(it.kind, it.tag, it.x, it.y, it.z)
-			}
-			eye := func() (float64, float64, float64) {
-				_, minY, _, _, maxY, _ := box()
-				return it.x, it.y + eyeOfHeight(maxY-minY), it.z
-			}
-			hit := in.at.Hit(in.blocks, dist, box, eye)
+		box := func() (float64, float64, float64, float64, float64, float64) {
+			return entity.FixtureBox(it.kind, it.tag, it.x, it.y, it.z)
+		}
+		hit, ok := in.pushAt(it.x, it.y, it.z, box, func() (float64, float64, float64) {
+			_, minY, _, _, maxY, _ := box()
+			return it.x, it.y + eyeOfHeight(maxY-minY), it.z
+		})
+		if ok {
 			vx, vy, vz := entityMotionOfTag(it.tag)
 			it.tag["Motion"] = vec3Tag(vx+hit.KX, vy+hit.KY, vz+hit.KZ)
 		}
 	}
 	s.fixturesMu.Unlock()
+}
+
+// pushAt measures a body at (x, y, z) when it is in reach of the blast.
+func (in *blastInputs) pushAt(x, y, z float64, box func() (float64, float64, float64, float64, float64, float64), eye func() (float64, float64, float64)) (rules.BlastHit, bool) {
+	dist, ok := in.at.Reach(x, y, z)
+	if !ok {
+		return rules.BlastHit{}, false
+	}
+	return in.at.Hit(in.blocks, dist, box, eye), true
 }
 
 // eyeOfHeight is the default eye height of a body height tall.
