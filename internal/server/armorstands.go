@@ -862,12 +862,9 @@ func trackStand(ent *armorStandEntity, watchers []trackingWatcher, near *nearbyP
 		if wh.c.theWorld() != ent.w {
 			continue
 		}
-		_, shown := ent.tracked.get(wh.c)
-		var told *toldBody[*armorStandMeta]
-		var seen bool
-		if unchanged(still, wh.changedAt, prevTick) {
-			told, seen = ent.tracked.get(wh.c)
-		} else {
+		told, shown := ent.tracked.get(wh.c)
+		seen := shown
+		if !unchanged(still, wh.changedAt, prevTick) {
 			told, seen = body.settle(wh.c, wh.x, wh.z, wh.chunkRadius, &out.trackSends)
 		}
 		if seen && shown {
