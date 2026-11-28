@@ -263,13 +263,16 @@ func TestAWitherTargetsANearerCowBeforeAFarPlayer(t *testing.T) {
 	}
 }
 
-// TestAWitherTargetsAPlayerBehindAWall: the target goal does not need sight
-// (mustSee false), so a player behind a wall in follow range is taken.
-// vanilla: WitherBoss.registerGoals
-func TestAWitherTargetsAPlayerBehindAWall(t *testing.T) {
+// TestAWitherDoesNotTargetAPlayerBehindAWall: finding a target needs sight
+// even with mustSee false, which only lets a found target be kept.
+// vanilla: WitherBoss.registerGoals, TargetingConditions.test
+func TestAWitherDoesNotTargetAPlayerBehindAWall(t *testing.T) {
 	t.Parallel()
 	srv, wither, player := witherNear(t, 20.5, func(srv *server.Server) {
 		srv.RunLine("fill 14 64 0 14 80 13 minecraft:stone")
 	})
-	servertest.UntilTicks(t, srv, 20, "the wither to target the player behind the wall", func() bool { return srv.MobTargetID(wither) == player })
+	servertest.RunTicks(t, srv, 60)
+	if got := srv.MobTargetID(wither); got == player {
+		t.Errorf("wither targets the player %d behind the wall", player)
+	}
 }
