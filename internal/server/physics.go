@@ -391,17 +391,7 @@ func (s *Server) setPistonGrid(dim *dimension, active bool) {
 	setTrackedPistonGrid(s, &fallingTracker, &dim.pistons.fallings, active)
 	setTrackedPistonGrid(s, &boatTracker, &dim.pistons.boats, active)
 	setTrackedPistonGrid(s, &standTracker, &dim.pistons.armorStands, active)
-	setBodyPistonGrid(s, &s.fixturesMu, &dim.pistons.fixtures, pistonCushions, active, func() bool {
-		if !s.cushionsMade.Load() {
-			return false
-		}
-		for _, ent := range s.fixtures {
-			if !ent.dead && ent.w == dim.w && ent.kind == entity.FixtureCushion {
-				return true
-			}
-		}
-		return false
-	})
+	setBodyPistonGrid(s, &s.fixturesMu, &dim.pistons.fixtures, pistonCushions, active, nil)
 	setTrackedPistonGrid(s, &minecartTracker, &dim.pistons.minecarts, active)
 	setTrackedPistonGrid(s, &endCrystalTracker, &dim.pistons.endCrystals, active)
 }

@@ -42,9 +42,7 @@ func TestPistonPopulatedMobsAndCushions(t *testing.T) {
 
 	// Creating a cushion mid-step must set pistonCushions so pushByPiston breaks it.
 	ent := fixtureOfTag(s, w, summonTag(nil, entity.FixtureCushion, 1.75, 64, 0.5))
-	s.fixturesMu.Lock()
-	s.fixtures = append(s.fixtures, ent)
-	s.fixturesMu.Unlock()
+	s.registerFixture(ent)
 	if s.pistonPopulated.Load()&pistonCushions == 0 {
 		t.Fatal("expected pistonCushions set after creating cushion")
 	}
@@ -56,9 +54,8 @@ func TestPistonPopulatedMobsAndCushions(t *testing.T) {
 		t.Fatal("expected cushion to be broken by piston push")
 	}
 
-	// Once all cushions in the dimension are dead, setPistonGrid clears the bit
-	// even though cushionsMade stays true.
-	s.setPistonGrid(dim, true)
+	// A push that finds no live cushion clears the bit.
+	s.pushByPiston(w, pp)
 	if s.pistonPopulated.Load()&pistonCushions != 0 {
 		t.Fatal("expected pistonCushions cleared once no live cushions remain")
 	}

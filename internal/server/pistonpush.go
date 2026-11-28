@@ -115,12 +115,16 @@ type bodyPistonGrids struct {
 }
 
 // setBodyPistonGrid toggles a kind's piston grid and, when turning it on,
-// refreshes its pistonPopulated bit under mu.
+// refreshes its pistonPopulated bit under mu; a nil populated leaves the bit to
+// the kind's own collector.
 func setBodyPistonGrid[B comparable](s *Server, mu *sync.Mutex, g *bodyPistonGrid[B], bit uint32, active bool, populated func() bool) {
 	mu.Lock()
 	defer mu.Unlock()
 	g.active, g.built = active, false
 	if active {
+		if populated == nil {
+			return
+		}
 		if populated() {
 			s.pistonPopulated.Or(bit)
 		} else {
@@ -493,9 +497,6 @@ func (s *Server) collectArmorStandsPistonPush(dim *dimension, pp *world.PistonPu
 // vanilla: BlockAttachedEntity.move
 func (s *Server) collectCushionsPistonPush(dim *dimension, pp *world.PistonPush) []func() {
 	w := dim.w
-	if !s.cushionsMade.Load() {
-		return nil
-	}
 	s.fixturesMu.Lock()
 	defer s.fixturesMu.Unlock()
 	var breaks []func()
@@ -509,6 +510,11 @@ func (s *Server) collectCushionsPistonPush(dim *dimension, pp *world.PistonPush)
 			breaks = append(breaks, func() { s.breakCushion(ent, cushionDrops) })
 		}
 	}
+	if len(breaks) == 0 && !s.anyCushionLocked() {
+		// Filing a fixture sets the bit under this lock; a push that finds
+		// no cushion clears it.
+		s.pistonPopulated.And(^pistonCushions)
+	}
 	if len(breaks) > 0 {
 		g.built = false
 	} else if g.active && !g.built && len(s.fixtures) > 0 {
@@ -518,6 +524,17 @@ func (s *Server) collectCushionsPistonPush(dim *dimension, pp *world.PistonPush)
 			})
 	}
 	return breaks
+}
+
+// anyCushionLocked reports whether any fixture is a live cushion; the fixtures
+// lock is held.
+func (s *Server) anyCushionLocked() bool {
+	for _, ent := range s.fixtures {
+		if !ent.dead && ent.kind == entity.FixtureCushion {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *Server) collectMinecartsPistonPush(dim *dimension, pp *world.PistonPush) []func() {
