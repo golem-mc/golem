@@ -183,6 +183,11 @@ func (g *frogTongueGoal) prey(t *tickView) *Mob {
 // vanilla: ShootTongue.checkExtraStartConditions, canPathfindToTarget
 func (g *frogTongueGoal) CanStart(t *tickView) bool {
 	m, f := g.m, &g.m.frog
+	// A running croak or stroll (WALK_TARGET present) finishes first; the
+	// target is kept for afterwards.
+	if f.croaking || !m.navDone() {
+		return false
+	}
 	o := g.prey(t)
 	if o == nil || !frogCanEat(o) || m.InLove > 0 || m.panicking() {
 		g.m.SetMetadataFrogTarget(0)

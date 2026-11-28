@@ -138,3 +138,25 @@ func TestFrogspawnLayingRequiresOpenSourceWater(t *testing.T) {
 		})
 	}
 }
+
+func TestFrogTongueWaitsForCroakAndStroll(t *testing.T) {
+	m, o, v := frogScene(t)
+	g := &frogTongueGoal{m: m}
+	m.frog.target = o.ID
+	m.frog.croaking = true
+	if g.CanStart(v) || m.frog.target != o.ID {
+		t.Fatal("tongue started during croak or dropped its target")
+	}
+	m.frog.croaking = false
+	m.seekTo(v.w, -5.5, 64, 0.5, 1, 0)
+	if m.navDone() {
+		t.Fatal("no stroll path")
+	}
+	if g.CanStart(v) || m.frog.target != o.ID {
+		t.Fatal("tongue started during stroll")
+	}
+	m.stopSeeking()
+	if !g.CanStart(v) {
+		t.Fatal("tongue refused when idle")
+	}
+}
