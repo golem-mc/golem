@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"strconv"
 
-	"github.com/golem-mc/golem/internal/commandsyntax"
 	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/internal/server/command"
 	"github.com/golem-mc/golem/plugin"
@@ -22,14 +21,7 @@ func pluginArgumentNode(a plugin.Argument) (*command.Node, error) {
 		var id int32
 		switch mode {
 		case "word":
-			n.Check = func(word string) *command.ParseError {
-				for i := range len(word) {
-					if !commandsyntax.IsAllowedInUnquotedString(word[i]) {
-						return &command.ParseError{Key: "command.expected.separator", Cursor: i}
-					}
-				}
-				return nil
-			}
+			// id = 0; walkNode enforces single-word characters.
 		case "quotable":
 			n.Quotable, id = true, 1
 		case "greedy":
