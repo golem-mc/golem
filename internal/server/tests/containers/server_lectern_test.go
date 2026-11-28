@@ -256,3 +256,144 @@ func TestAnAdventurePlayerTurnsPagesButCannotTakeTheBook(t *testing.T) {
 	w.ClickButton(lecternNextPage)
 	w.AwaitWindowProperty(0, 1)
 }
+
+// lecternWithBookData builds a lectern item carrying block_entity_data with a
+// two-page written book on page 1.
+func lecternWithBookData(t *testing.T) protocol.ItemStack {
+	t.Helper()
+	stack := servertest.ItemStack(t, "minecraft:lectern", 1)
+	data := nbt.Compound{
+		"Book": nbt.Compound{
+			"id":    nbt.String("minecraft:written_book"),
+			"count": nbt.Int(1),
+			"components": nbt.Compound{
+				"minecraft:written_book_content": nbt.Compound{
+					"title":  nbt.Compound{"raw": nbt.String("t")},
+					"author": nbt.String("a"),
+					"pages": nbt.List{
+						Elem: nbt.TypeCompound,
+						Items: []nbt.Tag{
+							nbt.Compound{"raw": nbt.String("hello")},
+							nbt.Compound{"raw": nbt.String("world")},
+						},
+					},
+				},
+			},
+		},
+		"Page": nbt.Int(1),
+	}
+	if !stack.SetBlockEntityData(protocol.BlockEntityLectern, data) {
+		t.Fatal("SetBlockEntityData refused the lectern")
+	}
+	return stack
+}
+
+// TestPlacingALecternWithBookDataSetsHasBook checks LecternBlock.getStateForPlacement:
+// a gamemaster placing a lectern with block_entity_data containing Book sets
+// has_book=true so the book is visible and can be opened; a non-operator, a
+// survival operator, or data without Book leaves has_book=false, and an
+// explicit block_state component overrides it.
+func TestPlacingALecternWithBookDataSetsHasBook(t *testing.T) {
+	t.Parallel()
+	lecternItem := lecternWithBookData(t)
+
+	startOp := func(t *testing.T) (*server.Server, *servertest.WindowedClient) {
+		t.Helper()
+		srv, connect := servertest.Start(t, servertest.BlockTestConfig(), servertest.OpsListing(t, "Testificate"))
+		return srv, servertest.WindowedOf(t, "Testificate", connect())
+	}
+
+	t.Run("gamemaster", func(t *testing.T) {
+		t.Parallel()
+		srv, w := startOp(t)
+		srv.GiveSlot("Testificate", player.HotbarSlot, lecternItem)
+		w.Settle()
+
+		w.PlaceBlock(4, 63, 0, protocol.FaceTop)
+		w.ExpectBlockAck()
+		w.Settle()
+
+		if props := lecternProps(t, srv); props["has_book"] != "true" {
+			t.Fatalf("placed lectern props = %v, want has_book=true", props)
+		}
+		w.UseBlock(4, 64, 0)
+		slots := w.ExpectContainerOpen(protocol.MenuLectern, false, 4, 64, 0)
+		if len(slots) != 1 || slots[0].ItemID != servertest.ItemID(t, "minecraft:written_book") {
+			t.Fatalf("lectern window holds %+v, want the written book", slots)
+		}
+		w.AwaitWindowProperty(0, 1)
+	})
+
+	t.Run("gamemaster_without_book", func(t *testing.T) {
+		t.Parallel()
+		srv, w := startOp(t)
+		noBook := servertest.ItemStack(t, "minecraft:lectern", 1)
+		if !noBook.SetBlockEntityData(protocol.BlockEntityLectern, nbt.Compound{"Page": nbt.Int(0)}) {
+			t.Fatal("SetBlockEntityData refused the lectern")
+		}
+		srv.GiveSlot("Testificate", player.HotbarSlot, noBook)
+		w.Settle()
+
+		w.PlaceBlock(4, 63, 0, protocol.FaceTop)
+		w.ExpectBlockAck()
+		w.Settle()
+
+		if props := lecternProps(t, srv); props["has_book"] != "false" {
+			t.Fatalf("placed lectern without Book props = %v, want has_book=false", props)
+		}
+	})
+
+	t.Run("block_state_override", func(t *testing.T) {
+		t.Parallel()
+		srv, w := startOp(t)
+		overridden := lecternWithBookData(t)
+		overridden.SetBlockStateProperties(map[string]string{"has_book": "false"})
+		srv.GiveSlot("Testificate", player.HotbarSlot, overridden)
+		w.Settle()
+
+		w.PlaceBlock(4, 63, 0, protocol.FaceTop)
+		w.ExpectBlockAck()
+		w.Settle()
+
+		if props := lecternProps(t, srv); props["has_book"] != "false" {
+			t.Fatalf("placed lectern with block_state override props = %v, want has_book=false", props)
+		}
+	})
+
+	t.Run("non_operator", func(t *testing.T) {
+		t.Parallel()
+		srv, w := servertest.OpenWindowed(t, servertest.BlockTestConfig())
+		srv.GiveSlot("Testificate", player.HotbarSlot, lecternItem)
+		w.Settle()
+
+		w.PlaceBlock(4, 63, 0, protocol.FaceTop)
+		w.ExpectBlockAck()
+		w.Settle()
+
+		if props := lecternProps(t, srv); props["has_book"] != "false" {
+			t.Fatalf("non-op placed lectern props = %v, want has_book=false", props)
+		}
+		if tag, ok := srv.BlockEntityTagAt(4, 64, 0); ok {
+			if _, has := tag["Book"]; has {
+				t.Errorf("non-op placed lectern kept Book in block entity: %v", tag)
+			}
+		}
+	})
+
+	t.Run("survival_operator", func(t *testing.T) {
+		t.Parallel()
+		srv, w := startOp(t)
+		w.ChatCommand("gamemode survival")
+		w.Settle()
+		srv.GiveSlot("Testificate", player.HotbarSlot, lecternItem)
+		w.Settle()
+
+		w.PlaceBlock(4, 63, 0, protocol.FaceTop)
+		w.ExpectBlockAck()
+		w.Settle()
+
+		if props := lecternProps(t, srv); props["has_book"] != "false" {
+			t.Fatalf("survival-op placed lectern props = %v, want has_book=false", props)
+		}
+	})
+}
