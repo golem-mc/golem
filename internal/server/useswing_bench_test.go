@@ -5,6 +5,7 @@ import (
 
 	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/internal/server/player"
+	"github.com/golem-mc/golem/internal/server/rules"
 	"github.com/golem-mc/golem/internal/server/world"
 	"github.com/golem-mc/golem/registry"
 	"github.com/google/uuid"
@@ -84,6 +85,36 @@ func benchUseItemOnLever(b *testing.B, punch bool) {
 			c.out.queue = c.out.queue[:0]
 			c.out.queued = 0
 			c.out.mu.Unlock()
+		}
+	}
+}
+
+// BenchmarkUseItemOnPlainBlock runs the block-use chain for a held block on a
+// block no entry of the chain handles.
+func BenchmarkUseItemOnPlainBlock(b *testing.B) {
+	s, w := newCommandBenchServer(b, 0)
+	p := &player.Player{UUID: uuid.New(), EntityID: s.nextEntity()}
+	p.SetPosition(player.Position{X: 2.5, Y: float64(world.GroundLevel), Z: 4.5})
+	c := &client{srv: s, player: p, sentViewWorld: w, sentView: newChunkSet(world.ChunkPos{}, 2)}
+	c.sentView.add(world.ChunkPos{})
+	c.dim.Store(s.allDims()[0])
+	c.out = &mailbox{c: c, wake: make(chan struct{}, 1)}
+	s.assignPlayerSlot(c)
+	s.clients[p.UUID] = c
+	b.Cleanup(func() {
+		s.relightWG.Wait()
+		s.mu.Lock()
+		clear(s.clients)
+		s.mu.Unlock()
+	})
+	p.Inventory(func(inv *player.Inventory) {
+		inv.Slots[player.HotbarSlot] = protocol.ItemStack{ItemID: int32(registry.ItemStone), Count: 64}
+	})
+	b.ReportAllocs()
+	b.ResetTimer()
+	for range b.N {
+		if c.useItemOnBlock(protocol.HandMain, 4, world.GroundLevel-1, 4, rules.PlacementContext{}) {
+			b.Fatal("plain block was used")
 		}
 	}
 }
