@@ -971,18 +971,22 @@ func (p *Physics) NotifyTemplatePlaced(x, y, z int32, oldState uint16) ([]BlockC
 }
 
 // NotifyTemplateShapes is the shape pass of a template cell, run once every
-// cell is placed and before the neighbour updates.
-// vanilla: StructureTemplate.placeInWorld
+// cell is placed and before the neighbour updates: the neighbour shape pass
+// when the state changed, and the cell's own updateFromNeighbourShapes from
+// all six sides.
+// vanilla: StructureTemplate.placeInWorld, Block.updateFromNeighbourShapes
 func (p *Physics) NotifyTemplateShapes(x, y, z int32, oldState uint16) ([]BlockChange, []Effect, []TNTPrime) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	newState := p.w.BlockAt(x, y, z)
-	if oldState == newState {
-		return nil, nil, nil
-	}
 	var changes []BlockChange
 	p.physicsAsked = nil
-	p.shapePass(x, y, z, oldState, newState, &changes)
+	if oldState != newState {
+		p.shapePass(x, y, z, oldState, newState, &changes)
+	}
+	for _, d := range updateShapeOrder {
+		p.shapeUpdate(x, y, z, [3]int32{-d[0], -d[1], -d[2]}, &changes)
+	}
 	effects, primes := p.takeWake()
 	return changes, effects, primes
 }
