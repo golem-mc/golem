@@ -365,17 +365,7 @@ func BenchmarkStaticTracking(b *testing.B) {
 			b.Cleanup(func() { slog.SetDefault(logger) })
 			s, _ := newTrackerBenchServer(b)
 			dim := s.allDims()[0]
-			s.mu.Lock()
-			for i := trackerBenchWatchers; i < n; i++ {
-				p := &player.Player{UUID: uuid.New(), EntityID: s.nextEntity()}
-				p.SetPosition(player.Position{X: float64(i%8)*10 - 35, Y: float64(world.GroundLevel), Z: float64(i/8)*10 - 35})
-				c := &client{srv: s, player: p}
-				c.dim.Store(dim)
-				c.worldScope = worldScope{srv: s, in: c.dimension, by: c.Profile}
-				s.assignPlayerSlot(c)
-				s.clients[p.UUID] = c
-			}
-			s.mu.Unlock()
+			addFloorWatchers(s, dim, n)
 			for i := range 2000 {
 				x, z := float64(i%45)*2-45, float64(i/45)*2-45
 				s.RunRconLine(fmt.Sprintf("summon block_display %g %d %g", x, world.GroundLevel, z))
@@ -391,6 +381,21 @@ func BenchmarkStaticTracking(b *testing.B) {
 				s.tickFixtureTracking()
 			}
 		})
+	}
+}
+
+// addFloorWatchers raises the players to n, spread over the floor.
+func addFloorWatchers(s *Server, dim *dimension, n int) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for i := trackerBenchWatchers; i < n; i++ {
+		p := &player.Player{UUID: uuid.New(), EntityID: s.nextEntity()}
+		p.SetPosition(player.Position{X: float64(i%8)*10 - 35, Y: float64(world.GroundLevel), Z: float64(i/8)*10 - 35})
+		c := &client{srv: s, player: p}
+		c.dim.Store(dim)
+		c.worldScope = worldScope{srv: s, in: c.dimension, by: c.Profile}
+		s.assignPlayerSlot(c)
+		s.clients[p.UUID] = c
 	}
 }
 
@@ -420,5 +425,60 @@ func BenchmarkObstructedCrowded(b *testing.B) {
 		if s.obstructed(w, 40, world.GroundLevel+3, 40, stone) {
 			b.Fatal("empty cell obstructed")
 		}
+	}
+}
+
+// BenchmarkWalkingTracking is a tick of 2000 bodies on a floor with 64
+// players walking 0.2 blocks a tick back and forth over 8 blocks.
+func BenchmarkWalkingTracking(b *testing.B) {
+	kinds := []struct {
+		name, summon string
+		tick         func(*Server)
+	}{
+		{"block_display", "block_display %g %d %g", (*Server).tickFixtureTracking},
+		{"armor_stand", "armor_stand %g %d %g {NoGravity:1b}", (*Server).tickArmorStands},
+	}
+	for _, kind := range kinds {
+		b.Run(kind.name+"/64", func(b *testing.B) {
+			logger := slog.Default()
+			slog.SetDefault(slog.New(slog.DiscardHandler))
+			b.Cleanup(func() { slog.SetDefault(logger) })
+			s, _ := newTrackerBenchServer(b)
+			dim := s.allDims()[0]
+			addFloorWatchers(s, dim, 64)
+			for i := range 2000 {
+				x, z := float64(i%45)*2-45, float64(i/45)*2-45
+				s.RunRconLine(fmt.Sprintf("summon "+kind.summon, x, world.GroundLevel, z))
+			}
+			s.mu.RLock()
+			var players []*player.Player
+			var homes []float64
+			for _, c := range s.clients {
+				players = append(players, c.player)
+				homes = append(homes, c.player.Position().X)
+			}
+			s.mu.RUnlock()
+			step := 0
+			walk := func() {
+				s.ticksRun.Add(1)
+				// Triangle wave: 40 steps of 0.2 out, 40 back.
+				d := 0.2 * float64(min(step%80, 80-step%80))
+				step++
+				for i, p := range players {
+					pos := p.Position()
+					pos.X = homes[i] + d
+					p.SetPosition(pos)
+				}
+				kind.tick(s)
+			}
+			for range 20 {
+				walk()
+			}
+			b.ReportAllocs()
+			b.ResetTimer()
+			for b.Loop() {
+				walk()
+			}
+		})
 	}
 }

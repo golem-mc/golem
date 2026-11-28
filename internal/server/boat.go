@@ -304,13 +304,13 @@ func (s *Server) tickBoats() {
 		s.restoreBoatLeashes(waitHulls, leashWaits)
 	}
 
+	tick, pct := s.trackingTick(), s.entityBroadcastRange.Load()
 	watchers := make(map[*world.World][]trackingWatcher)
 	for _, c := range clients {
 		if c.player == nil {
 			continue
 		}
-		pos := c.player.Position()
-		watchers[c.theWorld()] = append(watchers[c.theWorld()], trackingWatcher{c: c, x: pos.X, z: pos.Z, chunkRadius: c.chunkRadius()})
+		watchers[c.theWorld()] = append(watchers[c.theWorld()], newTrackingWatcher(c, tick, pct))
 	}
 	near := nearbyWorlds(watchers, func(w trackingWatcher) trackingWatcher { return w })
 	defer releaseNearbyWorlds(near)
@@ -413,15 +413,7 @@ func (s *Server) tickBoats() {
 		if !runs && it.driver() == nil {
 			// The frozen world holds this hull where it stands, but its
 			// tracking still settles.
-			body := boatTracker.body(it)
-			for _, i := range body.watchers(near[it.w]) {
-				wh := watchers[it.w][i]
-				c := wh.c
-				if c.theWorld() != it.w {
-					continue // crossed to another dimension since the snapshot
-				}
-				body.settle(c, wh.x, wh.z, wh.chunkRadius, &fx.out)
-			}
+			settleFrozenBoat(it, watchers[it.w], near[it.w], tick, &fx.out)
 			alive = append(alive, it)
 			continue
 		}
@@ -567,6 +559,7 @@ func (s *Server) tickBoats() {
 		}
 		mt := body.schedule(bounced)
 		now := boatShownOf(it)
+		still, prevTick := body.stillSince(tick)
 		for _, i := range body.watchers(near[it.w]) {
 			wh := watchers[it.w][i]
 			c := wh.c
@@ -581,7 +574,7 @@ func (s *Server) tickBoats() {
 			if p, ok := it.tracked.get(c); ok {
 				was = *p
 			}
-			rec, seen := body.settle(c, wh.x, wh.z, wh.chunkRadius, &fx.out)
+			rec, seen := body.settleOrTold(wh, still, prevTick, &fx.out)
 			if !seen {
 				continue
 			}
@@ -2789,4 +2782,17 @@ func (s *Server) boatsIn(w *world.World, minX, minY, minZ, maxX, maxY, maxZ floa
 		}
 	}
 	return in
+}
+
+// settleFrozenBoat settles the watchers of a hull a frozen world holds.
+func settleFrozenBoat(it *boatEntity, watchers []trackingWatcher, near *nearbyPlayers, tick uint64, out *trackSends) {
+	body := boatTracker.body(it)
+	still, prevTick := body.stillSince(tick)
+	for _, i := range body.watchers(near) {
+		wh := watchers[i]
+		if wh.c.theWorld() != it.w {
+			continue // crossed to another dimension since the snapshot
+		}
+		body.settleOrTold(wh, still, prevTick, out)
+	}
 }

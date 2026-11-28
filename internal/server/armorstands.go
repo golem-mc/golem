@@ -842,12 +842,13 @@ func (o *standSends) send() {
 
 // trackStand settles every watcher's view of one stand and tells each one
 // already shown where it went and which metadata changed. The stands lock is held.
-func trackStand(ent *armorStandEntity, watchers []trackingWatcher, near *nearbyPlayers, out *standSends) {
+func trackStand(ent *armorStandEntity, watchers []trackingWatcher, near *nearbyPlayers, tick uint64, out *standSends) {
 	body := standTracker.body(ent)
 	now := armorStandMetaOf(ent)
 	// A changed synched value asks for a movement tick off the period.
 	// vanilla: ServerEntity.sendChanges (SynchedEntityData.isDirty)
-	if ent.metaSeen != nil && ent.metaSeen != now {
+	metaChanged := ent.metaSeen != now
+	if ent.metaSeen != nil && metaChanged {
 		ent.needsSync = true
 	}
 	ent.metaSeen = now
@@ -856,13 +857,24 @@ func trackStand(ent *armorStandEntity, watchers []trackingWatcher, near *nearbyP
 	if dirty := ent.stand.Attributes().TakeDirty(); len(dirty) != 0 {
 		attributes = attributesPayload(body.id, dirty)
 	}
-	for _, i := range body.watchers(near) {
+	still, prevTick := body.stillSince(tick)
+	listed := body.watchers(near)
+	// Every shown watcher already holds this metadata and position, and no
+	// movement is due: nothing is left to tell or settle.
+	if still && !metaChanged && !mt.gate && attributes == nil && !watchersChanged(watchers, listed, prevTick) {
+		return
+	}
+	for _, i := range listed {
 		wh := watchers[i]
 		if wh.c.theWorld() != ent.w {
 			continue
 		}
-		_, shown := ent.tracked.get(wh.c)
-		if told, seen := body.settle(wh.c, wh.x, wh.z, wh.chunkRadius, &out.trackSends); seen && shown {
+		told, shown := ent.tracked.get(wh.c)
+		seen := shown
+		if !unchanged(still, wh.changedAt, prevTick) {
+			told, seen = body.settle(wh.c, wh.x, wh.z, wh.chunkRadius, &out.trackSends)
+		}
+		if seen && shown {
 			if mt.gate {
 				standMove(&body, told, wh.c, mt, out)
 			}
@@ -878,6 +890,17 @@ func trackStand(ent *armorStandEntity, watchers []trackingWatcher, near *nearbyP
 			}
 		}
 	}
+}
+
+// watchersChanged reports whether any listed watcher read different inputs
+// since the pass of tick prevTick.
+func watchersChanged(watchers []trackingWatcher, listed []int, prevTick uint64) bool {
+	for _, i := range listed {
+		if !unchanged(true, watchers[i].changedAt, prevTick) {
+			return true
+		}
+	}
+	return false
 }
 
 // standMove tells one watcher where the stand went: a relative move when the
@@ -902,7 +925,7 @@ func (s *Server) tickArmorStandTracking(watchers []trackingWatcher) {
 	s.lockTick(&s.armorStandsMu)
 	for _, ent := range s.armorStands {
 		if !ent.stand.Dead {
-			trackStand(ent, watchers, near, &out)
+			trackStand(ent, watchers, near, s.trackingTick(), &out)
 		}
 	}
 	s.unlockTick(&s.armorStandsMu)
@@ -943,7 +966,7 @@ func (s *Server) tickArmorStands() {
 		// Tracking runs before the step, so a gate tells the pose the last
 		// tick left, a /tp's included.
 		// vanilla: ServerChunkCache.tick, ServerLevel.tick
-		trackStand(ent, watchers, near, &out)
+		trackStand(ent, watchers, near, s.trackingTick(), &out)
 		// The portal pass runs ahead of the step, as for items; only a stand
 		// with physics is inside a block. vanilla: ArmorStand.hasPhysics
 		state := airBlockState
