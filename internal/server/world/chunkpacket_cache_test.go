@@ -66,14 +66,14 @@ func TestChunkPacketCacheInvalidation(t *testing.T) {
 			chest.Use(func(be *BlockEntity) { be.Put(0, protocol.ItemStack{ItemID: int32(registry.ItemDiamond), Count: 1}) })
 			check("container contents stay off the wire", false)
 			w.mu.Lock()
-			c.carriedBlockEntities = nbt.List{Elem: nbt.TypeCompound, Items: []nbt.Tag{nbt.Compound{
+			c.setCarriedBlockEntity(nbt.Compound{
 				"id": nbt.String("minecraft:banner"), "x": nbt.Int(8), "y": nbt.Int(70), "z": nbt.Int(9),
 				"CustomName": nbt.String(`"Carried"`),
-			}}}
+			})
 			w.mu.Unlock()
 			check("carried entity", true)
 			w.mu.Lock()
-			c.carriedBlockEntities = nbt.List{Elem: nbt.TypeCompound}
+			c.removeCarriedBlockEntity(8, 70, 9)
 			w.mu.Unlock()
 			check("removed carried entity", true)
 			// Model a neighbouring relight publishing a fresh immutable array,
@@ -137,4 +137,23 @@ func TestChunkPacketCacheHitAllocations(t *testing.T) {
 		w.EnsureBlockEntity(x, GroundLevel, z, KindChest)
 	}
 	check("10blockentities", 0)
+	for i := range int32(4) {
+		w.SetBlock(i, GroundLevel+1, 5, registry.BlockCampfire.DefaultState())
+		w.EnsureBlockEntity(i, GroundLevel+1, 5, KindCampfire).Use(func(be *BlockEntity) {
+			for slot := range be.Slots {
+				be.Slots[slot] = protocol.ItemStack{
+					ItemID: int32(registry.ItemPorkchop), Count: 1, GlintOverride: protocol.GlintHidden,
+				}
+			}
+		})
+	}
+	check("4campfiresglint", 0)
+	p := NewPhysics(w)
+	ride := movingPistonStateOf(dirEast, false)
+	dirt := registry.BlockDirt.DefaultState()
+	for i := range int32(4) {
+		w.SetBlock(i, GroundLevel+1, 7, ride)
+		p.pistonRideCreate([3]int32{i, GroundLevel + 1, 7}, ride, dirt, dirEast, true, false)
+	}
+	check("4pistonrides", 0)
 }

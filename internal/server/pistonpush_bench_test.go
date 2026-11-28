@@ -108,14 +108,14 @@ func BenchmarkPistonPushFixtures(b *testing.B) {
 			w.SetBoolRule(world.RuleEntityDrops, false)
 			kinds := []string{entity.FixtureBlockDisplay, entity.FixtureItemDisplay, entity.FixtureTextDisplay, entity.FixtureMarker}
 			for i := range 256 {
-				s.fixtures = append(s.fixtures, fixtureOfTag(s, w, summonTag(nil, kinds[i%len(kinds)], float64(i%16)+0.5, 70, float64(i/16)+0.5)))
+				s.registerFixture(fixtureOfTag(s, w, summonTag(nil, kinds[i%len(kinds)], float64(i%16)+0.5, 70, float64(i/16)+0.5)))
 			}
-			s.fixtures = append(s.fixtures, fixtureOfTag(s, w, summonTag(nbt.Compound{"width": nbt.Float(1024), "height": nbt.Float(1)}, entity.FixtureInteraction, 1.75, 64, 0.5)))
+			s.registerFixture(fixtureOfTag(s, w, summonTag(nbt.Compound{"width": nbt.Float(1024), "height": nbt.Float(1)}, entity.FixtureInteraction, 1.75, 64, 0.5)))
 			var cushions []*fixtureEntity
 			for i := range bc.cushions {
 				ent := fixtureOfTag(s, w, summonTag(nil, entity.FixtureCushion, bc.x, 64+float64(i)*0.25, 0.5))
 				cushions = append(cushions, ent)
-				s.fixtures = append(s.fixtures, ent)
+				s.registerFixture(ent)
 			}
 			pp := &world.PistonPush{X: 1, Y: 64, Z: 0, Dir: 5, Progress: 0.5, Extending: true, Bounce: true, Boxes: []world.CollisionBox{{MinX: 0, MinY: 0, MinZ: 0, MaxX: 1, MaxY: 1, MaxZ: 1}}}
 			s.setPistonGrid(s.allDims()[0], true)
@@ -123,11 +123,19 @@ func BenchmarkPistonPushFixtures(b *testing.B) {
 			b.ResetTimer()
 			for range b.N {
 				s.pushByPiston(w, pp)
+				broken := 0
 				for _, ent := range cushions {
 					if ent.dead {
+						broken++
 						ent.dead = false
+						s.fixturesMu.Lock()
 						s.fixtures = append(s.fixtures, ent)
+						s.pistonPopulated.Or(pistonCushions)
+						s.fixturesMu.Unlock()
 					}
+				}
+				if bc.name == "sweep" && broken != len(cushions) {
+					b.Fatalf("push broke %d of %d cushions", broken, len(cushions))
 				}
 			}
 		})

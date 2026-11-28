@@ -296,8 +296,9 @@ type mobHerd struct {
 	pistonGrid bodyPistonGrid[*entity.Mob]
 	// portalAtRest is set by a portal pass that left every body with no
 	// cooldown or standing count; any addition or /data write clears it.
-	portalAtRest  bool
-	pistonVersion uint64
+	portalAtRest    bool
+	pistonVersion   uint64
+	pistonPopulated *atomic.Uint32
 }
 
 // count keeps the per-kind counters in step with n more (or fewer) of m.
@@ -397,6 +398,9 @@ func (h *mobHerd) add(mobs ...*entity.Mob) {
 	h.portalAtRest = false
 	h.herd = append(h.herd, mobs...)
 	h.version++
+	if len(mobs) > 0 && h.pistonPopulated != nil {
+		h.pistonPopulated.Or(pistonMobs)
+	}
 	for _, m := range mobs {
 		h.count(m, 1)
 	}
@@ -415,6 +419,9 @@ func (h *mobHerd) setHerd(herd entity.Mobs) {
 	h.portalAtRest = false
 	h.herd = herd
 	h.version++
+	if len(herd) > 0 && h.pistonPopulated != nil {
+		h.pistonPopulated.Or(pistonMobs)
+	}
 	h.wardens.Store(0)
 	h.dragons.Store(0)
 	h.illagers = 0

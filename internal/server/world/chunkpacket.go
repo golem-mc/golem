@@ -8,16 +8,36 @@ import (
 )
 
 // chunkPacketCache is guarded by Chunk.packetMu. Its key uses the immutable
-// terrain forms and light arrays; update tags are compared by their wire bytes
-// because an entity can change under its own lock without a terrain write.
+// terrain forms, light arrays, Chunk.entityGen and each UpdateTag-bearing
+// modelled entity's useGen; update tags fall back to comparing wire bytes so a
+// read-only Use still reuses the cached packet.
 type chunkPacketCache struct {
 	packet                               *protocol.CachedPacket
 	encoded, heightmaps, light, entities []byte
 	sky, block                           [lightSections]*[lightArrayLen]byte
+	entityGen                            uint64
+	ownGens                              []uint64
 }
 
 func sameForm(a, b []byte) bool {
 	return len(a) == len(b) && (len(a) == 0 || &a[0] == &b[0])
+}
+
+// ownUpdateGensMatch reports whether every UpdateTag-bearing modelled entity
+// in the chunk still has the useGen recorded in want. The caller holds w.mu.
+func (c *Chunk) ownUpdateGensMatch(want []uint64) bool {
+	i := 0
+	for _, key := range c.entityOrder {
+		be := c.entities[key]
+		if be == nil || !kindHasUpdateTag(be.Kind) {
+			continue
+		}
+		if i >= len(want) || be.useGen.Load() != want[i] {
+			return false
+		}
+		i++
+	}
+	return i == len(want)
 }
 
 // ChunkPacket returns a shared immutable Chunk Data and Update Light payload.
@@ -61,9 +81,20 @@ func (w *World) CachedChunkPacket(c *Chunk) *protocol.CachedPacket {
 		// The cached forms are replaced, never written in place, so they are
 		// copied out after the lock is down.
 		heightmaps, encoded := c.heightmaps, c.encoded
-		next := chunkPacketCache{encoded: encoded, heightmaps: heightmaps, sky: c.skyLight, block: c.blockLight}
+		entityGen := c.entityGen
+		next := chunkPacketCache{
+			encoded:    encoded,
+			heightmaps: heightmaps,
+			sky:        c.skyLight,
+			block:      c.blockLight,
+			entityGen:  entityGen,
+		}
 		unchanged := c.packet.packet != nil && sameForm(encoded, c.packet.encoded) &&
 			sameForm(heightmaps, c.packet.heightmaps) && next.sky == c.packet.sky && next.block == c.packet.block
+		if unchanged && entityGen == c.packet.entityGen && c.ownUpdateGensMatch(c.packet.ownGens) {
+			w.mu.RUnlock()
+			return c.packet.packet
+		}
 		light := c.packet.light
 		if !unchanged {
 			c.lightFormsMu.Lock()
@@ -90,6 +121,18 @@ func (w *World) CachedChunkPacket(c *Chunk) *protocol.CachedPacket {
 		w.mu.RUnlock()
 		sortPistonRides(rides)
 
+		// Read useGen before putBlockEntities so a concurrent mutation forces
+		// the next call to rebuild rather than caching a newer gen for older bytes.
+		ownGens := c.packet.ownGens[:0]
+		for _, be := range own {
+			if kindHasUpdateTag(be.Kind) {
+				ownGens = append(ownGens, be.useGen.Load())
+			}
+		}
+		if len(ownGens) == 0 {
+			ownGens = nil
+		}
+
 		// The block entities go out packed with their update tags (a sign's
 		// text, a banner's patterns, a container only its place). This is the
 		// only place a client learns they exist. They are written first, to
@@ -102,6 +145,8 @@ func (w *World) CachedChunkPacket(c *Chunk) *protocol.CachedPacket {
 		}
 		if unchanged && bytes.Equal(entities.Bytes(), c.packet.entities) {
 			scratchBuffers.Put(entities)
+			c.packet.entityGen = entityGen
+			c.packet.ownGens = ownGens
 			return c.packet.packet
 		}
 		var b protocol.Buffer
@@ -113,7 +158,7 @@ func (w *World) CachedChunkPacket(c *Chunk) *protocol.CachedPacket {
 		b.PutBytes(encoded)
 		b.PutRaw(entities.Bytes())
 		b.PutRaw(light)
-		next.light, next.entities = light, slices.Clone(entities.Bytes())
+		next.light, next.entities, next.ownGens = light, slices.Clone(entities.Bytes()), ownGens
 		scratchBuffers.Put(entities)
 		next.packet = protocol.NewCachedPacket(protocol.IDPlayChunkData, b.Bytes())
 		c.packet = next

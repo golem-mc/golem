@@ -381,7 +381,9 @@ func (s *Server) tickPhysics() {
 // setPistonGrid turns the dimension's piston grid on for a physics step or
 // drops it after.
 func (s *Server) setPistonGrid(dim *dimension, active bool) {
-	setBodyPistonGrid(&s.mobsMu, &dim.mobs.pistonGrid, active)
+	setBodyPistonGrid(s, &s.mobsMu, &dim.mobs.pistonGrid, pistonMobs, active, func() bool {
+		return len(dim.mobs.herd) > 0
+	})
 	setTrackedPistonGrid(s, &itemTracker, &dim.pistons.items, active)
 	setTrackedPistonGrid(s, &orbTracker, &dim.pistons.orbs, active)
 	setTrackedPistonGrid(s, &arrowTracker, &dim.pistons.arrows, active)
@@ -389,7 +391,7 @@ func (s *Server) setPistonGrid(dim *dimension, active bool) {
 	setTrackedPistonGrid(s, &fallingTracker, &dim.pistons.fallings, active)
 	setTrackedPistonGrid(s, &boatTracker, &dim.pistons.boats, active)
 	setTrackedPistonGrid(s, &standTracker, &dim.pistons.armorStands, active)
-	setBodyPistonGrid(&s.fixturesMu, &dim.pistons.fixtures, active)
+	setBodyPistonGrid(s, &s.fixturesMu, &dim.pistons.fixtures, pistonCushions, active, nil)
 	setTrackedPistonGrid(s, &minecartTracker, &dim.pistons.minecarts, active)
 	setTrackedPistonGrid(s, &endCrystalTracker, &dim.pistons.endCrystals, active)
 }
