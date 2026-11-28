@@ -389,14 +389,12 @@ func dropRepeatedFilteredLines(text nbt.Compound) {
 	text["filtered_messages"] = filtered
 }
 
-// fixPotSherds renames a decorated pot's shards to sherds along with the item
-// names in them.
-// vanilla: DecoratedPotFieldRenameFix, ItemRenameFix (v3438, v3447)
+// unflattenPotSherds turns a decorated pot's sherd list into per-side stacks.
+// vanilla: PotDecorationsBlockEntityUnflatteningFix
 func unflattenPotSherds(tag nbt.Compound, version int32) {
 	if version >= potDecorationsVersion {
 		return
 	}
-	// vanilla: PotDecorationsBlockEntityUnflatteningFix
 	v, ok := tag["sherds"]
 	if !ok {
 		v = nbt.List{Elem: nbt.TypeString}
@@ -404,6 +402,9 @@ func unflattenPotSherds(tag nbt.Compound, version int32) {
 	tag["sherds"] = templateUnpackPot(v)
 }
 
+// fixPotSherds renames a decorated pot's shards to sherds along with the item
+// names in them.
+// vanilla: DecoratedPotFieldRenameFix, ItemRenameFix (v3438, v3447)
 func fixPotSherds(tag nbt.Compound, version int32) {
 	if version >= potSherdsVersion {
 		return
