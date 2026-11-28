@@ -11,7 +11,7 @@ import (
 )
 
 // Data versions of the item component fixes a 1.20.5 to 1.21.4 block entity
-// still needs; the generated STRUCTURE chain starts at templateDataVersionFloor.
+// still needs; the generated STRUCTURE chain starts at templateChainVersion.
 const (
 	attributeModifierIdVersion = 3945 // vanilla: DataFixers.addFixers (AttributeModifierIdFix)
 	attributeIdPrefixVersion   = 4055 // vanilla: DataFixers.addFixers (AttributeIdPrefixFix)
