@@ -14,6 +14,7 @@ const (
 	itemCollisions
 	orbCollisions
 	tntCollisions
+	armorStandCollisions
 	fallingCollisions
 	collisionPassCount
 )

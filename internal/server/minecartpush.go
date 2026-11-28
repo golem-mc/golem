@@ -23,6 +23,10 @@ const cartReachHalf = entity.MinecartHalfWidth + 0.2 + 1.0
 // side would crowd a 16-block one.
 const cartPushCell = 4
 
+// standPushRange is the squared distance within which an armor stand pushes a cart.
+// vanilla: ArmorStand.pushEntities
+const standPushRange = 0.2
+
 // cartPushBody is one body near a cart, frozen before the cart lock.
 // A player takes its share of a push on its own client.
 type cartPushBody struct {
@@ -39,6 +43,10 @@ type cartPushBody struct {
 	// it takes a push. vanilla: LivingEntity.pushEntities, LivingEntity.isPushable
 	pushes, pushable bool
 	collides         bool
+	// stand marks an armor stand, which pushes a cart whose centre is within
+	// standPushRange of (x, y, z) whatever the teams. vanilla: ArmorStand.pushEntities
+	stand bool
+	y     float64
 	// rootCart excludes the cart itself and its indirect passengers.
 	rootCart *minecartEntity
 }
@@ -179,6 +187,17 @@ func (s *Server) minecartPushInputs(clients []*client) *cartPushes {
 		}
 	}
 	s.unlockTick(&s.boatsMu)
+	s.lockTick(&s.armorStandsMu)
+	for _, ent := range s.armorStands {
+		wp := p.worlds[ent.w]
+		if wp == nil || len(wp.carts) == 0 || ent.stand.Dead {
+			continue
+		}
+		if box := ent.stand.Box(); wp.inReach(box) {
+			add(wp, cartPushBody{box: box, x: ent.stand.X, y: ent.stand.Y, z: ent.stand.Z, stand: true})
+		}
+	}
+	s.unlockTick(&s.armorStandsMu)
 	for _, c := range clients {
 		if c.player == nil || c.player.GameMode() == protocol.GameModeSpectator || c.player.Vitals().Dead {
 			continue
@@ -291,6 +310,13 @@ func (p *cartPushes) pushedByBodies(it *minecartEntity) {
 	box := entity.NewAABB(cart.Box())
 	wp.grid.Query(box, func(i int32) {
 		b := &wp.bodies[i]
+		if b.stand {
+			dx, dy, dz := b.x-cart.X, b.y-cart.Y, b.z-cart.Z
+			if it.kind == registry.EntityTypeMinecart && box.Crosses(b.box) && dx*dx+dy*dy+dz*dz <= standPushRange {
+				cart.PushFrom(b.x, b.z, nil)
+			}
+			return
+		}
 		if !b.pushes || !box.Crosses(b.box) || it.carries(b) || !entity.PushableBy(b.team, b.rule, team, rule) {
 			return
 		}
