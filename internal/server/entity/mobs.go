@@ -659,12 +659,17 @@ func (mobs *Mobs) tickBuf(w World, players []Player, holders []LeashHolder, gath
 	defer grid.release()
 	grid.build(others)
 	var prey []*Mob
+	villagers := grid.villagers[:0]
 	for _, o := range others {
 		if isPrey(o.Type) {
 			prey = append(prey, o)
 		}
+		if o.Type == TypeVillager {
+			villagers = append(villagers, o)
+		}
 	}
-	t := herdTick{w: w, players: players, holders: holders, others: others, grid: grid, prey: prey, stands: stands, corpses: corpses, paths: paths, events: events}
+	grid.villagers = villagers
+	t := herdTick{w: w, players: players, holders: holders, others: others, grid: grid, prey: prey, villagers: villagers, stands: stands, corpses: corpses, paths: paths, events: events}
 	for _, m := range others {
 		if m.Vehicle == nil {
 			// A rider on a mob ticks after its vehicle.
@@ -692,17 +697,18 @@ func (mobs *Mobs) tickBuf(w World, players []Player, holders []LeashHolder, gath
 
 // herdTick is one Mobs.tickBuf pass.
 type herdTick struct {
-	w       World
-	players []Player
-	holders []LeashHolder
-	others  []*Mob
-	grid    *pushGrid
-	prey    []*Mob
-	stands  []StandTarget
-	corpses []*Mob
-	paths   *MobPathScratch
-	tv      tickView
-	events  []MobEvent
+	w         World
+	players   []Player
+	holders   []LeashHolder
+	others    []*Mob
+	grid      *pushGrid
+	prey      []*Mob
+	villagers []*Mob
+	stands    []StandTarget
+	corpses   []*Mob
+	paths     *MobPathScratch
+	tv        tickView
+	events    []MobEvent
 }
 
 // tick steps m, then its passengers, and records whether the collection
@@ -738,7 +744,7 @@ func (t *herdTick) tick(m *Mob) {
 	}
 	// The grid is set for this body's tick only and cleared after, so
 	// an early return or a later tick reads no stale grid.
-	m.push, m.prey, m.preyKnown, m.stands, m.corpses = t.grid, t.prey, true, t.stands, t.corpses
+	m.push, m.prey, m.preyKnown, m.villagers, m.villagersKnown, m.stands, m.corpses = t.grid, t.prey, true, t.villagers, true, t.stands, t.corpses
 	m.tickPaths = t.paths
 	firstEvent := len(t.events)
 	w := t.w
@@ -747,7 +753,7 @@ func (t *herdTick) tick(m *Mob) {
 	}
 	t.events = m.tickInto(t.events, &t.tv, w, t.players, t.others)
 	m.tickPaths = nil
-	m.push, m.prey, m.preyKnown, m.stands, m.corpses = nil, nil, false, nil, nil
+	m.push, m.prey, m.preyKnown, m.villagers, m.villagersKnown, m.stands, m.corpses = nil, nil, false, nil, false, nil, nil
 	t.grid.moved(m)
 	m.herdKept = !m.Dead && !m.gone
 	if !m.herdKept {

@@ -243,8 +243,8 @@ func (m *Mob) poiTaken(t *tickView, p Waypoint) int {
 	if m.vb.owns(dim, p) {
 		n++
 	}
-	for _, o := range t.others {
-		if o.Type == TypeVillager && !o.Dead && o.vb.owns(dim, p) {
+	for _, o := range t.villagerMobs() {
+		if !o.Dead && o.vb.owns(dim, p) {
 			n++
 		}
 	}
@@ -467,8 +467,8 @@ func (m *Mob) competitorScan(t *tickView) {
 		return
 	}
 	winner := m
-	for _, o := range t.others {
-		if o.Type != TypeVillager || o == m || o.Dead || o.vb.jobSite == nil || *o.vb.jobSite != *g ||
+	for _, o := range t.villagerMobs() {
+		if o == m || o.Dead || o.vb.jobSite == nil || *o.vb.jobSite != *g ||
 			!heldJobSite(o.Villager.Profession, kind) || !nearBox(m, o, 16) {
 			continue
 		}

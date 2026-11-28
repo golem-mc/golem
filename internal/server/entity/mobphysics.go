@@ -838,6 +838,8 @@ type pushGrid struct {
 	// caravan is the snapshot's llamas that are leashed or in a caravan, plus
 	// those that joined one this tick: the only ones a caravan goal can pick.
 	caravan []*Mob
+	// villagers is the snapshot's TypeVillager mobs in herd order, reused across ticks.
+	villagers []*Mob
 	// keys is the sparse query's scratch of occupied cells.
 	keys []pushCellKey
 	// near is the candidates' scratch, reused gathering to gathering.
@@ -961,6 +963,8 @@ func (g *pushGrid) reset() {
 	g.shove = g.shove[:0]
 	clear(g.caravan)
 	g.caravan = g.caravan[:0]
+	clear(g.villagers)
+	g.villagers = g.villagers[:0]
 	g.wide, g.shellWide, g.gathered, g.crammingSet, g.crowd = 0, 0, nil, false, nil
 }
 
