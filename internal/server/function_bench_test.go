@@ -16,13 +16,14 @@ import (
 // datapack's tick function does every tick.
 func BenchmarkFunctionLines(b *testing.B) {
 	lines := map[string]string{
-		"score":            "scoreboard players add #c x 1",
-		"execute_if_score": "execute if score #c x matches 1.. run scoreboard players add #c x 1",
-		"execute_as_tp":    "execute as @e[type=marker,tag=t] at @s run tp @s ~ ~ ~",
-		"execute_as_score": "execute as @e[type=marker,tag=t] at @s run scoreboard players add @s x 1",
-		"summon_kill":      "summon marker ~ ~ ~ {Tags:[\"z\"]}\nkill @e[type=marker,tag=z]",
+		"score":                 "scoreboard players add #c x 1",
+		"execute_if_score":      "execute if score #c x matches 1.. run scoreboard players add #c x 1",
+		"execute_as_tp":         "execute as @e[type=marker,tag=t] at @s run tp @s ~ ~ ~",
+		"execute_as_score":      "execute as @e[type=marker,tag=t] at @s run scoreboard players add @s x 1",
+		"execute_as_store_data": "execute as @e[type=marker,tag=t] store result score @s x run data get entity @s Pos[0]",
+		"summon_kill":           "summon marker ~ ~ ~ {Tags:[\"z\"]}\nkill @e[type=marker,tag=z]",
 	}
-	for _, name := range []string{"score", "execute_if_score", "execute_as_tp", "execute_as_score", "summon_kill"} {
+	for _, name := range []string{"score", "execute_if_score", "execute_as_tp", "execute_as_score", "execute_as_store_data", "summon_kill"} {
 		b.Run(name, func(b *testing.B) {
 			s, _ := newTrackerBenchServer(b)
 			s.mu.Lock()
@@ -47,7 +48,7 @@ func BenchmarkFunctionLines(b *testing.B) {
 			for _, c := range []string{"scoreboard objectives add x dummy", "scoreboard players set #c x 1", "reload"} {
 				s.RunRconLine(c)
 			}
-			if name == "execute_as_tp" || name == "execute_as_score" {
+			if strings.HasPrefix(name, "execute_as") {
 				for i := range 20 {
 					s.RunRconLine(fmt.Sprintf("summon marker %d -60 0 {Tags:[\"t\"]}", i))
 				}

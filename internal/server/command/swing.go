@@ -102,6 +102,9 @@ func runSwing(src Source, input string, args []string) (int32, error) {
 		return 0, refuse(src, swingFailedKey)
 	}
 
+	if !wantsFeedback(src) {
+		return int32(len(swung)), nil
+	}
 	key := "commands.swing.success.single"
 	with := []protocol.Text{formatDisplayNames(swung)}
 	if len(swung) > 1 {

@@ -4145,6 +4145,7 @@ type TestArmorStand struct {
 	ID      int32
 	UUID    string
 	X, Y, Z float64
+	VY      float64
 	Yaw     float32
 	Health  float64
 }
@@ -4164,6 +4165,7 @@ func (s *Server) ArmorStandsInDimension(dimension string) []TestArmorStand {
 			ID:   ent.stand.ID,
 			UUID: ent.uuid.String(),
 			X:    ent.stand.X, Y: ent.stand.Y, Z: ent.stand.Z,
+			VY:  ent.stand.VY,
 			Yaw: ent.stand.Yaw, Health: ent.stand.Health,
 		})
 	}

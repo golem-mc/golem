@@ -369,6 +369,9 @@ func advancementPerform(src Source, players []Target, action advancementAction, 
 		}
 		return 0, refuse(src, action.key+key+".failure", with...)
 	}
+	if !wantsFeedback(src) {
+		return int32(advancementCount), nil
+	}
 	var key string
 	var with []protocol.Text
 	switch {

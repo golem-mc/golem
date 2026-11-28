@@ -2170,6 +2170,11 @@ type Mob struct {
 	// horizontalCollision is Entity.horizontalCollision: the last move was
 	// stopped sideways. The spider's climbing reads it.
 	horizontalCollision bool
+	// bubbleFrom is where the last base tick found the mob, the start of the
+	// move the next one walks for bubble columns; bubbleFromSet is false
+	// before the first tick.
+	bubbleFrom    [3]float64
+	bubbleFromSet bool
 
 	// swell is Creeper.swell, wound by SwellDir each tick; it explodes at the
 	// max.
