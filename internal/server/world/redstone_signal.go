@@ -32,7 +32,7 @@ func (p *Physics) signalThrough(x, y, z int32, d int) int {
 	// vanilla: SignalGetter.getSignal — a strongly powered conductor delivers
 	// that strength through every face, which is how dust on a block reaches
 	// the blocks beside it.
-	if p.w.conductorState(x, y, z, state) {
+	if s < 15 && p.w.conductorState(x, y, z, state) {
 		if strong := p.directSignalTo(x, y, z); strong > s {
 			return strong
 		}
