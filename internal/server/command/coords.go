@@ -5,6 +5,7 @@ import (
 	"math"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/golem-mc/golem/internal/server/rules"
 	"github.com/golem-mc/golem/internal/server/world"
@@ -525,20 +526,53 @@ func parseFloatArgument(tokens []Token, bounds *FloatArg) *ParseError {
 	return nil
 }
 
+// positionCache keeps the last successful position parses by joined text: a
+// recursive function parses the same coordinates once per step. A position
+// depends only on its text, and one cache serves one reading flavour, since
+// the same text parses differently in each.
+type positionCache struct {
+	sync.Mutex
+	byText map[string]position
+}
+
+const positionCacheMax = 1024
+
+// read is the cached parse of words, or parse's result on a miss; failures are
+// not stored.
+func (c *positionCache) read(words []string, parse func(*coordReader) (position, *ParseError)) (position, bool) {
+	text := strings.Join(words, " ")
+	c.Lock()
+	p, ok := c.byText[text]
+	c.Unlock()
+	if ok {
+		return p, true
+	}
+	p, err := parse(&coordReader{s: text})
+	if err != nil {
+		return p, false
+	}
+	c.Lock()
+	if c.byText == nil || len(c.byText) >= positionCacheMax {
+		c.byText = make(map[string]position, positionCacheMax)
+	}
+	c.byText[text] = p
+	c.Unlock()
+	return p, true
+}
+
+var vec3Cache, vec3ExactCache, blockPosCache positionCache
+
 // parseVec3 reads a minecraft:vec3 argument from the first three words.
 func parseVec3(words []string) (position, bool) {
-	r := &coordReader{s: strings.Join(words, " ")}
-	p, err := r.readPosition(false)
-	return p, err == nil
+	return vec3Cache.read(words, func(r *coordReader) (position, *ParseError) { return r.readPosition(false) })
 }
 
 // resolveVec3Exact is a vec3 argument registered with centerCorrect false,
 // so whole x and z stay whole.
 // vanilla: Vec3Argument.vec3(false)
 func resolveVec3Exact(src Source, words []string) (x, y, z float64, ok bool) {
-	r := &coordReader{s: strings.Join(words, " ")}
-	p, err := r.readPositionCentred(false, false)
-	if err != nil {
+	p, ok := vec3ExactCache.read(words, func(r *coordReader) (position, *ParseError) { return r.readPositionCentred(false, false) })
+	if !ok {
 		return 0, 0, 0, false
 	}
 	x, y, z = p.at(src)
@@ -547,9 +581,7 @@ func resolveVec3Exact(src Source, words []string) (x, y, z float64, ok bool) {
 
 // parseBlockPos reads a minecraft:block_pos argument from the first three words.
 func parseBlockPos(words []string) (position, bool) {
-	r := &coordReader{s: strings.Join(words, " ")}
-	p, err := r.readPosition(true)
-	return p, err == nil
+	return blockPosCache.read(words, func(r *coordReader) (position, *ParseError) { return r.readPosition(true) })
 }
 
 // parseRotation reads a rotation argument, a yaw and a pitch, from the first two words.

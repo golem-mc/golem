@@ -16,18 +16,19 @@ import (
 // datapack's tick function does every tick.
 func BenchmarkFunctionLines(b *testing.B) {
 	lines := map[string]string{
-		"score":                      "scoreboard players add #c x 1",
-		"execute_if_score":           "execute if score #c x matches 1.. run scoreboard players add #c x 1",
-		"execute_as_tp":              "execute as @e[type=marker,tag=t] at @s run tp @s ~ ~ ~",
-		"execute_as_score":           "execute as @e[type=marker,tag=t] at @s run scoreboard players add @s x 1",
-		"execute_if_block_tag":       "execute as @e[type=marker,tag=t] at @s if block ~ ~-1 ~ #minecraft:dirt run scoreboard players add @s x 1",
-		"execute_as_particle":        "execute as @e[type=marker,tag=t] at @s run particle minecraft:dust{color:[1.0,0.0,0.0],scale:1.0} ~ ~1 ~ 0 0 0 0 1",
-		"execute_as_store_data":      "execute as @e[type=marker,tag=t] store result score @s x run data get entity @s Pos[0]",
-		"macro_call":                 `execute as @e[type=marker,tag=t] run function zz:m {x:1,o:"x"}`,
-		"execute_as_setblock_toggle": "execute as @e[type=marker,tag=t] at @s run setblock ~ ~3 ~ stone\nexecute as @e[type=marker,tag=t] at @s run setblock ~ ~3 ~ air",
-		"summon_kill":                "summon marker ~ ~ ~ {Tags:[\"z\"]}\nkill @e[type=marker,tag=z]",
+		"score":                       "scoreboard players add #c x 1",
+		"execute_if_score":            "execute if score #c x matches 1.. run scoreboard players add #c x 1",
+		"execute_as_tp":               "execute as @e[type=marker,tag=t] at @s run tp @s ~ ~ ~",
+		"execute_as_score":            "execute as @e[type=marker,tag=t] at @s run scoreboard players add @s x 1",
+		"execute_if_block_tag":        "execute as @e[type=marker,tag=t] at @s if block ~ ~-1 ~ #minecraft:dirt run scoreboard players add @s x 1",
+		"execute_as_positioned_local": "execute as @e[type=marker,tag=t] at @s positioned ^ ^ ^0.25 if block ~ ~ ~ air run scoreboard players add @s x 1",
+		"execute_as_particle":         "execute as @e[type=marker,tag=t] at @s run particle minecraft:dust{color:[1.0,0.0,0.0],scale:1.0} ~ ~1 ~ 0 0 0 0 1",
+		"execute_as_store_data":       "execute as @e[type=marker,tag=t] store result score @s x run data get entity @s Pos[0]",
+		"macro_call":                  `execute as @e[type=marker,tag=t] run function zz:m {x:1,o:"x"}`,
+		"execute_as_setblock_toggle":  "execute as @e[type=marker,tag=t] at @s run setblock ~ ~3 ~ stone\nexecute as @e[type=marker,tag=t] at @s run setblock ~ ~3 ~ air",
+		"summon_kill":                 "summon marker ~ ~ ~ {Tags:[\"z\"]}\nkill @e[type=marker,tag=z]",
 	}
-	for _, name := range []string{"score", "execute_if_score", "execute_as_tp", "execute_as_score", "execute_as_particle", "execute_as_store_data", "execute_if_block_tag", "execute_as_setblock_toggle", "summon_kill", "macro_call"} {
+	for _, name := range []string{"score", "execute_if_score", "execute_as_tp", "execute_as_score", "execute_as_positioned_local", "execute_as_particle", "execute_as_store_data", "execute_if_block_tag", "execute_as_setblock_toggle", "summon_kill", "macro_call"} {
 		b.Run(name, func(b *testing.B) {
 			s, _ := newTrackerBenchServer(b)
 			s.mu.Lock()
