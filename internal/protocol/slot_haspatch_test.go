@@ -3,13 +3,15 @@ package protocol
 import (
 	"reflect"
 	"testing"
+
+	"github.com/golem-mc/golem/nbt"
 )
 
 func TestItemStackHasPatchCoversFields(t *testing.T) {
 	if (ItemStack{ItemID: 1, Count: 3}).HasPatch() {
 		t.Fatal("plain stack reports a patch")
 	}
-	typ := reflect.TypeOf(ItemStack{})
+	typ := reflect.TypeFor[ItemStack]()
 	for i := 0; i < typ.NumField(); i++ {
 		f := typ.Field(i)
 		if !f.IsExported() || f.Name == "ItemID" || f.Name == "Count" {
@@ -24,7 +26,9 @@ func TestItemStackHasPatchCoversFields(t *testing.T) {
 			v.Set(m)
 		case reflect.Slice:
 			v.Set(reflect.MakeSlice(v.Type(), 1, 1))
-		case reflect.Ptr:
+		case reflect.Interface:
+			v.Set(reflect.ValueOf(nbt.Compound{}))
+		case reflect.Pointer:
 			v.Set(reflect.New(v.Type().Elem()))
 		default:
 			setNonZero(v)
@@ -50,9 +54,9 @@ func setNonZero(v reflect.Value) {
 			setNonZero(v.Index(j))
 		}
 	case reflect.Struct:
-		for j := 0; j < v.NumField(); j++ {
-			if v.Field(j).CanSet() {
-				setNonZero(v.Field(j))
+		for _, field := range v.Fields() {
+			if field.CanSet() {
+				setNonZero(field)
 				return
 			}
 		}
