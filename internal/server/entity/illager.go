@@ -118,7 +118,7 @@ func illagerVillagerTarget(o *Mob) bool { return isAbstractVillager(o.Type) && i
 
 // illagerTargets is the target selection the vindicator, the pillager and the
 // ravager share: HurtByTargetGoal(Raider) 1, the player 2, villagers, wandering
-// traders and iron golems 3. The pillager needs no line of sight to a villager.
+// traders and iron golems 3. villagerUnsighted keeps a villager already targeted without sight.
 func illagerTargets(m *Mob, villagerUnsighted bool) []Goal {
 	return []Goal{
 		&hurtByGoal{m: m, priority: 1, alertOthers: true, ignore: isRaiderType},
