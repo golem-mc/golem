@@ -220,3 +220,40 @@ func TestParticleCommandRefusesBadOptions(t *testing.T) {
 		t.Errorf("count 100: feedback %q, want the range error", chat)
 	}
 }
+
+// A repeated /particle line keeps sending what its own options say, and a bad
+// options compound is refused each time it runs.
+func TestParticleCommandRepeatedOptions(t *testing.T) {
+	t.Parallel()
+	_, c, _ := servertest.JoinAs(t, servertest.SurvivalTestConfig(), "DJ", servertest.OpsListing(t, "DJ"))
+	c.Settle()
+
+	for _, want := range []struct {
+		options string
+		color   int32
+		scale   float32
+	}{
+		{"{color:[1.0,0.0,0.0],scale:1.0}", 0xFF0000, 1},
+		{"{color:[0.0,0.0,1.0],scale:2.0}", 0x0000FF, 2},
+		{"{color:[1.0,0.0,0.0],scale:1.0}", 0xFF0000, 1},
+	} {
+		particles, _ := runParticle(c, "particle minecraft:dust"+want.options+" ~ ~ ~")
+		if len(particles) != 1 {
+			t.Fatalf("%s: got %d packets, want 1", want.options, len(particles))
+		}
+		r := protocol.NewReader(particles[0])
+		if id := r.ReadVarInt(); id != protocol.ParticleDust {
+			t.Fatalf("%s: particle %d, want dust", want.options, id)
+		}
+		color, scale := r.ReadI32(), r.ReadF32()
+		if color&0xFFFFFF != want.color || scale != want.scale {
+			t.Errorf("%s: colour %#x scale %v, want %#x scale %v", want.options, color, scale, want.color, want.scale)
+		}
+	}
+	for range 2 {
+		particles, chat := runParticle(c, "particle minecraft:dust{color:[1.0,0.0],scale:1.0} ~ ~ ~")
+		if len(particles) != 0 || !bytes.Contains(chat, []byte("particle.invalidOptions")) {
+			t.Errorf("bad options: %d packets, feedback %q, want 0 and particle.invalidOptions", len(particles), chat)
+		}
+	}
+}
