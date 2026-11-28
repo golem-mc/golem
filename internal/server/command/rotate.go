@@ -164,5 +164,8 @@ func runRotate(src Source, input string, words []string) error {
 		}
 		target.Rotate(yaw, pitch)
 	}
+	if !wantsFeedback(src) {
+		return nil
+	}
 	return feedbackToAdmins(src, rotateSuccessKey, formatDisplayNames(targets))
 }

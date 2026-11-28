@@ -135,6 +135,9 @@ func runDamage(src Source, input string, args []string) error {
 	if t, ok := target.(DamageTarget); !ok || !t.Damage(float32(amount), damageType, origin) {
 		return refuse(src, "commands.damage.invulnerable")
 	}
+	if !wantsFeedback(src) {
+		return nil
+	}
 	return feedbackToAdmins(src, "commands.damage.success",
 		protocol.Text{Text: formatJavaFloat(float32(amount))}, target.DisplayName())
 }
