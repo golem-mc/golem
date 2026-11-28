@@ -45,7 +45,7 @@ type cartPushBody struct {
 	collides         bool
 	// stand marks an armor stand, which pushes a cart whose centre is within
 	// standPushRange of (x, y, z) whatever the teams. vanilla: ArmorStand.pushEntities
-	stand bool
+	stand *armorStandEntity
 	y     float64
 	// rootCart excludes the cart itself and its indirect passengers.
 	rootCart *minecartEntity
@@ -69,6 +69,7 @@ type cartPushes struct {
 	worlds map[*world.World]*cartPushWorld
 	teams  pushTeams
 	mobs   []mobPushShare
+	stands []standPushShare
 	move   cartBodyWorld
 }
 
@@ -101,6 +102,13 @@ func (t pushTeams) of(id uuid.UUID) (string, entity.CollisionRule) {
 type mobPushShare struct {
 	w      *world.World
 	ent    *mobEntity
+	dx, dz float64
+}
+
+// standPushShare is an armor stand's share of a cart's push, added to its
+// velocity once the vehicle lock is down.
+type standPushShare struct {
+	ent    *armorStandEntity
 	dx, dz float64
 }
 
@@ -140,6 +148,8 @@ func (s *Server) minecartPushInputs(clients []*client) *cartPushes {
 	}
 	clear(p.mobs)
 	p.mobs = p.mobs[:0]
+	clear(p.stands)
+	p.stands = p.stands[:0]
 	p.teams = pushTeams{}
 
 	add := func(wp *cartPushWorld, b cartPushBody) {
@@ -194,7 +204,7 @@ func (s *Server) minecartPushInputs(clients []*client) *cartPushes {
 			continue
 		}
 		if box := ent.stand.Box(); wp.inReach(box) {
-			add(wp, cartPushBody{box: box, x: ent.stand.X, y: ent.stand.Y, z: ent.stand.Z, stand: true})
+			add(wp, cartPushBody{box: box, x: ent.stand.X, y: ent.stand.Y, z: ent.stand.Z, stand: ent})
 		}
 	}
 	s.unlockTick(&s.armorStandsMu)
@@ -310,10 +320,11 @@ func (p *cartPushes) pushedByBodies(it *minecartEntity) {
 	box := entity.NewAABB(cart.Box())
 	wp.grid.Query(box, func(i int32) {
 		b := &wp.bodies[i]
-		if b.stand {
+		if b.stand != nil {
 			dx, dy, dz := b.x-cart.X, b.y-cart.Y, b.z-cart.Z
 			if it.kind == registry.EntityTypeMinecart && box.Crosses(b.box) && dx*dx+dy*dy+dz*dz <= standPushRange {
-				cart.PushFrom(b.x, b.z, nil)
+				bx, bz := cart.PushFrom(b.x, b.z, nil)
+				p.stands = append(p.stands, standPushShare{ent: b.stand, dx: bx, dz: bz})
 			}
 			return
 		}
@@ -390,4 +401,22 @@ func (s *Server) applyMobShares(shares []mobPushShare) {
 		sh.ent.mob.VZ += sh.dz
 	}
 	s.unlockTick(&s.mobsMu)
+}
+
+// applyStandShares adds each queued share to its armor stand's velocity,
+// under the stand lock and after the vehicle lock is down.
+// vanilla: Entity.push
+func (s *Server) applyStandShares(shares []standPushShare) {
+	if len(shares) == 0 {
+		return
+	}
+	s.lockTick(&s.armorStandsMu)
+	for _, sh := range shares {
+		if sh.ent.stand.Dead {
+			continue
+		}
+		sh.ent.stand.VX += sh.dx
+		sh.ent.stand.VZ += sh.dz
+	}
+	s.unlockTick(&s.armorStandsMu)
 }

@@ -47,7 +47,6 @@ func TestArmorStandStopsAtShulker(t *testing.T) {
 	srv, _ := servertest.Start(t, servertest.BlockTestConfig())
 	defer srv.HoldChunkInDimension(world.DimensionName, 0, 0)()
 	servertest.HoldTicks(t, srv)
-	srv.RunLine(`setblock 2 63 2 blue_ice`)
 	srv.RunLine(`fill 0 63 2 15 63 2 blue_ice`)
 	srv.RunLine(`summon shulker 10.5 64 2.5 {NoAI:1b}`)
 	srv.RunLine(`summon armor_stand 2.5 64 2.5 {Motion:[1.0d,0d,0d]}`)
@@ -75,5 +74,9 @@ func TestArmorStandPushesMinecart(t *testing.T) {
 	carts := srv.MinecartsInDimension(world.DimensionName)
 	if len(carts) != 1 || carts[0].X < 7 {
 		t.Errorf("carts %+v, want the cart pushed east of 6.5", carts)
+	}
+	// The stand takes a quarter of the push back; without it the stand ends at 6.23.
+	if x := srv.ArmorStandsInDimension(world.DimensionName)[0].X; x >= 6.2 {
+		t.Errorf("stand at x=%v, want it slowed by the cart", x)
 	}
 }
