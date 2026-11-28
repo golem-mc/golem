@@ -808,17 +808,11 @@ type Server struct {
 	// lookMu, before the sleepMu the recount takes.
 	bedMu sync.Mutex
 
-	// portalHolds are the chunks portal crossings keep loaded for a while (in
-	// place of vanilla's portal ticket), spent down by tickPortalHolds.
-	// portalHoldsMu guards it, since a crossing holds its arrival chunk on the
-	// carrying goroutine, not the tick loop.
-	portalHoldsMu sync.Mutex
 	// portalNotes are the portal events the tick's passes queued for the plugins.
 	portalNotes portalNotes
 	// portalTripsDecided counts player nether trips that finished, crossed or
 	// refused; tests wait on it.
 	portalTripsDecided atomic.Int64
-	portalHolds        []portalHold
 
 	// lidsMu guards lids, written by an open on a connection goroutine while
 	// the tick counts entries down. Held around the map only, never across a
