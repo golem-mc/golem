@@ -2,6 +2,7 @@ package registry
 
 import (
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -109,6 +110,14 @@ func (lookup *TagLookup) componentValueMalformed(key string, tag nbt.Tag) string
 		default:
 			text := nbt.Stringify(tag)
 			return "Failed to parse either. First: Not a map: " + text + "; Second: Not a string: " + text
+		}
+		if lookup.componentRefused(key, tag) {
+			return componentCodecRefusal
+		}
+	case "minecraft:lore", "minecraft:container", "minecraft:fireworks", "minecraft:max_damage", "minecraft:rarity",
+		"minecraft:food", "minecraft:consumable", "minecraft:ominous_bottle_amplifier", "minecraft:trim":
+		if msg := componentFieldMalformed(key, tag); msg != "" {
+			return msg
 		}
 		if lookup.componentRefused(key, tag) {
 			return componentCodecRefusal
@@ -782,4 +791,100 @@ func ComponentDecodes(tag nbt.Tag) bool {
 
 func (lookup *TagLookup) componentDecodes(tag nbt.Tag) bool {
 	return protocol.RawTextFits(tag) && lookup.textComponentMalformed(tag) == ""
+}
+
+// componentFieldMalformed words the codec refusals of a component's size,
+// range, enum and registry checks; "" when none of them applies.
+func componentFieldMalformed(key string, tag nbt.Tag) string {
+	switch key {
+	case "minecraft:lore", "minecraft:container":
+		// vanilla: ExtraCodecs.sizeLimitedList
+		return listTooLong(tag, 256)
+	case "minecraft:fireworks":
+		// vanilla: Fireworks.CODEC, Codec.list(0, 256)
+		if entry, ok := nbt.CompoundView(tag); ok {
+			return listTooLong(entry["explosions"], maxFireworkExplosions)
+		}
+	case "minecraft:max_damage":
+		// vanilla: ExtraCodecs.POSITIVE_INT
+		n, ok := nbt.IntValue(tag)
+		if !ok {
+			return "Not a number"
+		}
+		if n < 1 {
+			return "Value must be positive: " + strconv.FormatInt(int64(n), 10)
+		}
+	case "minecraft:rarity":
+		// vanilla: Rarity.CODEC, StringRepresentable.fromEnum
+		name, ok := tag.(nbt.String)
+		if !ok {
+			return "Not a string"
+		}
+		if !slices.Contains(rarityNames[:], string(name)) {
+			return "Unknown element name:" + string(name)
+		}
+	case "minecraft:ominous_bottle_amplifier":
+		// vanilla: ExtraCodecs.intRange
+		n, ok := nbt.IntValue(tag)
+		if !ok {
+			return "Not a number"
+		}
+		if n < 0 || n > 4 {
+			return fmt.Sprintf("Value must be within range [0;4]: %d", n)
+		}
+	case "minecraft:food":
+		// vanilla: FoodProperties.DIRECT_CODEC, ExtraCodecs.NON_NEGATIVE_INT
+		if entry, ok := nbt.CompoundView(tag); ok {
+			if value, has := entry["nutrition"]; has {
+				n, ok := nbt.IntValue(value)
+				if !ok {
+					return "Not a number"
+				}
+				if n < 0 {
+					return "Value must be non-negative: " + strconv.FormatInt(int64(n), 10)
+				}
+			}
+		}
+	case "minecraft:consumable":
+		// vanilla: Consumable.CODEC, ExtraCodecs.NON_NEGATIVE_FLOAT
+		if entry, ok := nbt.CompoundView(tag); ok {
+			if value, has := entry["consume_seconds"]; has {
+				v, ok := floatOf(value)
+				if !ok {
+					return "Not a number"
+				}
+				if v < 0 {
+					return "Value must be non-negative: " + javaFloat(v)
+				}
+			}
+		}
+	case "minecraft:trim":
+		// vanilla: ArmorTrim.CODEC, RegistryFileCodec; field errors last first
+		if entry, ok := nbt.CompoundView(tag); ok {
+			return JoinFieldErrors(trimHolderMalformed(entry, "pattern", "minecraft:trim_pattern"),
+				trimHolderMalformed(entry, "material", "minecraft:trim_material"))
+		}
+	}
+	return ""
+}
+
+// listTooLong is the list codec's refusal of a list past limit entries.
+func listTooLong(tag nbt.Tag, limit int) string {
+	if list, ok := tag.(nbt.List); ok && len(list.Items) > limit {
+		return fmt.Sprintf("List is too long: %d, expected range [0-%d]", len(list.Items), limit)
+	}
+	return ""
+}
+
+// trimHolderMalformed is the registry holder codec's refusal of a named
+// entry the registry lacks; an inline value is left to the reader.
+func trimHolderMalformed(entry nbt.Compound, field, registry string) string {
+	name, ok := entry[field].(nbt.String)
+	if !ok || !protocol.ValidIdentifier(string(name)) {
+		return ""
+	}
+	if _, found := entryID(registry, name); found {
+		return ""
+	}
+	return "Failed to get element " + Qualify(string(name)) + " from registry " + registry
 }

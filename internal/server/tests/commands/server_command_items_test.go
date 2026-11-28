@@ -243,7 +243,7 @@ func TestGiveRefusesMalformedComponents(t *testing.T) {
 	cfg.OnlineMode = false
 	cfg.GameMode = "creative"
 
-	_, c := servertest.Join(t, cfg, "Testificate", servertest.OpsListing(t, "Testificate"))
+	srv, c := servertest.Join(t, cfg, "Testificate", servertest.OpsListing(t, "Testificate"))
 
 	for _, tc := range []struct {
 		name    string
@@ -437,6 +437,51 @@ func TestGiveRefusesMalformedComponents(t *testing.T) {
 				servertest.CommandErrorMessageForTest(tc.key, tc.with...),
 				servertest.CommandErrorContextForTest(tc.command, tc.cursor))
 		})
+	}
+
+	// Components whose codec refuses with a size, range, enum or registry
+	// message of its own.
+	many := func(n int, elem string) string {
+		return "[" + strings.TrimSuffix(strings.Repeat(elem+",", n), ",") + "]"
+	}
+	for _, tc := range []struct {
+		name, item, component, value, message string
+	}{
+		{"lore too long", "stone", "lore", many(300, `"l"`), "List is too long: 300, expected range [0-256]"},
+		{"fireworks explosions too long", "firework_rocket", "fireworks", "{explosions:" + many(300, `{shape:"star"}`) + "}", "List is too long: 300, expected range [0-256]"},
+		{"container too long", "chest", "container", many(300, "{slot:0,item:{id:stone}}"), "List is too long: 300, expected range [0-256]"},
+		{"max damage zero", "stone", "max_damage", "0", "Value must be positive: 0"},
+		{"rarity unknown", "stone", "rarity", `"legend"`, "Unknown element name:legend"},
+		{"food nutrition negative", "stone", "food", "{nutrition:-1,saturation:0}", "Value must be non-negative: -1"},
+		{"consume seconds negative", "stone", "consumable", "{consume_seconds:-1}", "Value must be non-negative: -1.0"},
+		{"ominous amplifier out of range", "ominous_bottle", "ominous_bottle_amplifier", "9", "Value must be within range [0;4]: 9"},
+		{"trim material unknown", "diamond_chestplate", "trim", `{material:"minecraft:nope",pattern:"minecraft:coast"}`,
+			"Failed to get element minecraft:nope from registry minecraft:trim_material"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			command := "give @s " + tc.item + "[" + tc.component + "=" + tc.value + "]"
+			c.ChatCommand(command)
+			c.ExpectCommandError(
+				servertest.CommandErrorMessageForTest("arguments.item.component.malformed", "minecraft:"+tc.component, tc.message),
+				servertest.CommandErrorContextForTest(command, strings.Index(command, "="+tc.value)+1))
+		})
+	}
+
+	// A potion effect amplifier is a byte read unsigned: 300 is 44.
+	c.ChatCommand(`give @s potion[potion_contents={potion:"minecraft:water",custom_effects:[{id:"minecraft:speed",amplifier:300}]}]`)
+	servertest.AwaitSlotUpdates(t, c, 1)
+	c.ChatCommand("data get entity @s SelectedItem.components.\"minecraft:potion_contents\".custom_effects[0].amplifier")
+	// The give feedback may still be in flight ahead of the query's answer.
+	var line protocol.Text
+	for range 3 {
+		var ok bool
+		line, ok = protocol.ReadText(protocol.NewReader(c.ExpectWithinTicks(srv, 3, protocol.IDPlaySystemChat)))
+		if ok && line.Translate == "commands.data.entity.query" {
+			break
+		}
+	}
+	if line.Translate != "commands.data.entity.query" || len(line.With) != 2 || line.With[1].Plain() != "44b" {
+		t.Errorf("amplifier data get = %+v, want 44b", line)
 	}
 
 	// A number the codec narrows is no refusal at all: the repair cost of

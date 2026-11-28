@@ -1396,18 +1396,12 @@ func potionEffectDetails(entry nbt.Compound, id int32) (protocol.PotionEffectSpe
 	return spec, true
 }
 
-// unsignedByteOf reads a byte as its unsigned value and any other numeric
-// only within 0..255.
-// vanilla: ExtraCodecs.UNSIGNED_BYTE
+// unsignedByteOf narrows a number to a byte and reads it unsigned, so 300
+// reads as 44 and -1 as 255.
+// vanilla: ExtraCodecs.UNSIGNED_BYTE, Codec.BYTE
 func unsignedByteOf(field nbt.Tag) (uint8, bool) {
-	if b, ok := field.(nbt.Byte); ok {
-		return uint8(b), true
-	}
 	n, ok := nbt.IntValue(field)
-	if !ok || n < 0 || n > 255 {
-		return 0, false
-	}
-	return uint8(n), true
+	return uint8(n), ok
 }
 
 // enchantmentsOf reads an enchantments component, registry name to level;
