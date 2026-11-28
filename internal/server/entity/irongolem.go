@@ -24,9 +24,6 @@ func ironGolemGoals(m *Mob) []Goal {
 		}},
 		&mobTargetGoal{m: m, priority: 3, interval: 5, unsighted: true, matches: func(o *Mob) bool {
 			return Enemy(o.Type) && o.Type != TypeCreeper && (m.Team == "" || m.Team != o.Team)
-		}, area: func(o *Mob) bool {
-			r := m.visibilityRange(&Player{Invisible: o.hasEffect(mobEffectInvisibility), Worn: o.Worn})
-			return Dist2(m.X, m.Y, m.Z, o.X, o.Y, o.Z) <= r*r
 		}},
 		&resetAngerGoal{m: m, priority: 4},
 		&randomStroll{m: m, priority: 4, interval: 240, pace: 0.6, ignoreIdle: true, pick: m.golemStrollPos},

@@ -196,8 +196,9 @@ type mobTargetGoal struct {
 	victimOnly bool
 	priority   int
 	unseen     int
-	// matches replaces the victim type test; unsighted drops the line of
-	// sight (mustSee false); wildOnly is NonTameRandomTargetGoal's gate.
+	// matches replaces the victim type test; unsighted keeps a found target
+	// without sight (mustSee false); finding one always needs sight;
+	// wildOnly is NonTameRandomTargetGoal's gate.
 	matches func(o *Mob) bool
 	// kinds lists every type matches admits, or the accepted types when matches
 	// is nil. A nil list leaves the scan unrestricted by the herd's kinds.
@@ -294,7 +295,7 @@ func (g *mobTargetGoal) CanStart(t *tickView) bool {
 		if Dist2(m.X, m.Y, m.Z, o.X, o.Y, o.Z) > follow2 || o == m || m.alliedToMob(o) || !g.wants(o) || !o.Alive() || o.Invulnerable || g.area != nil && !g.area(o) {
 			continue
 		}
-		if !g.unsighted && !g.sees(t.w, o) {
+		if !g.visible(o) || !g.sees(t.w, o) {
 			continue
 		}
 		if rank := Dist2(o.X, o.Y, o.Z, m.X, m.Y+m.eyeHeight(), m.Z); rank < best {
@@ -303,7 +304,7 @@ func (g *mobTargetGoal) CanStart(t *tickView) bool {
 	}
 	if g.players {
 		// A tie goes to the mob.
-		if p := m.nearestHuntable(t, nil, !g.unsighted); p != nil &&
+		if p := m.nearestHuntable(t, nil, true); p != nil &&
 			Dist2(p.X, p.Y, p.Z, m.X, m.Y+m.eyeHeight(), m.Z) < best {
 			m.SetMetadataTargetID(p.EntityID)
 			return true
@@ -314,6 +315,19 @@ func (g *mobTargetGoal) CanStart(t *tickView) bool {
 	}
 	m.SetMetadataTargetID(nearest.ID)
 	return true
+}
+
+// visible reports whether o is within the follow range scaled by its
+// visibility percent (invisible or armourless-headed targets are seen late).
+// vanilla: TargetingConditions.test
+func (g *mobTargetGoal) visible(o *Mob) bool {
+	percent := 1.0
+	// Only an invisible or equipped target scales the range; skip copying Worn otherwise.
+	if o.hasEffect(mobEffectInvisibility) || o.wearsAny() {
+		percent = visibilityPercent(g.m, &Player{Invisible: o.hasEffect(mobEffectInvisibility), Worn: o.Worn})
+	}
+	r := max(g.follow()*percent, minVisibilityDistance)
+	return Dist2(g.m.X, g.m.Y, g.m.Z, o.X, o.Y, o.Z) <= r*r
 }
 
 // sees is the line of sight from the hunter's eyes to the victim's.
@@ -374,3 +388,13 @@ func (g *mobTargetGoal) Stop(*tickView) {
 }
 
 func (g *mobTargetGoal) RequiresEveryTick() bool { return false }
+
+// wearsAny reports whether any armour slot holds an item.
+func (m *Mob) wearsAny() bool {
+	for i := range m.Worn {
+		if !m.Worn[i].Empty() {
+			return true
+		}
+	}
+	return false
+}
