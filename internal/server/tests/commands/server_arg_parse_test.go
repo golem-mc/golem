@@ -385,3 +385,40 @@ func TestArgumentParseErrors(t *testing.T) {
 	}
 	c.Disconnect()
 }
+
+// TestSingleWordStringArguments verifies that single-word brigadier:string
+// arguments reject characters outside Brigadier's unquoted-string alphabet
+// with command.expected.separator at vanilla's cursor, while still accepting
+// all allowed unquoted-string characters.
+func TestSingleWordStringArguments(t *testing.T) {
+	t.Parallel()
+	_, c := servertest.Join(t, servertest.SpawningTestConfig(), "Testificate", servertest.OpsListing(t, "Testificate"))
+
+	for _, tc := range []struct {
+		name    string
+		command string
+		cursor  int
+	}{
+		{"team add with hash", "team add bad#name", strings.Index("team add bad#name", "#")},
+		{"team add with quotes", `team add "bad name"`, strings.Index(`team add "bad name"`, `"`)},
+		{"tag add with quotes", `tag @s add "spaced tag"`, strings.Index(`tag @s add "spaced tag"`, `"`)},
+	} {
+		c.Run(t, tc.name, func(t *testing.T) {
+			c.ChatCommand(tc.command)
+			c.ExpectCommandError(
+				servertest.CommandErrorMessageForTest("command.expected.separator"),
+				servertest.CommandErrorContextForTest(tc.command, tc.cursor))
+			expectNoSystemChat(t, c)
+		})
+	}
+
+	c.ChatCommand("team add ok_name.1+x")
+	expectTeamPacket(t, c, "ok_name.1+x", 0)
+	expectTeamPacket(t, c, "ok_name.1+x", 2)
+	with := expectScoreboardFeedback(t, c, "commands.team.add.success")
+	if name, _ := teamNameOf(t, with[0]); name != "ok_name.1+x" {
+		t.Errorf("add feedback names %q, want ok_name.1+x", name)
+	}
+
+	c.Disconnect()
+}
