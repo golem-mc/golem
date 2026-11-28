@@ -57,6 +57,10 @@ func arrowMetadataTable(it *arrowEntity, walk arrowMetaWalk, was *arrowMetadataS
 		b.PutMetadata(protocol.MetadataIndexNoGravity, protocol.MetadataBoolean)
 		b.PutBool(now.noGravity)
 	}
+	if now.frozen != was.frozen {
+		b.PutMetadata(protocol.MetadataIndexTicksFrozen, protocol.MetadataVarInt)
+		b.PutVarInt(now.frozen)
+	}
 	if now.crit != was.crit || now.noclip != was.noclip {
 		b.PutMetadata(protocol.MetadataIndexArrowFlags, protocol.MetadataByte)
 		b.PutU8(arrowFlagsByte(now.crit, now.noclip))

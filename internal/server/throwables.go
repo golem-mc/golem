@@ -99,6 +99,7 @@ var thrownTracker = trackedKind[*thrownEntity, struct{}]{
 		return bodyPose{x: it.throwable.X, y: it.throwable.Y, z: it.throwable.Z}
 	},
 	pairing: thrownPairing,
+	delta:   func(it *thrownEntity) []byte { return it.frozenDelta(it.throwable.ID, it.throwable.TicksFrozen) },
 }
 
 // The velocity a thrown projectile leaves the thrower with, vanilla's
@@ -1032,6 +1033,10 @@ func thrownMetadataPayload(it *thrownEntity, full bool) []byte {
 	if full || it.throwable.NoGravity {
 		b.PutMetadata(protocol.MetadataIndexNoGravity, protocol.MetadataBoolean)
 		b.PutBool(it.throwable.NoGravity)
+	}
+	if full || it.throwable.TicksFrozen != 0 {
+		b.PutMetadata(protocol.MetadataIndexTicksFrozen, protocol.MetadataVarInt)
+		b.PutVarInt(int32(it.throwable.TicksFrozen))
 	}
 	// A wind charge is no ThrowableItemProjectile: it has no item slot, and
 	// a client rejects an index past its synched data. A wither skull's

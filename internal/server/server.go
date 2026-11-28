@@ -66,6 +66,8 @@ type Server struct {
 	// openContainerWindows may over-count clients removed with a window open,
 	// but never under-counts: zero is only a shortcut for viewer discovery.
 	openContainerWindows atomic.Int32
+	// blockLines holds the command-block lines Match accepted (blockLineCache).
+	blockLines blockLineCache
 	// viewers finds the windows showing a block container by position.
 	viewers containerViewerIndex
 

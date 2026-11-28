@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"unicode"
 
 	"github.com/golem-mc/golem/internal/commandsyntax"
@@ -38,7 +39,49 @@ func Tokenize(input string) []Token {
 	if t, ok := lineTokens.Load(input); ok {
 		return t.([]Token)
 	}
+	if t, ok := cachedTokens.Load(input); ok {
+		return t.([]Token)
+	}
 	return tokenize(input)
+}
+
+// maxCachedTokenLines bounds cachedTokens.
+const maxCachedTokenLines = 4096
+
+// cachedTokens holds the tokens of command-block lines and of each tail after
+// a "run", which execute tokenizes again for every context it forks over.
+// Slices are shared, stored clipped and never written to.
+var (
+	cachedTokens     sync.Map // string -> []Token
+	cachedTokenCount atomic.Int32
+)
+
+// CacheLineTokens keeps the tokens of a line and of every tail after a "run"
+// for Tokenize. The cache is cleared whenever it passes its bound.
+func CacheLineTokens(line string) {
+	if _, ok := cachedTokens.Load(line); ok {
+		return
+	}
+	if cachedTokenCount.Load() > maxCachedTokenLines {
+		cachedTokens.Clear()
+		cachedTokenCount.Store(0)
+	}
+	walkRunTails(line, tokenize(line), func(l string, t []Token) {
+		if _, loaded := cachedTokens.LoadOrStore(l, slices.Clip(t)); !loaded {
+			cachedTokenCount.Add(1)
+		}
+	})
+}
+
+// walkRunTails calls store for the line and every tail after a "run".
+func walkRunTails(line string, tokens []Token, store func(string, []Token)) {
+	store(line, tokens)
+	for i, t := range tokens[:max(len(tokens)-1, 0)] {
+		if t.Text == "run" {
+			tail := line[tokens[i+1].Start:]
+			walkRunTails(tail, tokenize(tail), store)
+		}
+	}
 }
 
 func tokenize(input string) []Token {

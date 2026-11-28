@@ -4,6 +4,7 @@ import (
 	"math"
 
 	"github.com/golem-mc/golem/internal/server/rules"
+	"github.com/golem-mc/golem/internal/server/world"
 	"github.com/golem-mc/golem/registry"
 )
 
@@ -254,15 +255,24 @@ func (m *Mob) travelInLava(w World, gravity float64, isFalling bool, oldY float6
 }
 
 // jumpOutOfFluid is LivingEntity.jumpOutOfFluid: against a wall with the
-// body's height free 0.6 above where the move began, the velocity becomes a
-// 0.3 rise, the hop out of a pool. Measuring from the move's start is what
-// lets the hop reach the ledge.
+// body's height free of blocks and fluid 0.6 above where the move began, the
+// velocity becomes a 0.3 rise, the hop out of a pool. Measuring from the
+// move's start is what lets the hop reach the ledge.
 func (m *Mob) jumpOutOfFluid(w World, oldY float64) {
 	if !m.horizontalCollision {
 		return
 	}
 	rise := m.VY + 0.6 - m.Y + oldY
-	if boxFits(w, m.collideCtx(), m.X+m.VX, m.Z+m.VZ, m.Y+rise, m.height(), m.width()/2) {
+	x, z, hw := m.X+m.VX, m.Z+m.VZ, m.width()/2
+	if !boxFits(w, m.collideCtx(), x, z, m.Y+rise, m.height(), hw) {
+		return
+	}
+	// vanilla: Entity.isFree, LevelReader.containsAnyLiquid
+	liquid := false
+	AABB{x - hw, m.Y + rise, z - hw, x + hw, m.Y + rise + m.height(), z + hw}.insideCells(func(cx, cy, cz int32) {
+		liquid = liquid || world.HoldsFluid(w.BlockAt(cx, cy, cz))
+	})
+	if !liquid {
 		m.VY = 0.3
 	}
 }

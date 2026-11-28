@@ -1103,7 +1103,7 @@ func (s *Server) finishArmorStandTravel(ent *armorStandEntity, kind rules.Portal
 // tagged one through the same reader a saved stand's wake reads — the
 // command's position the one it ends at, the tag's Pos overridden on the
 // way — and a bare one at its defaults. A tag whose UUID is already a
-// live stand's is refused, the caller answering with vanilla's
+// live body's is refused, the caller answering with vanilla's
 // duplicate-UUID message.
 func (s *Server) summonArmorStand(w *world.World, x, y, z float64, tag nbt.Compound, reason plugin.SpawnReason) (*armorStandEntity, error) {
 	if woken, fresh := s.wakeChunkOnce(s.dimensionOfWorld(w),
@@ -1121,16 +1121,7 @@ func (s *Server) summonArmorStand(w *world.World, x, y, z float64, tag nbt.Compo
 		return nil, errNotSimulated
 	}
 	ent.stand.SetPos(x, y, z)
-	s.armorStandsMu.Lock()
-	dup := false
-	for _, live := range s.armorStands {
-		if live.uuid == ent.uuid {
-			dup = true
-			break
-		}
-	}
-	s.armorStandsMu.Unlock()
-	if dup {
+	if s.summonDuplicate(ent.uuid) {
 		return nil, command.ErrDuplicateUUID
 	}
 	ent.spawnReason = spawnReasonCode(reason)

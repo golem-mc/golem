@@ -264,12 +264,16 @@ func (s *Server) tickOrbs() {
 		if mt.gate && it.motionDue(it.orb.VX, it.orb.VY, it.orb.VZ, true) {
 			motion = entityVelocityPayload(it.orb.ID, it.orb.VX, it.orb.VY, it.orb.VZ)
 		}
+		frozen := it.frozenDelta(it.orb.ID, it.orb.TicksFrozen)
 		for _, i := range body.watchers(near[it.w]) {
 			w := watchers[it.w][i]
 			if w.c.theWorld() != it.w {
 				continue // crossed to another dimension since the snapshot
 			}
 			was, seen := body.settle(w.c, w.view.X, w.view.Z, w.c.chunkRadius(), &out)
+			if seen && frozen != nil {
+				out.moves.add(w.c, outbound{id: protocol.IDPlayEntityMetadata, data: frozen})
+			}
 			if !seen || !mt.gate {
 				continue
 			}
@@ -587,6 +591,7 @@ func orbFields(it *orbEntity) metaFields {
 	m.add(protocol.MetadataIndexEntityFlags, protocol.MetadataByte, func(b *protocol.Buffer) { b.PutU8(it.look.flags(false)) })
 	it.look.addSilentField(&m)
 	m.add(protocol.MetadataIndexNoGravity, protocol.MetadataBoolean, func(b *protocol.Buffer) { b.PutBool(it.orb.NoGravity) })
+	m.add(protocol.MetadataIndexTicksFrozen, protocol.MetadataVarInt, func(b *protocol.Buffer) { b.PutVarInt(int32(it.orb.TicksFrozen)) })
 	m.add(protocol.MetadataIndexOrbValue, protocol.MetadataVarInt, func(b *protocol.Buffer) { b.PutVarInt(int32(it.orb.Value)) })
 	it.custom.addFields(&m)
 	return m
