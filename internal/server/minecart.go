@@ -434,9 +434,7 @@ func (s *Server) tickMinecarts() {
 		for range it.cart.Extinguishes {
 			fizzles = append(fizzles, burnSpot{it.w, it.cart.X, it.cart.Y, it.cart.Z})
 		}
-		for _, c := range it.cart.DousedCauldrons {
-			cauldrons = append(cauldrons, cellSpot{it.w, c[0], c[1], c[2]})
-		}
+		cauldrons = appendCells(cauldrons, it.w, it.cart.DousedCauldrons)
 		if sp := it.cart.Splash; sp != nil {
 			splashes = append(splashes, projectileSplash{w: it.w, x: sp.X, y: sp.Y, z: sp.Z, volume: sp.Volume, pitch: sp.Pitch})
 		}
