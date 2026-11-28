@@ -293,7 +293,7 @@ func runClone(src Source, input string, args []string) (int32, error) {
 	}
 	// vanilla: LevelTicks.copyAreaFrom
 	toSrc.ScheduleBlockTicks(ticks, offX, offY, offZ)
-	src.Info("region cloned", "count", count,
+	src.Debug("region cloned", "count", count,
 		"from", []int32{bx, by, bz}, "to", []int32{dx0, dy0, dz0}, "by", src.Name())
 	copied := int64(count)
 	return resultOf(int32(count), feedbackToAdmins(src, cloneSuccessKey, protocol.Text{Number: &copied}))

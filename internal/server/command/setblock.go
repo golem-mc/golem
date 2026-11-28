@@ -220,7 +220,7 @@ func runSetblock(src Source, input string, args []string) error {
 	if !src.SetBlockTagged(px, py, pz, state, defined, tag, strict, destroy) {
 		return refuse(src, setblockFailedKey)
 	}
-	src.Info("block set", "x", px, "y", py, "z", pz, "by", src.Name())
+	src.Debug("block set", "x", px, "y", py, "z", pz, "by", src.Name())
 	return feedbackToAdmins(src, setblockSuccessKey,
 		blockCoord(px), blockCoord(py), blockCoord(pz))
 }

@@ -171,7 +171,7 @@ func runSummon(src Source, input string, args []string) error {
 		src.Debug("summon came to nothing", "name", name)
 		return refuse(src, summonFailedKey)
 	}
-	src.Info("summoned entity", "name", name, "id", id, "by", src.Name())
+	src.Debug("summoned entity", "name", name, "id", id, "by", src.Name())
 	if team, joined := JoinTagTeam(src.Scoreboard(), identity, compound); team != "" && !joined {
 		src.Info("unable to add entity to team (that team probably doesn't exist)", "team", team)
 	}
