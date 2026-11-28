@@ -75,7 +75,7 @@ func TestUpgradeEntitiesAppliesTheEntityFixesAfter1_21(t *testing.T) {
 		{"minecart chain", 4440, nbt.Compound{"id": str("minecraft:minecart"), "DisplayState": nbt.Compound{"Name": str("minecraft:chain")}},
 			nbt.Compound{"id": str("minecraft:minecart"), "DisplayState": nbt.Compound{"id": str("minecraft:iron_chain")}}},
 		{"block display chain", 4189, nbt.Compound{"id": str("minecraft:block_display"), "block_state": nbt.Compound{"Name": str("minecraft:chain")}},
-			nbt.Compound{"id": str("minecraft:block_display"), "block_state": nbt.Compound{"Name": str("minecraft:iron_chain")}}},
+			nbt.Compound{"id": str("minecraft:block_display"), "block_state": nbt.Compound{"id": str("minecraft:iron_chain")}}},
 		{"text display json", 4189, nbt.Compound{"id": str("minecraft:text_display"), "text": str(`{"text":"Hi","color":"blue","clickEvent":{"action":"open_url","value":"https://x.y"}}`)},
 			nbt.Compound{"id": str("minecraft:text_display"), "text": nbt.Compound{"text": str("Hi"), "color": str("blue"),
 				"click_event": nbt.Compound{"action": str("open_url"), "url": str("https://x.y")}}}},
