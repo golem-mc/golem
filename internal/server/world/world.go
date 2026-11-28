@@ -845,8 +845,10 @@ func (w *World) putChunk(pos ChunkPos, c *Chunk, motion *[16][16]int32, fresh bo
 	c.rebuildRandomTickSections()
 	w.chunks[pos] = loaded
 	w.lodestones.drop(pos)
-	touches, comparators := c.redstoneBlockCounts()
-	w.portalBlocks.Add(int64(c.crossingBlocks()))
+	touches, comparators, crossings := c.redstoneBlockCounts()
+	if crossings != 0 {
+		w.portalBlocks.Add(int64(crossings))
+	}
 	w.touchBlocks += touches
 	if comparators != 0 {
 		w.comparatorBlocks.Add(int64(comparators))
@@ -1039,8 +1041,10 @@ func (w *World) removeChunk(pos ChunkPos, loaded *loadedChunk) {
 	w.dropChunkTicks(pos)
 	w.dropNear(pos, loaded)
 	delete(w.chunks, pos)
-	touches, comparators := loaded.chunk.redstoneBlockCounts()
-	w.portalBlocks.Add(-int64(loaded.chunk.crossingBlocks()))
+	touches, comparators, crossings := loaded.chunk.redstoneBlockCounts()
+	if crossings != 0 {
+		w.portalBlocks.Add(-int64(crossings))
+	}
 	w.touchBlocks -= touches
 	if comparators != 0 {
 		w.comparatorBlocks.Add(-int64(comparators))
@@ -1050,19 +1054,13 @@ func (w *World) removeChunk(pos ChunkPos, loaded *loadedChunk) {
 	w.chunkUnloaded(pos, loaded.chunk)
 }
 
-func (c *Chunk) redstoneBlockCounts() (touches, comparators int) {
+func (c *Chunk) redstoneBlockCounts() (touches, comparators, crossings int) {
 	for i := range c.sections {
 		touches += int(c.sections[i].touches.Load())
 		comparators += int(c.sections[i].comparators)
+		crossings += int(c.sections[i].crossings)
 	}
-	return touches, comparators
-}
-
-func (c *Chunk) crossingBlocks() (n int) {
-	for i := range c.sections {
-		n += int(c.sections[i].crossings)
-	}
-	return n
+	return touches, comparators, crossings
 }
 
 var isCrossingBlock = registry.BlocksOf(func(b registry.Block) bool {
