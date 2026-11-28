@@ -1416,6 +1416,15 @@ func (c *client) handleDrag(view windowView, slot, button int32, fullResync bool
 // consumes; the opener is read before any block entity lock is taken.
 // vanilla: RandomizableContainer.unpackLootTable
 func (c *client) unpackLootFor(w *world.World, bes ...*world.BlockEntity) {
+	pending := false
+	for _, be := range bes {
+		if be != nil {
+			be.Use(func(b *world.BlockEntity) { pending = pending || b.LootTable != "" })
+		}
+	}
+	if !pending {
+		return
+	}
 	fill := c.srv.lootFillFor(c.lootOpener())
 	for _, be := range bes {
 		if be == nil {
