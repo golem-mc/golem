@@ -78,6 +78,9 @@ func (c *client) awaitTeleport(move command.Move) []byte {
 func (c *client) teleport(move command.Move) {
 	c.tp.mu.Lock()
 	defer c.tp.mu.Unlock()
+	// A jump inside one section leaves the tracking stamp as it was, yet the
+	// ranges to every body changed.
+	c.tracking.invalidate()
 	c.send(protocol.IDPlaySyncPosition, c.awaitTeleport(move))
 	c.tp.fly.Reset()
 }
