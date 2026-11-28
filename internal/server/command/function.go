@@ -608,12 +608,15 @@ func runFunctionIn(src Source, input string, args []string, f *frame, cb storeFn
 	if err != nil {
 		return err
 	}
-	if len(fns) == 1 {
-		if err := feedbackToAdmins(src, functionScheduledKey, protocol.Text{Text: fns[0].ID}); err != nil {
+	// A silent run builds no announcement. vanilla: CommandSourceStack.sendSuccess
+	if wantsFeedback(src) {
+		if len(fns) == 1 {
+			if err := feedbackToAdmins(src, functionScheduledKey, protocol.Text{Text: fns[0].ID}); err != nil {
+				return err
+			}
+		} else if err := feedbackToAdmins(src, functionScheduledManyKey, functionList(fns)); err != nil {
 			return err
 		}
-	} else if err := feedbackToAdmins(src, functionScheduledManyKey, functionList(fns)); err != nil {
-		return err
 	}
 	fsrc, ok := src.InContext(Context{Silent: true})
 	if !ok {
