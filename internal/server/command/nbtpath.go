@@ -1,6 +1,8 @@
 package command
 
 import (
+	"sync"
+
 	"github.com/golem-mc/golem/internal/commandsyntax"
 	"github.com/golem-mc/golem/nbt"
 )
@@ -30,8 +32,39 @@ type nbtPath struct {
 	ends []int
 }
 
-// parseNBTPath binds the shared grammar's typed nodes to path operations.
+// parsedPaths keeps the last successful parses by text: a function parses the
+// same path once per execute context. A parsed path is read-only (an edit
+// clones the nodes and copies a pattern before creating from it).
+var parsedPaths struct {
+	sync.Mutex
+	byText map[string]nbtPath
+}
+
+const parsedPathsMax = 256
+
+// parseNBTPath is parseNBTPathUncached behind the cache of successes.
 func parseNBTPath(text string) (nbtPath, *ParseError) {
+	parsedPaths.Lock()
+	path, ok := parsedPaths.byText[text]
+	parsedPaths.Unlock()
+	if ok {
+		return path, nil
+	}
+	path, err := parseNBTPathUncached(text)
+	if err != nil {
+		return path, err
+	}
+	parsedPaths.Lock()
+	if len(parsedPaths.byText) >= parsedPathsMax || parsedPaths.byText == nil {
+		parsedPaths.byText = make(map[string]nbtPath, parsedPathsMax)
+	}
+	parsedPaths.byText[text] = path
+	parsedPaths.Unlock()
+	return path, nil
+}
+
+// parseNBTPathUncached binds the shared grammar's typed nodes to path operations.
+func parseNBTPathUncached(text string) (nbtPath, *ParseError) {
 	parsed, err := commandsyntax.ParseNBTPath(text)
 	path := nbtPath{original: parsed.Original, ends: parsed.Ends}
 	for _, node := range parsed.Nodes {
