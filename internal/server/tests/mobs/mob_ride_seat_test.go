@@ -10,8 +10,8 @@ import (
 )
 
 // TestMobRiderSeatHeights: a mob rider stands at its vehicle's passenger
-// attachment less its own vehicle attachment, for pairs the attachment tables
-// once left at the body top and the feet.
+// attachment less its own vehicle attachment, including the spider rule and
+// per-kind ridingOffset values.
 // vanilla: Entity.positionRider, Spider.getVehicleAttachmentPoint
 func TestMobRiderSeatHeights(t *testing.T) {
 	t.Parallel()
