@@ -115,6 +115,9 @@ func runRide(src Source, input string, args []string) error {
 			return refuse(src, rideNotRidingKey, target.DisplayName())
 		}
 		rider.StopRiding()
+		if !wantsFeedback(src) {
+			return nil
+		}
 		return feedbackToAdmins(src, rideDismountDoneKey, target.DisplayName(), vehicle.DisplayName())
 	}
 
@@ -141,6 +144,9 @@ func runRide(src Source, input string, args []string) error {
 		return refuse(src, rideWrongDimensionKey)
 	case rider == nil || !rider.StartRiding(vehicle):
 		return refuse(src, rideMountFailedKey, target.DisplayName(), vehicle.DisplayName())
+	}
+	if !wantsFeedback(src) {
+		return nil
 	}
 	return feedbackToAdmins(src, rideMountSuccessKey, target.DisplayName(), vehicle.DisplayName())
 }

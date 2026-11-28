@@ -113,9 +113,9 @@ func runAttribute(src Source, input string, args []string) (int32, error) {
 	if !ok || !holder.HasAttributes() {
 		return 0, refuse(src, "commands.attribute.failed.entity", target.DisplayName())
 	}
-	who := target.DisplayName()
+	who := target.DisplayName
 	noAttribute := func() error {
-		return refuse(src, "commands.attribute.failed.no_attribute", who, attrName)
+		return refuse(src, "commands.attribute.failed.no_attribute", who(), attrName)
 	}
 	attr, known := registry.AttributeByName(name)
 	id := registry.AttributeID(attr.ID)
@@ -126,7 +126,6 @@ func runAttribute(src Source, input string, args []string) (int32, error) {
 	if !has {
 		return 0, noAttribute()
 	}
-	feedback := func(key string, with ...protocol.Text) error { return src.Feedback(key, with...) }
 	number := func(v float64) protocol.Text { return protocol.Text{Text: formatJavaDouble(v)} }
 	scaleAt := func(i int) (float64, bool) {
 		if i >= len(rest) {
@@ -144,7 +143,7 @@ func runAttribute(src Source, input string, args []string) (int32, error) {
 		}
 		var value float64
 		holder.WithAttributes(func(a *player.Attributes) { value = a.Value(id) })
-		return javaDoubleToInt(value * scale), feedback("commands.attribute.value.get.success", attrName, who, number(value))
+		return javaDoubleToInt(value * scale), lazyFeedback(src, "commands.attribute.value.get.success", func() []protocol.Text { return []protocol.Text{attrName, who(), number(value)} })
 	case "base":
 		return runAttributeBase(src, holder, id, rest[2:], attrName, who, scaleAt)
 	case "modifier":
@@ -154,7 +153,7 @@ func runAttribute(src Source, input string, args []string) (int32, error) {
 }
 
 // runAttributeBase runs base set|get|reset.
-func runAttributeBase(src Source, holder AttributeTarget, id registry.AttributeID, rest []string, attrName, who protocol.Text,
+func runAttributeBase(src Source, holder AttributeTarget, id registry.AttributeID, rest []string, attrName protocol.Text, who func() protocol.Text,
 	scaleAt func(int) (float64, bool)) (int32, error) {
 	if len(rest) == 0 {
 		return 0, nil
@@ -170,7 +169,7 @@ func runAttributeBase(src Source, holder AttributeTarget, id registry.AttributeI
 			return 0, nil
 		}
 		holder.WithAttributes(func(a *player.Attributes) { a.SetBase(id, value) })
-		return 1, src.Feedback("commands.attribute.base_value.set.success", attrName, who, number(value))
+		return 1, lazyFeedback(src, "commands.attribute.base_value.set.success", func() []protocol.Text { return []protocol.Text{attrName, who(), number(value)} })
 	case "get":
 		scale, ok := scaleAt(3)
 		if !ok {
@@ -179,20 +178,20 @@ func runAttributeBase(src Source, holder AttributeTarget, id registry.AttributeI
 		var value float64
 		holder.WithAttributes(func(a *player.Attributes) { value = a.Base(id) })
 		return javaDoubleToInt(value * scale),
-			src.Feedback("commands.attribute.base_value.get.success", attrName, who, number(value))
+			lazyFeedback(src, "commands.attribute.base_value.get.success", func() []protocol.Text { return []protocol.Text{attrName, who(), number(value)} })
 	case "reset":
 		var value float64
 		holder.WithAttributes(func(a *player.Attributes) {
 			a.ResetBase(id)
 			value = a.Base(id)
 		})
-		return 1, src.Feedback("commands.attribute.base_value.reset.success", attrName, who, number(value))
+		return 1, lazyFeedback(src, "commands.attribute.base_value.reset.success", func() []protocol.Text { return []protocol.Text{attrName, who(), number(value)} })
 	}
 	return 0, nil
 }
 
 // runAttributeModifier runs modifier add|remove|value get.
-func runAttributeModifier(src Source, holder AttributeTarget, id registry.AttributeID, rest []string, attrName, who protocol.Text) (int32, error) {
+func runAttributeModifier(src Source, holder AttributeTarget, id registry.AttributeID, rest []string, attrName protocol.Text, who func() protocol.Text) (int32, error) {
 	if len(rest) < 2 {
 		return 0, nil
 	}
@@ -209,7 +208,7 @@ func runAttributeModifier(src Source, holder AttributeTarget, id registry.Attrib
 	}
 	idText := protocol.Text{Text: modID}
 	noModifier := func() error {
-		return refuse(src, "commands.attribute.failed.no_modifier", attrName, who, idText)
+		return refuse(src, "commands.attribute.failed.no_modifier", attrName, who(), idText)
 	}
 	var existing player.Modifier
 	var present bool
@@ -225,18 +224,18 @@ func runAttributeModifier(src Source, holder AttributeTarget, id registry.Attrib
 			return 0, nil
 		}
 		if present {
-			return 0, refuse(src, "commands.attribute.failed.modifier_already_present", idText, attrName, who)
+			return 0, refuse(src, "commands.attribute.failed.modifier_already_present", idText, attrName, who())
 		}
 		holder.WithAttributes(func(a *player.Attributes) {
 			a.AddModifier(id, player.Modifier{ID: modID, Amount: amount, Operation: operation, Persistent: true})
 		})
-		return 1, src.Feedback("commands.attribute.modifier.add.success", idText, attrName, who)
+		return 1, lazyFeedback(src, "commands.attribute.modifier.add.success", func() []protocol.Text { return []protocol.Text{idText, attrName, who()} })
 	case "remove":
 		if !present {
 			return 0, noModifier()
 		}
 		holder.WithAttributes(func(a *player.Attributes) { a.RemoveModifier(id, modID) })
-		return 1, src.Feedback("commands.attribute.modifier.remove.success", idText, attrName, who)
+		return 1, lazyFeedback(src, "commands.attribute.modifier.remove.success", func() []protocol.Text { return []protocol.Text{idText, attrName, who()} })
 	case "value get":
 		scale := 1.0
 		if len(rest) > 2 {
@@ -248,9 +247,19 @@ func runAttributeModifier(src Source, holder AttributeTarget, id registry.Attrib
 		if !present {
 			return 0, noModifier()
 		}
-		return javaDoubleToInt(existing.Amount * scale), src.Feedback(
-			"commands.attribute.modifier.value.get.success", idText, attrName, who,
-			protocol.Text{Text: formatJavaDouble(existing.Amount)})
+		return javaDoubleToInt(existing.Amount * scale), lazyFeedback(src,
+			"commands.attribute.modifier.value.get.success", func() []protocol.Text {
+				return []protocol.Text{idText, attrName, who(), {Text: formatJavaDouble(existing.Amount)}}
+			})
 	}
 	return 0, nil
+}
+
+// lazyFeedback sends the runner's feedback, building its arguments only when
+// someone will see it.
+func lazyFeedback(src Source, key string, with func() []protocol.Text) error {
+	if !wantsFeedback(src) {
+		return nil
+	}
+	return src.Feedback(key, with()...)
 }

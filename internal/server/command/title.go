@@ -61,6 +61,9 @@ func titleNode() *Node {
 // titleFeedback answers a /title run with the key's single or multiple form,
 // and the number of players acted on.
 func titleFeedback(src Source, key string, targets []Target) (int32, error) {
+	if !wantsFeedback(src) {
+		return int32(len(targets)), nil
+	}
 	if len(targets) == 1 {
 		return resultOf(1, feedbackToAdmins(src, key+".single", targets[0].DisplayName()))
 	}
