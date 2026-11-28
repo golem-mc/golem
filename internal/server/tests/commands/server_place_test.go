@@ -3,7 +3,10 @@ package commands
 import (
 	"bytes"
 	"compress/gzip"
+	"compress/zlib"
+	"encoding/binary"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"testing"
@@ -357,4 +360,195 @@ func TestPlaceTemplateClearsDustOnBlockEntity(t *testing.T) {
 	c.ChatCommand("tick step 1")
 	servertest.RunTicks(t, srv, 1)
 	check("after one tick")
+}
+
+// readChunkBlockTicks reads the saved block_ticks list of chunk (cx, cz) from
+// its region file after /save-all flush.
+func readChunkBlockTicks(t *testing.T, level string, cx, cz int32) []nbt.Compound {
+	t.Helper()
+	path := filepath.Join(level, "dimensions", "minecraft", "overworld", "region", fmt.Sprintf("r.%d.%d.mca", cx>>5, cz>>5))
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read region %s: %v", path, err)
+	}
+	index := (int(cx&31) + int(cz&31)*32) * 4
+	offset := binary.BigEndian.Uint32(raw[index:]) >> 8
+	if offset == 0 {
+		t.Fatalf("region %s holds no chunk (%d,%d)", path, cx, cz)
+	}
+	start := int(offset) * 4096
+	size := int(binary.BigEndian.Uint32(raw[start : start+4]))
+	if raw[start+4] != 2 {
+		t.Fatalf("chunk (%d,%d) compression = %d, want zlib (2)", cx, cz, raw[start+4])
+	}
+	zr, err := zlib.NewReader(bytes.NewReader(raw[start+5 : start+4+size]))
+	if err != nil {
+		t.Fatalf("decompress chunk (%d,%d): %v", cx, cz, err)
+	}
+	data, err := io.ReadAll(zr)
+	if err != nil {
+		t.Fatalf("read chunk (%d,%d): %v", cx, cz, err)
+	}
+	_, tag, err := nbt.Decode(data)
+	if err != nil {
+		t.Fatalf("decode chunk (%d,%d): %v", cx, cz, err)
+	}
+	root, ok := tag.(nbt.Compound)
+	if !ok {
+		t.Fatalf("chunk (%d,%d) root is %s, want compound", cx, cz, tag.Type())
+	}
+	list, ok := nbt.Get[nbt.List](root, "block_ticks")
+	if !ok {
+		return nil
+	}
+	out := make([]nbt.Compound, 0, len(list.Items))
+	for _, item := range list.Items {
+		if entry, ok := item.(nbt.Compound); ok {
+			out = append(out, entry)
+		}
+	}
+	return out
+}
+
+func hasBlockTick(ticks []nbt.Compound, id string, x, y, z, delay int32) bool {
+	for _, tk := range ticks {
+		gotID, _ := nbt.Get[nbt.String](tk, "i")
+		gx, _ := nbt.IntValue(tk["x"])
+		gy, _ := nbt.IntValue(tk["y"])
+		gz, _ := nbt.IntValue(tk["z"])
+		gt, _ := nbt.IntValue(tk["t"])
+		if string(gotID) == id && gx == x && gy == y && gz == z && gt == delay {
+			return true
+		}
+	}
+	return false
+}
+
+// TestPlaceTemplateObserverFacingAirPulses checks that non-strict /place
+// template pulses every placed observer via updateFromNeighbourShapes — even
+// one facing air — leaving an observer block tick pending at t=2, powering the
+// lamp behind it at step 2, unpowering at step 4, and turning the lamp off at
+// step 8. Strict placement leaves the observer quiet.
+// vanilla: StructureTemplate.placeInWorld, Block.updateFromNeighbourShapes, ObserverBlock.updateShape
+func TestPlaceTemplateObserverFacingAirPulses(t *testing.T) {
+	t.Parallel()
+	obsTpl := func(powered string) nbt.Compound {
+		palette := nbt.List{Elem: nbt.TypeCompound, Items: []nbt.Tag{
+			paletteEntry("minecraft:redstone_lamp", map[string]string{"lit": "false"}),
+			paletteEntry("minecraft:observer", map[string]string{"facing": "east", "powered": powered}),
+			paletteEntry("minecraft:sand", nil),
+		}}
+		blocks := nbt.List{Elem: nbt.TypeCompound, Items: []nbt.Tag{
+			templateBlock(0, 0, 0, 0, nil),
+			templateBlock(1, 1, 0, 0, nil),
+			templateBlock(2, 4, 2, 0, nil),
+		}}
+		return nbt.Compound{
+			"size": ints(5, 3, 1), "palette": palette, "blocks": blocks, "DataVersion": nbt.Int(4554),
+		}
+	}
+
+	cfg := config.Default()
+	cfg.OnlineMode = false
+	cfg.GameMode = "creative"
+	cfg.LevelName = t.TempDir()
+	dir := filepath.Join(cfg.LevelName, "generated", "test", "structure")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for name, tpl := range map[string]nbt.Compound{
+		"obs":         obsTpl("false"),
+		"obs_powered": obsTpl("true"),
+	} {
+		raw, err := nbt.Encode("", tpl)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var zipped bytes.Buffer
+		zw := gzip.NewWriter(&zipped)
+		if _, err := zw.Write(raw); err != nil {
+			t.Fatal(err)
+		}
+		if err := zw.Close(); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, name+".nbt"), zipped.Bytes(), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	srv, c := servertest.Join(t, cfg, "Testificate",
+		servertest.OpsListing(t, "Testificate"),
+		func(s *server.Server) { servertest.FreezeUntilHeld(t, s) },
+	)
+	// Non-strict place at (10, 70, 10) (chunk 0,0) and strict place at (10, 70, 14).
+	// Also test a powered=true observer at (10, 70, 12), which onPlace resets to
+	// powered=false before updateFromNeighbourShapes runs.
+	c.ChatCommand("place template test:obs 10 70 10")
+	expectPlaced(t, c, "commands.place.template.success", "test:obs", 10, 70, 10)
+	c.ChatCommand("place template test:obs_powered 10 70 12")
+	expectPlaced(t, c, "commands.place.template.success", "test:obs_powered", 10, 70, 12)
+	c.ChatCommand("place template test:obs 10 70 14 none none 1.0 0 strict")
+	expectPlaced(t, c, "commands.place.template.success", "test:obs", 10, 70, 14)
+
+	c.ChatCommand("save-all flush")
+	servertest.ExpectFeedbackSoon(t, c, nil, "commands.save.success")
+
+	ticks := readChunkBlockTicks(t, cfg.LevelName, 0, 0)
+	if !hasBlockTick(ticks, "minecraft:observer", 11, 70, 10, 2) {
+		t.Fatalf("missing pending observer tick at (11,70,10) t=2; got %v", ticks)
+	}
+	if !hasBlockTick(ticks, "minecraft:sand", 14, 72, 10, 2) {
+		t.Fatalf("missing pending sand tick at (14,72,10) t=2; got %v", ticks)
+	}
+	if !hasBlockTick(ticks, "minecraft:observer", 11, 70, 12, 2) {
+		t.Fatalf("missing pending observer tick for powered=true template at (11,70,12) t=2; got %v", ticks)
+	}
+	if hasBlockTick(ticks, "minecraft:observer", 11, 70, 14, 2) {
+		t.Fatalf("strict /place template scheduled unexpected observer tick at (11,70,14); got %v", ticks)
+	}
+
+	step := func() {
+		t.Helper()
+		c.ChatCommand("tick step 1")
+		servertest.RunTicks(t, srv, 1)
+	}
+
+	// Step 1: nothing has fired yet.
+	step()
+	wantBlock(t, srv, 11, 70, 10, "minecraft:observer", map[string]string{"powered": "false"})
+	wantBlock(t, srv, 10, 70, 10, "minecraft:redstone_lamp", map[string]string{"lit": "false"})
+
+	// Step 2: observer powers and lights the lamp; sand begins falling.
+	step()
+	wantBlock(t, srv, 11, 70, 10, "minecraft:observer", map[string]string{"powered": "true"})
+	wantBlock(t, srv, 10, 70, 10, "minecraft:redstone_lamp", map[string]string{"lit": "true"})
+	wantBlock(t, srv, 14, 72, 10, "minecraft:air", nil)
+	wantBlock(t, srv, 11, 70, 12, "minecraft:observer", map[string]string{"powered": "true"})
+	wantBlock(t, srv, 10, 70, 12, "minecraft:redstone_lamp", map[string]string{"lit": "true"})
+	// Strict placement stays quiet.
+	wantBlock(t, srv, 11, 70, 14, "minecraft:observer", map[string]string{"powered": "false"})
+	wantBlock(t, srv, 10, 70, 14, "minecraft:redstone_lamp", map[string]string{"lit": "false"})
+
+	// Step 3: observer still powered, lamp still lit.
+	step()
+	wantBlock(t, srv, 11, 70, 10, "minecraft:observer", map[string]string{"powered": "true"})
+	wantBlock(t, srv, 10, 70, 10, "minecraft:redstone_lamp", map[string]string{"lit": "true"})
+
+	// Step 4: observer unpowers; lamp stays lit for 4 more ticks.
+	step()
+	wantBlock(t, srv, 11, 70, 10, "minecraft:observer", map[string]string{"powered": "false"})
+	wantBlock(t, srv, 10, 70, 10, "minecraft:redstone_lamp", map[string]string{"lit": "true"})
+
+	// Steps 5-7: lamp still lit.
+	for range 3 {
+		step()
+		wantBlock(t, srv, 10, 70, 10, "minecraft:redstone_lamp", map[string]string{"lit": "true"})
+	}
+
+	// Step 8: lamp turns off.
+	step()
+	wantBlock(t, srv, 11, 70, 10, "minecraft:observer", map[string]string{"powered": "false"})
+	wantBlock(t, srv, 10, 70, 10, "minecraft:redstone_lamp", map[string]string{"lit": "false"})
+	c.Disconnect()
 }
