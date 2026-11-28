@@ -406,6 +406,10 @@ func (sel *Selector) sortAndLimit(src Source, pos player.Position, entities []En
 	return entities[:n:n]
 }
 
+func (sel *Selector) sortsByDistance() bool {
+	return sel.Order == commandsyntax.OrderNearest || sel.Order == commandsyntax.OrderFurthest
+}
+
 // findEntities resolves the selector: players-only through the player list,
 // a bare name or UUID straight to its entity ignoring filters, the rest
 // swept from the world. Empty is the caller's not-found.
@@ -438,6 +442,10 @@ func (sel *Selector) findEntities(src Source) []Entity {
 	q := sel.query(src, pos)
 	if sel.Order == commandsyntax.OrderArbitrary && sel.MaxResults < commandsyntax.MaxAll {
 		q.Limit, q.Accept = sel.MaxResults, sel.predicate(src, pos)
+		return src.Entities(q)
+	}
+	if sel.sortsByDistance() && sel.MaxResults < commandsyntax.MaxAll {
+		q.Limit, q.Accept, q.Order, q.Anchor = sel.MaxResults, sel.predicate(src, pos), sel.Order, pos
 		return src.Entities(q)
 	}
 	return sel.sweep(src, asEntities(src.OnlineTargets()), src.Entities(q))

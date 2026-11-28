@@ -32,6 +32,12 @@ type EntityQuery struct {
 	Limit  int
 	Accept func(Entity) bool
 
+	// Order, with Limit, asks for the nearest or furthest to Anchor that pass
+	// Accept, nearest first, ties by entity ID. Any other order keeps the
+	// lowest entity IDs.
+	Order  int
+	Anchor player.Position
+
 	// IncludeDead lets a direct UUID lookup reach a dying mob that is no
 	// longer in the live-herd index.
 	IncludeDead bool

@@ -135,6 +135,7 @@ func BenchmarkEntityQueryLines(b *testing.B) {
 		{"tagged_data", "data merge entity @e[type=armor_stand,tag=one,limit=1] {CustomNameVisible:0b}"},
 		{"uuid", "execute as 00000001-0000-0002-0000-000300000004 run scoreboard players add #c x 1"},
 		{"summon", "execute summon marker run kill @s"},
+		{"nearest", "execute as @e[type=marker,limit=1,sort=nearest] run scoreboard players add #c x 1"},
 	}
 	for _, line := range lines {
 		for _, n := range []int{1, 2000} {
