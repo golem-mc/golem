@@ -21,8 +21,9 @@ func BenchmarkFunctionLines(b *testing.B) {
 		"execute_as_tp":         "execute as @e[type=marker,tag=t] at @s run tp @s ~ ~ ~",
 		"execute_as_score":      "execute as @e[type=marker,tag=t] at @s run scoreboard players add @s x 1",
 		"execute_as_store_data": "execute as @e[type=marker,tag=t] store result score @s x run data get entity @s Pos[0]",
+		"macro_call":            `execute as @e[type=marker,tag=t] run function zz:m {x:1,o:"x"}`,
 	}
-	for _, name := range []string{"score", "execute_if_score", "execute_as_tp", "execute_as_score", "execute_as_store_data"} {
+	for _, name := range []string{"score", "execute_if_score", "execute_as_tp", "execute_as_score", "execute_as_store_data", "macro_call"} {
 		b.Run(name, func(b *testing.B) {
 			s, _ := newTrackerBenchServer(b)
 			s.mu.Lock()
@@ -44,10 +45,16 @@ func BenchmarkFunctionLines(b *testing.B) {
 			if err := os.WriteFile(filepath.Join(fnDir, "t.mcfunction"), []byte(body), 0o644); err != nil {
 				b.Fatal(err)
 			}
+			if name == "macro_call" {
+				macro := "$scoreboard players add @s $(o) $(x)\n"
+				if err := os.WriteFile(filepath.Join(fnDir, "m.mcfunction"), []byte(macro), 0o644); err != nil {
+					b.Fatal(err)
+				}
+			}
 			for _, c := range []string{"scoreboard objectives add x dummy", "scoreboard players set #c x 1", "reload"} {
 				s.RunRconLine(c)
 			}
-			if strings.HasPrefix(name, "execute_as") {
+			if strings.HasPrefix(name, "execute_as") || name == "macro_call" {
 				for i := range 20 {
 					s.RunRconLine(fmt.Sprintf("summon marker %d -60 0 {Tags:[\"t\"]}", i))
 				}
