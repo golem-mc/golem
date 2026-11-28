@@ -338,7 +338,7 @@ func (m *Minecart) Step(w World, ridden bool) {
 	inWater := m.water.height > 0
 
 	oldYaw := m.Yaw
-	oldX, oldZ := m.X, m.Z
+	oldX, oldY, oldZ := m.X, m.Y, m.Z
 	m.VY -= m.gravity(inWater)
 
 	posX, posY, posZ, state := m.railCell(w)
@@ -361,7 +361,7 @@ func (m *Minecart) Step(w World, ridden bool) {
 		m.comeOffTrack(w, inWater)
 	}
 
-	m.VY, _ = bubbleColumnDrift(w, m.cartBox(), m.VY)
+	m.bubbleColumns(w, bodyMove{oldX, oldY, oldZ, m.X, m.Y, m.Z, m.X - oldX, m.Z - oldZ, true})
 	m.blockEffects(w)
 	m.Splash = m.step(w, m.cartBox(), m.VX, m.VY, m.VZ)
 	var lava fluidTracker
@@ -410,6 +410,18 @@ func (m *Minecart) blockEffects(w World) {
 	})
 	m.LavaHurts += burns
 	m.Extinguishes += fizzles
+}
+
+// bubbleColumns moves the cart with the columns its move's legs crossed; no
+// surface splash is sent.
+// vanilla: BubbleColumnBlock.entityInside, Entity.onInsideBubbleColumn
+func (m *Minecart) bubbleColumns(w World, move bodyMove) {
+	var spots []bubbleSpot
+	rel := AABB{-MinecartHalfWidth, 0, -MinecartHalfWidth, MinecartHalfWidth, MinecartHeight, MinecartHalfWidth}
+	walkInside(w, []bodyMove{move}, rel, func(x, y, z int32, state uint16, _ int, from AABB, dx, dy, dz float64) bool {
+		m.VY, _ = projectileBubblePush(w, x, y, z, state, from, dx, dy, dz, m.VY, true, &spots)
+		return true
+	})
 }
 
 // cartBox is the cart's span as a fluid box.
@@ -709,7 +721,7 @@ func (m *Minecart) comeOffTrack(w World, inWater bool) {
 	// The move's block effects run before the drag; Step runs them again
 	// after the tick.
 	// vanilla: Entity.move, OldMinecartBehavior.tick
-	m.VY, _ = bubbleColumnDrift(w, m.cartBox(), m.VY)
+	m.bubbleColumns(w, bodyMove{fromX, startY, fromZ, m.X, m.Y, m.Z, dx, dz, !held})
 	m.blockEffects(w)
 	if !m.OnGround {
 		m.VX *= minecartAirDrag

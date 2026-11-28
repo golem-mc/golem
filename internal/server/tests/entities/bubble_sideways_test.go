@@ -34,6 +34,7 @@ func TestBodiesMovingSidewaysAreMovedByEachBubbleColumnLeg(t *testing.T) {
 	}
 	srv.RunLine(`summon minecraft:item 8.5 60 4.5 {Item:{id:"minecraft:stone",count:1},Motion:[0d,0.1d,0.6d]}`)
 	srv.RunLine("summon minecraft:tnt 8.5 60 4.5 {fuse:400s,Motion:[0d,0.1d,0.6d]}")
+	srv.RunLine("summon minecraft:armor_stand 8.5 60 4.5 {Motion:[0d,0.1d,0.6d]}")
 	srv.RunLine(`summon minecraft:item 8.5 60 8.5 {Item:{id:"minecraft:stone",count:1},Motion:[0d,0.1d,0d]}`)
 	servertest.RunTicks(t, srv, 2)
 
@@ -50,6 +51,9 @@ func TestBodiesMovingSidewaysAreMovedByEachBubbleColumnLeg(t *testing.T) {
 	}
 	if math.Abs(still-0.212464) > 1e-4 {
 		t.Errorf("item without sideways travel Motion[1] after 2 ticks = %v, want 0.212464 (unchanged by the leg walk)", still)
+	}
+	if stands := srv.ArmorStandsInDimension("minecraft:overworld"); len(stands) != 1 || math.Abs(stands[0].VY-0.7) > 1e-4 {
+		t.Errorf("armor stand after 2 ticks = %+v, want Motion[1] 0.7", stands)
 	}
 	tnts := srv.TNTsInDimension("minecraft:overworld")
 	if len(tnts) != 1 || math.Abs(tnts[0].VY-0.60172) > 1e-4 {

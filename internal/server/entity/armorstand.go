@@ -246,10 +246,12 @@ func (s *ArmorStand) Step(w World) []ArmorStandEvent {
 		s.FireTicks--
 	}
 
+	var fx, fy, fz, ax, az float64
 	if s.NoGravity {
 		s.settleVelocity()
 	} else {
 		wasOnGround, fell := s.OnGround, s.FallDistance
+		fx, fy, fz, ax, az = s.X, s.Y, s.Z, s.VX, s.VZ
 		s.LandedFall = s.travel(w, box, ArmorStandWidth/2*scale, ArmorStandGravity)
 		if !wasOnGround && fell > 0 && s.OnGround && s.locatedActive() {
 			events = append(events, ArmorStandEvent{Kind: ArmorStandLocated, X: s.X, Y: s.Y, Z: s.Z,
@@ -266,7 +268,13 @@ func (s *ArmorStand) Step(w World) []ArmorStandEvent {
 	// vanilla: BaseFireBlock.entityInside, LavaFluid.entityInside,
 	// ArmorStand.hurtServer, Entity.applyEffectsFromBlocks
 	if !s.NoGravity {
-		s.VY, _ = bubbleColumnDrift(w, s.Box(), s.VY)
+		var spots []bubbleSpot
+		rel := s.boxAtScale(scale).moved(-s.X, -s.Y, -s.Z)
+		walkInside(w, []bodyMove{{fx, fy, fz, s.X, s.Y, s.Z, ax, az, true}}, rel,
+			func(x, y, z int32, state uint16, _ int, from AABB, dx, dy, dz float64) bool {
+				s.VY, _ = projectileBubblePush(w, x, y, z, state, from, dx, dy, dz, s.VY, true, &spots)
+				return true
+			})
 		var broke bool
 		s.Box().insideCells(func(x, y, z int32) {
 			switch {

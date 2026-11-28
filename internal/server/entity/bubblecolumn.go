@@ -1,6 +1,10 @@
 package entity
 
-import "github.com/golem-mc/golem/internal/server/rules"
+import (
+	"math"
+
+	"github.com/golem-mc/golem/internal/server/rules"
+)
 
 // bubbleColumns walks the bubble columns in a box, yielding whether each
 // drags down, whether the cell above is air (a surface cell), and its
@@ -91,50 +95,52 @@ func projectileBubbleSpeed(w World, x, y, z int32, drag bool, vy float64, clampe
 // bubbleSpot is the cell of a column whose surface a body rides.
 type bubbleSpot struct{ x, y, z int32 }
 
-// bubbleColumnPush applies the box's columns to a vertical speed and
-// reports whether the body was in a column and whether it rode a surface;
-// each surface cell is added to spots for its splash.
-func bubbleColumnPush(w World, box AABB, vy float64, spots *[]bubbleSpot) (newVY float64, inside, surface bool) {
-	newVY = vy
-	bubbleColumns(w, box, func(d, top bool, x, y, z int32) {
-		if top {
-			surface = true
-			newVY = rules.BubbleColumnAboveSpeed(newVY, d)
-			*spots = append(*spots, bubbleSpot{x, y, z})
-		} else {
-			inside = true
-			newVY = rules.BubbleColumnInsideSpeed(newVY, d)
-		}
-	})
-	return newVY, inside, surface
-}
+// bubbleTeleportSqr is the squared distance between two base ticks past
+// which the mob is taken to have been teleported, not walked, so no leg is
+// walked.
+const bubbleTeleportSqr = 8 * 8
 
-// bubbleColumnDrift applies the box's columns to a vertical speed and
-// reports a body inside one below the surface, so its fall can be cleared.
-// It sends no particles; its callers' kinds have none written.
-// vanilla: Entity.onInsideBubbleColumn, Entity.onAboveBubbleColumn
-func bubbleColumnDrift(w World, box AABB, vy float64) (newVY float64, inside bool) {
-	var spots []bubbleSpot
-	newVY, inside, _ = bubbleColumnPush(w, box, vy, &spots)
-	return newVY, inside
-}
-
-// bubbleColumnContact moves the mob with its box's columns; inside one
-// below the surface its fall is cleared.
-// vanilla: Entity.onInsideBubbleColumn, Entity.onAboveBubbleColumn
+// bubbleColumnContact moves the mob with the columns its last move's cells
+// crossed (the straight way from where the previous base tick found it);
+// inside one below the surface its fall is cleared.
+// vanilla: Entity.checkInsideBlocks, Entity.onInsideBubbleColumn, Entity.onAboveBubbleColumn
 func (m *Mob) bubbleColumnContact(w World, scan *contactScan, events []MobEvent) []MobEvent {
-	if !m.touches(w, scan, contactBubbleColumn) {
+	fx, fy, fz := m.X, m.Y, m.Z
+	if m.bubbleFromSet {
+		dx, dy, dz := m.X-m.bubbleFrom[0], m.Y-m.bubbleFrom[1], m.Z-m.bubbleFrom[2]
+		if dx*dx+dy*dy+dz*dz <= bubbleTeleportSqr {
+			fx, fy, fz = m.bubbleFrom[0], m.bubbleFrom[1], m.bubbleFrom[2]
+		}
+	}
+	m.bubbleFrom, m.bubbleFromSet = [3]float64{m.X, m.Y, m.Z}, true
+	rel := m.mobBox().moved(-m.X, -m.Y, -m.Z)
+	box := rel.moved(m.X, m.Y, m.Z)
+	if fx != m.X || fy != m.Y || fz != m.Z {
+		// The box swept: the start's and the end's together.
+		start := rel.moved(fx, fy, fz)
+		box = AABB{math.Min(box.minX, start.minX), math.Min(box.minY, start.minY), math.Min(box.minZ, start.minZ),
+			math.Max(box.maxX, start.maxX), math.Max(box.maxY, start.maxY), math.Max(box.maxZ, start.maxZ)}
+	}
+	if !scan.touches(w, box, contactBubbleColumn) {
 		return events
 	}
 	var spots []bubbleSpot
-	vy, inside, _ := bubbleColumnPush(w, m.mobBox(), m.VY, &spots)
-	m.VY = vy
-	if inside {
-		m.FallDistance = 0
-	}
-	for _, p := range spots {
-		events = append(events, MobEvent{Mob: m, Kind: MobBubbleSurface, X: float64(p.x), Y: float64(p.y), Z: float64(p.z)})
-	}
+	walkInside(w, []bodyMove{{fx, fy, fz, m.X, m.Y, m.Z, m.X - fx, m.Z - fz, true}}, rel,
+		func(x, y, z int32, state uint16, _ int, from AABB, dx, dy, dz float64) bool {
+			vy, ok := projectileBubblePush(w, x, y, z, state, from, dx, dy, dz, m.VY, true, &spots)
+			if !ok {
+				return true
+			}
+			m.VY = vy
+			if len(spots) == 0 {
+				m.FallDistance = 0
+			}
+			for _, p := range spots {
+				events = append(events, MobEvent{Mob: m, Kind: MobBubbleSurface, X: float64(p.x), Y: float64(p.y), Z: float64(p.z)})
+			}
+			spots = spots[:0]
+			return true
+		})
 	return events
 }
 
