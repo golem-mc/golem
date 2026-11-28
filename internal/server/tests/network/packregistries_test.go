@@ -4,10 +4,12 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/golem-mc/golem/internal/config"
 	"github.com/golem-mc/golem/internal/protocol"
+	"github.com/golem-mc/golem/internal/server"
 	"github.com/golem-mc/golem/internal/server/servertest"
 	"github.com/golem-mc/golem/nbt"
 	"github.com/golem-mc/golem/registry"
@@ -104,6 +106,47 @@ func TestConfigurationSendsNoRegistryDataWithoutPacks(t *testing.T) {
 				t.Errorf("%s entry %s carries data", name, e.name)
 			}
 		}
+	}
+}
+
+// TestInvalidPackRegistryEntryStopsStartup checks that a pack entry of a
+// synchronized registry the client's codec refuses fails the start naming
+// the entry, as vanilla's world loading does, instead of disconnecting every
+// client at the end of configuration.
+// vanilla: RegistryDataLoader.load
+func TestInvalidPackRegistryEntryStopsStartup(t *testing.T) {
+	t.Cleanup(func() { registry.ApplyPackRegistries(nil) })
+	for _, tc := range []struct{ name, path, json, want string }{
+		{"painting width", "painting_variant", `{"asset_id":"minecraft:kebab","width":0,"height":1}`, "range [1;16]"},
+		{"painting asset", "painting_variant", `{"width":1,"height":1}`, "asset_id"},
+		{"jukebox length", "jukebox_song", `{"sound_event":"minecraft:music_disc.13","description":"d","length_in_seconds":0,"comparator_output":1}`, "length_in_seconds"},
+		{"jukebox output", "jukebox_song", `{"sound_event":"minecraft:music_disc.13","description":"d","length_in_seconds":1,"comparator_output":16}`, "comparator_output"},
+		{"instrument range", "instrument", `{"sound_event":"minecraft:item.goat_horn.sound.0","use_duration":1,"range":0,"description":"d"}`, "range"},
+		{"damage type", "damage_type", `{"message_id":"x","scaling":"sideways","exhaustion":0}`, "scaling"},
+		{"pig model", "pig_variant", `{"asset_id":"a","model":"warm","baby_asset_id":"b","spawn_conditions":[]}`, "model"},
+		{"chat parameter", "chat_type", `{"chat":{"translation_key":"k","parameters":["nope"]},"narration":{"translation_key":"k","parameters":[]}}`, "parameters"},
+		{"painting boolean width", "painting_variant", `{"asset_id":"minecraft:kebab","width":true,"height":1}`, "width"},
+		{"painting namespace", "painting_variant", `{"asset_id":"..:kebab","width":1,"height":1}`, "asset_id"},
+		{"wolf spawn", "wolf_variant", `{"assets":{"wild":"a","tame":"b","angry":"c"},"baby_assets":{"wild":"a","tame":"b","angry":"c"}}`, "spawn_conditions"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := config.Default()
+			cfg.OnlineMode = false
+			cfg.LevelName = t.TempDir()
+			pack := filepath.Join(cfg.LevelName, "datapacks", "p")
+			writeFiles(t, map[string]string{
+				filepath.Join(pack, "pack.mcmeta"):                  `{"pack":{"description":"p"}}`,
+				filepath.Join(pack, "data/zz", tc.path, "bad.json"): tc.json,
+			})
+			srv, err := server.New(cfg)
+			if err == nil {
+				srv.Shutdown()
+				t.Fatal("server started with the invalid entry")
+			}
+			if !strings.Contains(err.Error(), "zz:bad") || !strings.Contains(err.Error(), tc.want) {
+				t.Errorf("start error = %v, want it to name zz:bad and %q", err, tc.want)
+			}
+		})
 	}
 }
 
