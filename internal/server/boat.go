@@ -469,6 +469,7 @@ func (s *Server) tickBoats() {
 		for range it.boat.LavaHurts {
 			fx.burns = append(fx.burns, burnSpot{it.w, it.boat.X, it.boat.Y, it.boat.Z})
 		}
+		fx.slides = appendSlides(fx.slides, honeySlide{it.w, it.boat.ID, it.boat.X, it.boat.Y, it.boat.Z}, it.boat.Slides)
 		for range it.boat.Extinguishes {
 			fx.fizzles = append(fx.fizzles, burnSpot{it.w, it.boat.X, it.boat.Y, it.boat.Z})
 		}

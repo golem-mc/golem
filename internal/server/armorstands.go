@@ -956,6 +956,7 @@ func (s *Server) tickArmorStands() {
 	var located []standLocated
 	var bodyLandings []bodyLanding
 	var groundSteps []groundStep
+	var slides []honeySlide
 
 	s.lockTick(&s.armorStandsMu)
 	alive := s.armorStands[:0]
@@ -993,6 +994,8 @@ func (s *Server) tickArmorStands() {
 					// The health the tick took ran out; the tail — the removal,
 					// the sound, the drops — runs once the lock is given back.
 					broke, torn = true, true
+				case entity.ArmorStandSlid:
+					slides = append(slides, honeySlide{ent.w, ent.stand.ID, ent.stand.X, ent.stand.Y, ent.stand.Z})
 				case entity.ArmorStandLocated:
 					located = append(located, standLocated{ent: ent, x: item.X, y: item.Y, z: item.Z, changed: item.Level})
 				}
@@ -1041,6 +1044,7 @@ func (s *Server) tickArmorStands() {
 	out.send()
 	s.runBodyLandings(bodyLandings)
 	s.runGroundSteps(groundSteps)
+	applyEach(s, slides, (*Server).slideHoney)
 
 	var disks []mobDisk
 	for _, l := range located {

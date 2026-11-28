@@ -115,6 +115,7 @@ func (s *Server) tickTNT() {
 		removals       = make(map[*world.World][]int32)
 		blasts         []blast
 		ores           []cellSpot
+		slides         []honeySlide
 		bounces        []bodyBounce
 		bodyLandings   []bodyLanding
 		groundSteps    []groundStep
@@ -200,8 +201,11 @@ func (s *Server) tickTNT() {
 			bodyLandings = append(bodyLandings, bodyLanding{w: it.w, x: it.tnt.X, y: it.tnt.Y, z: it.tnt.Z, halfWidth: entity.TNTHalfWidth})
 		}
 		for _, ev := range events {
-			if ev.Kind == entity.TntSteppedOnRedstoneOre {
+			switch ev.Kind {
+			case entity.TntSteppedOnRedstoneOre:
 				ores = append(ores, cellSpot{it.w, int32(ev.X), int32(ev.Y), int32(ev.Z)})
+			case entity.TntSlid:
+				slides = append(slides, honeySlide{it.w, it.tnt.ID, it.tnt.X, it.tnt.Y, it.tnt.Z})
 			}
 		}
 		if it.tnt.OnGround {
@@ -287,6 +291,7 @@ func (s *Server) tickTNT() {
 	s.runBodyBounces(bounces)
 	s.runBodyLandings(bodyLandings)
 	s.runGroundSteps(groundSteps)
+	applyEach(s, slides, (*Server).slideHoney)
 
 	// The blasts run ahead of the sends they may answer: a chain the blast
 	// lit is in the world before the tick's packets go out.

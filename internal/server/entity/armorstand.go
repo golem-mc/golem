@@ -130,6 +130,9 @@ const (
 	// per EnchEquipment piece whose stack changed, and LocatedMoved for a new
 	// cell or a landing.
 	ArmorStandLocated
+	// ArmorStandSlid: the stand slid down a honey block's side, owed the
+	// slide's sound and particles.
+	ArmorStandSlid
 )
 
 // ArmorStandEvent is one event out of an armor stand's tick.
@@ -288,6 +291,8 @@ func (s *ArmorStand) Step(w World) []ArmorStandEvent {
 				}
 			case rules.IsLava(w.BlockAt(x, y, z)), rules.IsLavaCauldron(w.BlockAt(x, y, z)):
 				s.igniteFor(fireTicksLava)
+			case honeySlideCell(w.BlockAt(x, y, z), x, y, z, s.X, s.Y, s.Z, 2*s.HalfWidth(), s.OnGround, &s.VX, &s.VY, &s.VZ, &s.FallDistance):
+				events = append(events, ArmorStandEvent{Kind: ArmorStandSlid})
 			}
 		})
 		if broke {
