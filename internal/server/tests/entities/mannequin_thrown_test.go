@@ -26,6 +26,7 @@ func TestThrownProjectilesHurtMannequin(t *testing.T) {
 			c.ChatCommand("summon mannequin 5.5 64 0.5")
 			awaitMannequin(t, c, srv)
 			c.ChatCommand("summon " + tc.kind + " 1.5 64.4 0.5 {Motion:[1.2d,0d,0d],NoGravity:1b}")
+			c.Settle()
 			servertest.RunTicks(t, srv, 30)
 			x, okX := mannequinData(t, c, srv, "Pos[0]")
 			health, okH := mannequinData(t, c, srv, "Health")
@@ -78,6 +79,7 @@ func TestExplosionKillsMannequin(t *testing.T) {
 	c.ChatCommand("summon mannequin 13.5 64 0.5")
 	awaitMannequin(t, c, srv)
 	c.ChatCommand("summon tnt 10.5 64 0.5 {fuse:1}")
+	c.Settle()
 	servertest.RunTicks(t, srv, 5)
 	if health, alive := mannequinData(t, c, srv, "Health"); alive && health > 0 {
 		t.Fatalf("mannequin 3 blocks from the blast has health %v, want dead", health)
