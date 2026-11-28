@@ -47,22 +47,20 @@ func (s *Server) tickNaturalSpawning() {
 			continue
 		}
 
-		loaded := w.AppendLoadedChunkPositions(dim.spawningPositions[:0])
-		spawning := loaded[:0]
-		for _, pos := range loaded {
+		// The loaded set is a map, so a fixed order keeps a seeded pass over
+		// mixed biomes reproducible; filtering keeps the cached list sorted.
+		if version := w.ChunkSetVersion(); !dim.sortedLoadedValid || dim.sortedLoadedVersion != version {
+			dim.sortedLoaded = w.AppendLoadedChunkPositions(dim.sortedLoaded[:0])
+			world.SortChunkPositions(dim.sortedLoaded)
+			dim.sortedLoadedVersion, dim.sortedLoadedValid = version, true
+		}
+		spawning := dim.spawningPositions[:0]
+		for _, pos := range dim.sortedLoaded {
 			if chunkIsSpawning(players, pos) {
 				spawning = append(spawning, pos)
 			}
 		}
 		dim.spawningPositions = spawning
-		// The loaded set is a map, so its order changes per call; a fixed order
-		// keeps a seeded pass over mixed biomes reproducible.
-		slices.SortFunc(spawning, func(a, b world.ChunkPos) int {
-			if a.X != b.X {
-				return int(a.X) - int(b.X)
-			}
-			return int(a.Z) - int(b.Z)
-		})
 		w.InhabitTime(spawning)
 		if s.spawnDisabled.Load() || !w.BoolRule(world.RuleSpawnMobs) {
 			continue

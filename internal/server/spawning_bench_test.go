@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/golem-mc/golem/internal/server/entity"
+	"github.com/golem-mc/golem/internal/server/player"
 	"github.com/golem-mc/golem/internal/server/world"
 	"github.com/golem-mc/golem/nbt"
 	"github.com/golem-mc/golem/registry"
@@ -83,5 +84,27 @@ func BenchmarkSpawnerRoundBesideHerd(b *testing.B) {
 				b.Fatal("spawner stood up no mobs")
 			}
 		})
+	}
+}
+
+// BenchmarkNaturalSpawningSpread runs natural spawning's chunk selection with
+// sixteen players 256 blocks apart over 64x64 loaded chunks; spawning itself
+// is off, so only the chunk list is timed.
+func BenchmarkNaturalSpawningSpread(b *testing.B) {
+	s, w := newBlockBenchServer(b, 62)
+	addBlockBenchPlayers(b, s, w, 16, 0, 0)
+	s.mu.RLock()
+	i := 0
+	for _, c := range s.clients {
+		c.player.SetPosition(player.Position{X: float64(i%4)*256 + 8, Y: float64(world.GroundLevel) + 30, Z: float64(i/4)*256 + 8})
+		i++
+	}
+	s.mu.RUnlock()
+	w.FlushLighting()
+	s.tickNaturalSpawning()
+	b.ReportAllocs()
+	b.ResetTimer()
+	for range b.N {
+		s.tickNaturalSpawning()
 	}
 }

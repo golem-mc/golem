@@ -12,7 +12,7 @@ import (
 	"github.com/google/uuid"
 )
 
-func addBlockBenchPlayers(b *testing.B, s *Server, w *world.World, n int, lo, hi int32) {
+func addBlockBenchPlayers(b testing.TB, s *Server, w *world.World, n int, lo, hi int32) {
 	dim := s.dimensionOfWorld(w)
 	for i := range n {
 		p := &player.Player{UUID: uuid.New(), EntityID: s.nextEntity()}
