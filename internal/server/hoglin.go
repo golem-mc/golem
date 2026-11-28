@@ -31,7 +31,7 @@ func (s *Server) hoglinThrowPlayer(strike mobStrike, c *client) {
 	c.player.Attributes(func(a *player.Attributes) { scale = rules.KnockbackScale(a) })
 	at := c.player.Position()
 	b := strike.hoglin
-	if vx, vy, vz, ok := rules.HoglinThrow(1-scale, at.X-strike.x, at.Z-strike.z, b.Angle, b.H, b.V); ok {
+	if vx, vy, vz, ok := rules.HoglinThrow(b.Knockback, scale, at.X-strike.x, at.Z-strike.z, b.Angle, b.H, b.V); ok {
 		c.addVelocity(strike.w, vx, vy, vz)
 	}
 }
@@ -43,7 +43,7 @@ func hoglinThrowMob(strike mobStrike, victim *entity.Mob) {
 		return
 	}
 	b := strike.hoglin
-	if vx, vy, vz, ok := rules.HoglinThrow(victim.KnockbackResistance(), victim.X-strike.x, victim.Z-strike.z, b.Angle, b.H, b.V); ok {
+	if vx, vy, vz, ok := rules.HoglinThrow(b.Knockback, victim.KnockbackResistance(), victim.X-strike.x, victim.Z-strike.z, b.Angle, b.H, b.V); ok {
 		victim.Push(vx, vy, vz)
 	}
 }
