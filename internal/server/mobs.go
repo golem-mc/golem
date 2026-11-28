@@ -751,10 +751,8 @@ func (s *Server) tickMobTracking(watchers []trackingWatcher) {
 			if ent == nil {
 				continue
 			}
-			if held && m.Type == entity.TypePufferfish {
-				if touch, ok := pufferTouchOf(dim.w, m, ent); ok {
-					pufferTouches = append(pufferTouches, touch)
-				}
+			if touch, ok := pufferTouchOf(dim.w, m, ent); held && ok {
+				pufferTouches = append(pufferTouches, touch)
 			}
 			body := mobTracker.body(ent)
 			var motion mobMovement
