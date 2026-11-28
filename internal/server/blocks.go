@@ -1162,6 +1162,16 @@ func (c *client) placeHeldBlock(w *world.World, hand, x, y, z int32, ctx rules.P
 	if registry.BlockOf(state) == registry.BlockPotentSulfur {
 		state, _ = world.PotentSulfurState(w.BlockAt, state, nx, ny, nz)
 	}
+	// vanilla: LecternBlock.getStateForPlacement
+	if registry.BlockOf(state) == registry.BlockLectern && c.canUseGameMasterBlocks() {
+		if _, tag, ok := stack.BlockEntityDataOf(); ok {
+			if _, has := tag["Book"]; has {
+				if next, ok := registry.WithBool(state, registry.PropHasBook, true); ok {
+					state = next
+				}
+			}
+		}
+	}
 	// Components apply after validation; partners and wakes see the final state.
 	// vanilla: BlockItem.updateBlockStateFromTag
 	if props, ok := stack.BlockStatePropertiesOf(); ok {
