@@ -340,9 +340,8 @@ type arrowBodies struct {
 // gathered, its step against the world, its watchers settled and its events
 // turned into fx's kinds.
 func (s *Server) stepArrow(fx *arrowEffects, in *arrowTickInputs, hv *arrowHangingView, scratch *arrowTargetScratch, it *arrowEntity) {
-	var bodies arrowBodies
 	dim := s.dimensionOfWorld(it.w)
-	targets, owner := s.arrowTargets(it, dim, in, hv, scratch, &bodies)
+	targets, owner, bodies := s.arrowTargets(it, dim, in, hv, scratch)
 
 	// pvp off: a shot a player owns passes every player by — no hit,
 	// no ignite, no deflection — its own shooter's body included.
@@ -383,7 +382,7 @@ func (s *Server) stepArrow(fx *arrowEffects, in *arrowTickInputs, hv *arrowHangi
 	// Only an enchanted weapon asks for loot conditions (hitDamage).
 	it.arrow.BindLoot = nil
 	if len(it.arrow.Weapon.Enchantments) > 0 {
-		it.arrow.BindLoot = s.arrowLootBinder(it, &bodies)
+		it.arrow.BindLoot = s.arrowLootBinder(it, bodies)
 	}
 	events := it.arrow.Step(it.w, owner, targets)
 	it.arrow.BindLoot = nil
@@ -447,12 +446,12 @@ func (in *arrowTickInputs) targetsIn(w *world.World, hv *arrowHangingView) *arro
 
 // arrowTargets gathers the bodies the arrow might hit and its shooter.
 // The arrow and mob locks are held until the scratch is done being read.
-func (s *Server) arrowTargets(it *arrowEntity, dim *dimension, in *arrowTickInputs, hv *arrowHangingView, scratch *arrowTargetScratch, bodies *arrowBodies) (targets []entity.ArrowTarget, owner *entity.ArrowTarget) {
+func (s *Server) arrowTargets(it *arrowEntity, dim *dimension, in *arrowTickInputs, hv *arrowHangingView, scratch *arrowTargetScratch) (targets []entity.ArrowTarget, owner *entity.ArrowTarget, bodies arrowBodies) {
 	ownerID := it.arrow.OwnerID
 	// A lodged arrow only needs targets to resolve its owner.
 	// vanilla: AbstractArrow.tick, ThrownTrident.tick
 	if ownerID == 0 && it.arrow.InGround {
-		return nil, nil
+		return nil, nil, bodies
 	}
 	wt := in.targetsIn(it.w, hv)
 	bodies.clients = wt.clients
@@ -464,7 +463,7 @@ func (s *Server) arrowTargets(it *arrowEntity, dim *dimension, in *arrowTickInpu
 	}
 	hasMobs := len(dim.mobs.book) != 0
 	if !hasMobs && (it.arrow.InGround || !wt.hasNonLivingTargets) {
-		return targets, owner
+		return targets, owner, bodies
 	}
 
 	scratch.targets = scratch.targets[:0]
@@ -482,7 +481,7 @@ func (s *Server) arrowTargets(it *arrowEntity, dim *dimension, in *arrowTickInpu
 			owner = scratch.addMob(mobOwner, ownerID, in.boatRoots[mobOwner.ID])
 		}
 		bodies.mobs = scratch.byID
-		return targets, owner
+		return targets, owner, bodies
 	}
 	boxMinX, boxMinY, boxMinZ, boxMaxX, boxMaxY, boxMaxZ := it.arrow.SweptBox()
 	if hasMobs {
@@ -591,7 +590,7 @@ func (s *Server) arrowTargets(it *arrowEntity, dim *dimension, in *arrowTickInpu
 	if len(targets) > len(wt.targets) {
 		scratch.targets = targets
 	}
-	return targets, owner
+	return targets, owner, bodies
 }
 
 // mobsInSweep uses the live chunk filings. Place.SetPos refiles under mobsMu
@@ -1009,7 +1008,7 @@ func (s *Server) arrowHitTarget(fx *arrowEffects, in *arrowTickInputs, hv *arrow
 // bodies: the victim when it is a mob or player, the shooter as attacker, and
 // the arrow itself as direct attacker. The arrow and mob locks are held.
 // vanilla: Enchantment.damageContext
-func (s *Server) arrowLootBinder(it *arrowEntity, bodies *arrowBodies) func(*rules.EnchContext, *entity.ArrowTarget) {
+func (s *Server) arrowLootBinder(it *arrowEntity, bodies arrowBodies) func(*rules.EnchContext, *entity.ArrowTarget) {
 	book := s.herdOf(it.w).book
 	mobLoot := func(m *entity.Mob) *rules.LootEntity {
 		if ent := book[m]; ent != nil {
