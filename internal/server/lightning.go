@@ -270,7 +270,7 @@ func (s *Server) boltFire(it *boltEffect, extra int) {
 	}
 	dim := s.dimensionOfWorld(w)
 	s.refreshFireSpreadPlayers(dim)
-	if !(fireSpreadChecker{s: s, dim: dim}).FireCanSpread(x, y, z) {
+	if !(fireSpreadChecker{dim: dim}).FireCanSpread(x, y, z) {
 		return
 	}
 	light := func(x, y, z int32) {
