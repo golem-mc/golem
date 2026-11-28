@@ -4,6 +4,8 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
+	"slices"
 	"strings"
 
 	"github.com/golem-mc/golem/internal/server/datapack"
@@ -14,7 +16,7 @@ import (
 )
 
 // loadPackRegistries applies the enabled packs' entries of the synchronized
-// registries. It runs once per start: vanilla loads world registries with the
+// registries, and fails when a pack entry the client would refuse. It runs once per start: vanilla loads world registries with the
 // world, not on /reload or /datapack. The table is process-wide, so a server
 // without pack entries leaves it alone.
 // vanilla: WorldLoader.load, RegistryDataLoader.WORLD_REGISTRIES
@@ -30,6 +32,11 @@ func loadPackRegistries(dirs []string, skip func(file string, err error)) error 
 		entries, err := datapack.LoadRegistryEntries(dirs, strings.TrimPrefix(reg.Name, "minecraft:"), skip)
 		if err != nil {
 			return err
+		}
+		for _, name := range slices.Sorted(maps.Keys(entries)) {
+			if err := datapack.ValidateRegistryEntry(reg.Name, entries[name]); err != nil {
+				return fmt.Errorf("%s %s: %w", strings.TrimPrefix(reg.Name, "minecraft:"), name, err)
+			}
 		}
 		if len(entries) > 0 {
 			packs[reg.Name] = entries
@@ -170,8 +177,7 @@ func loadPackDamageTypes(dirs []string, skip func(file string, err error)) error
 	for id, data := range raw {
 		t, err := datapack.DecodeDamageType(data)
 		if err != nil {
-			skip(id, err)
-			continue
+			return fmt.Errorf("damage_type %s: %w", id, err)
 		}
 		types[id] = t
 	}
