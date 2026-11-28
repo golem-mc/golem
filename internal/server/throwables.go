@@ -82,6 +82,8 @@ type thrownEntity struct {
 // thrownTracker tracks the thrown bodies for their pairing alone: their
 // movement keeps its own schedule off the flight's tick count.
 var thrownTracker = trackedKind[*thrownEntity, struct{}]{
+	invalidatePiston: func(dim *dimension) { dim.pistons.thrown.built = false },
+	pistonBit:        pistonThrown,
 	admitsType: func(typ string) bool {
 		t, ok := registry.EntityTypeByName(typ)
 		if !ok {

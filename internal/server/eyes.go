@@ -42,17 +42,19 @@ type eyeEntity struct {
 // eyeTracker tracks the eyes of ender. Their movement is tickEyes' own: an
 // absolute teleport with the velocity every EyeInterval ticks of the flight.
 var eyeTracker = trackedKind[*eyeEntity, struct{}]{
-	admitsType:  func(typ string) bool { return typ == eyeEntityID },
-	rangeChunks: entity.EyeTrackingRange,
-	lock:        func(s *Server) *sync.Mutex { return &s.eyesMu },
-	list:        func(s *Server) *[]*eyeEntity { return &s.eyes },
-	chunks:      func(s *Server) *entity.ChunkIndex[*eyeEntity] { return &s.eyeChunks },
-	filing:      func(it *eyeEntity) *entity.Filing { return &it.eye.Filing },
-	uuid:        func(it *eyeEntity) uuid.UUID { return it.uuid },
-	track:       func(ent *eyeEntity) *bodyTrack[struct{}] { return &ent.bodyTrack },
-	world:       func(ent *eyeEntity) *world.World { return ent.w },
-	id:          func(ent *eyeEntity) int32 { return ent.eye.ID },
-	dead:        func(ent *eyeEntity) bool { return ent.eye.Dead },
+	invalidatePiston: func(dim *dimension) { dim.pistons.eyes.built = false },
+	pistonBit:        pistonEyes,
+	admitsType:       func(typ string) bool { return typ == eyeEntityID },
+	rangeChunks:      entity.EyeTrackingRange,
+	lock:             func(s *Server) *sync.Mutex { return &s.eyesMu },
+	list:             func(s *Server) *[]*eyeEntity { return &s.eyes },
+	chunks:           func(s *Server) *entity.ChunkIndex[*eyeEntity] { return &s.eyeChunks },
+	filing:           func(it *eyeEntity) *entity.Filing { return &it.eye.Filing },
+	uuid:             func(it *eyeEntity) uuid.UUID { return it.uuid },
+	track:            func(ent *eyeEntity) *bodyTrack[struct{}] { return &ent.bodyTrack },
+	world:            func(ent *eyeEntity) *world.World { return ent.w },
+	id:               func(ent *eyeEntity) int32 { return ent.eye.ID },
+	dead:             func(ent *eyeEntity) bool { return ent.eye.Dead },
 	pose: func(ent *eyeEntity) bodyPose {
 		return ent.pose(ent.eye.X, ent.eye.Y, ent.eye.Z)
 	},
