@@ -858,12 +858,13 @@ func trackStand(ent *armorStandEntity, watchers []trackingWatcher, near *nearbyP
 		attributes = attributesPayload(body.id, dirty)
 	}
 	still, prevTick := body.stillSince(tick)
+	listed := body.watchers(near)
 	// Every shown watcher already holds this metadata and position, and no
 	// movement is due: nothing is left to tell or settle.
-	if still && !metaChanged && !mt.gate && attributes == nil && !watchersChanged(watchers, body.watchers(near), prevTick) {
+	if still && !metaChanged && !mt.gate && attributes == nil && !watchersChanged(watchers, listed, prevTick) {
 		return
 	}
-	for _, i := range body.watchers(near) {
+	for _, i := range listed {
 		wh := watchers[i]
 		if wh.c.theWorld() != ent.w {
 			continue
