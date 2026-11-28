@@ -69,6 +69,17 @@ func fixBeehive(tag nbt.Compound) {
 	}
 }
 
+// upgradeBeeEntities upgrades the entity each of a hive's bees holds.
+// vanilla: V1460 and V3818 type bees[].entity_data as ENTITY
+func upgradeBeeEntities(tag nbt.Compound, version int32) {
+	bees, _ := nbt.Get[nbt.List](tag, "bees")
+	for _, item := range bees.Items {
+		if bee, ok := nbt.CompoundView(item); ok {
+			upgradeEmbeddedEntity(bee["entity_data"], "", version)
+		}
+	}
+}
+
 // fixBannerPatterns renames a banner's layers to the id and colour name form.
 // vanilla: BannerPatternFormatFix.fixTag
 func fixBannerPatterns(tag nbt.Compound) {

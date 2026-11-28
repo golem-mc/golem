@@ -92,6 +92,23 @@ func upgradeEntities(entities nbt.List, version int32) {
 	}
 }
 
+// upgradeEmbeddedEntity upgrades an entity stored inside another record (an
+// item component, a hive, a spawner, a player's vehicle). A compound without
+// an id gets the entity of itemID, the item it is stored on, as an item's
+// id-less entity data implies. vanilla: V99.addNames
+func upgradeEmbeddedEntity(tag nbt.Tag, itemID string, version int32) {
+	c, ok := tag.(nbt.CompoundTag)
+	if !ok || len(c.Entries()) == 0 {
+		return
+	}
+	if _, has := c.Entries()["id"]; !has {
+		if id := legacyItemEntities[itemID]; id != "" {
+			c.Set("id", nbt.String(id))
+		}
+	}
+	upgradeEntities(nbt.List{Elem: nbt.TypeCompound, Items: []nbt.Tag{c}}, version)
+}
+
 // UpgradePlayerData brings a player file written at an older data version to
 // the shapes this server reads: item stacks of Inventory, EnderItems and the
 // equipment, and the player's attributes. It raises the file's DataVersion to
@@ -109,6 +126,15 @@ func UpgradePlayerData(root nbt.Compound) {
 	}
 	if version < attributeIdPrefixVersion {
 		upgradeLegacyEntity(root, int32(version))
+	}
+	// vanilla types these as ENTITY_TREE, so every entity fix runs on them.
+	if vehicle, ok := nbt.CompoundView(root["RootVehicle"]); ok {
+		upgradeEmbeddedEntity(vehicle["Entity"], "", int32(version))
+	}
+	upgradeEmbeddedEntity(root["ShoulderEntityLeft"], "", int32(version))
+	upgradeEmbeddedEntity(root["ShoulderEntityRight"], "", int32(version))
+	if pearls, ok := nbt.Get[nbt.List](root, "ender_pearls"); ok {
+		upgradeEntities(pearls, int32(version))
 	}
 	fixStoredComponents(root, int32(version))
 	fixEntityTexts(root, int32(version))

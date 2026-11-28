@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"sync"
 
+	"github.com/golem-mc/golem/internal/server/world"
 	"github.com/golem-mc/golem/registry"
 )
 
@@ -165,20 +166,27 @@ func ParseStats(data []byte) (*Stats, error) {
 		}
 	}
 	for typ, group := range groups {
-		for key, raw := range group {
-			// vanilla: DataFixers' StatsRenameFix at v2710
-			if typ == registry.StatCustom && key == statPlayOneMinute && version < playTimeRenameFixed {
-				key = registry.CustomStatPlayTime.Name()
+		// A key already current wins over a renamed old one.
+		for _, renamed := range []bool{true, false} {
+			for old, raw := range group {
+				key := renameStatKey(typ, old, version)
+				if (key != old) != renamed {
+					continue
+				}
+				// vanilla: DataFixers' StatsRenameFix at v2710
+				if typ == registry.StatCustom && key == statPlayOneMinute && version < playTimeRenameFixed {
+					key = registry.CustomStatPlayTime.Name()
+				}
+				stat, ok := StatNamed(typ, key)
+				if !ok {
+					continue
+				}
+				var n float64
+				if json.Unmarshal(raw, &n) != nil {
+					continue
+				}
+				s.values[stat] = int32(max(min(n, math.MaxInt32), math.MinInt32))
 			}
-			stat, ok := StatNamed(typ, key)
-			if !ok {
-				continue
-			}
-			var n float64
-			if json.Unmarshal(raw, &n) != nil {
-				continue
-			}
-			s.values[stat] = int32(max(min(n, math.MaxInt32), math.MinInt32))
 		}
 	}
 	return s, nil
@@ -234,4 +242,20 @@ func WriteStatsFile(path string, data []byte) error {
 		return err
 	}
 	return os.Rename(temp, path)
+}
+
+// renameStatKey returns the key of a stat group as the current version names
+// it: the keys of mined are blocks, of killed and killed_by entities, of the
+// item groups items.
+// vanilla: DataFixers (STATS schema, V1451_6 / V1460)
+func renameStatKey(typ, key string, version int32) string {
+	switch typ {
+	case "minecraft:mined":
+		return world.RenameOldBlock(key, version)
+	case "minecraft:crafted", "minecraft:used", "minecraft:broken", "minecraft:picked_up", "minecraft:dropped":
+		return world.RenameOldItem(key, version)
+	case "minecraft:killed", "minecraft:killed_by":
+		return world.RenameOldEntity(key, version)
+	}
+	return key
 }

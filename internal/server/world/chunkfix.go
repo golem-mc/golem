@@ -107,30 +107,7 @@ func renameOldItem(name string, version int32) string {
 	if version < shardRenameVersion && strings.HasSuffix(name, "_pottery_shard") {
 		name = strings.TrimSuffix(name, "_pottery_shard") + "_pottery_sherd"
 	}
-	if version < fungusRenameVersion {
-		name = strings.Replace(name, "_fungi", "_fungus", 1)
-	}
-	if version < soulFireRenameVersion {
-		switch name {
-		case "minecraft:soul_fire_torch":
-			name = "minecraft:soul_torch"
-		case "minecraft:soul_fire_lantern":
-			name = "minecraft:soul_lantern"
-		}
-	}
-	if name == "minecraft:zombie_pigman_spawn_egg" && version < zombifiedPiglinVersion {
-		name = "minecraft:zombified_piglin_spawn_egg"
-	}
-	if name == "minecraft:grass_path" && version < grassPathRenameVersion {
-		name = "minecraft:dirt_path"
-	}
-	if name == "minecraft:grass" && version < grassRenameVersion {
-		name = "minecraft:short_grass"
-	}
-	if name == "minecraft:scute" && version < scuteRenameVersion {
-		name = "minecraft:turtle_scute"
-	}
-	return name
+	return RenameOldItem(name, version)
 }
 
 // potShardRenames are the pottery shard item names of before 3447 and their
@@ -167,13 +144,11 @@ func fixOldBlockEntity(entry nbt.CompoundTag, version int32) bool {
 	if version >= tooltipDisplayVersion {
 		if version < dataVersion {
 			fixStoredComponents(entry, version)
-			if kind == KindDecoratedPot && version < potDecorationsVersion {
-				// vanilla: PotDecorationsBlockEntityUnflatteningFix
-				v, ok := tag["sherds"]
-				if !ok {
-					v = nbt.List{Elem: nbt.TypeString}
-				}
-				tag["sherds"] = templateUnpackPot(v)
+			if kind == KindBeehive {
+				upgradeBeeEntities(tag, version)
+			}
+			if kind == KindDecoratedPot {
+				unflattenPotSherds(tag, version)
 			}
 		}
 		return true
@@ -212,6 +187,7 @@ func fixOldBlockEntity(entry nbt.CompoundTag, version int32) bool {
 		fixSignText(tag, version)
 	case kind == KindDecoratedPot:
 		fixPotSherds(tag, version)
+		unflattenPotSherds(tag, version)
 	case kind == KindBeacon && version < mobEffectIDVersion:
 		fixBeaconEffect(tag, "Primary", "primary_effect")
 		fixBeaconEffect(tag, "Secondary", "secondary_effect")
@@ -243,6 +219,7 @@ func fixBlockEntityFields(id string, kind BlockEntityKind, tag nbt.Compound, ver
 		if version < beehiveRenameVersion {
 			fixBeehive(tag)
 		}
+		upgradeBeeEntities(tag, version)
 	case KindBanner:
 		if version < bannerPatternVersion {
 			fixBannerPatterns(tag)
@@ -410,6 +387,19 @@ func dropRepeatedFilteredLines(text nbt.Compound) {
 	}
 	filtered.Items = items
 	text["filtered_messages"] = filtered
+}
+
+// unflattenPotSherds turns a decorated pot's sherd list into per-side stacks.
+// vanilla: PotDecorationsBlockEntityUnflatteningFix
+func unflattenPotSherds(tag nbt.Compound, version int32) {
+	if version >= potDecorationsVersion {
+		return
+	}
+	v, ok := tag["sherds"]
+	if !ok {
+		v = nbt.List{Elem: nbt.TypeString}
+	}
+	tag["sherds"] = templateUnpackPot(v)
 }
 
 // fixPotSherds renames a decorated pot's shards to sherds along with the item
