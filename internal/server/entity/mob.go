@@ -1435,10 +1435,7 @@ const (
 // walk. The unexported machinery is driven by ticking, not by callers.
 type Mob struct {
 	LivingState
-	ID int32
-	// UUID is the mob's identity, set by the server; a victim saves its
-	// attacker by it.
-	UUID uuid.UUID
+	ID   int32
 	Type MobType
 
 	Place
@@ -2084,6 +2081,9 @@ type Mob struct {
 	// playerCreditID is the player whose hurt set playerMemoryTicks; a later
 	// mob's blow overwrites retaliate but not this.
 	playerCreditID int32
+	// UUID is the mob's identity, set by the server; a victim saves its
+	// attacker by it. Kept out of the head: spawn counting reads that.
+	UUID uuid.UUID
 	// credit and grudge are playerCreditID's and the last attacker's UUIDs.
 	credit, grudge  hurtRef
 	lastDamageType  registry.DamageType
