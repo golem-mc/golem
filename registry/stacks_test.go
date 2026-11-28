@@ -642,3 +642,64 @@ func TestExplicitEmptyBundleContentsSurvivesTheStackCodec(t *testing.T) {
 		t.Errorf("bundle after empty bundle_contents = %+v, want unpatched default", bundle)
 	}
 }
+
+func TestNestedRequiredStacksRefuseAirAndOutOfRangeCounts(t *testing.T) {
+	t.Parallel()
+	badStacks := []nbt.Compound{
+		{"id": nbt.String("minecraft:air"), "count": nbt.Int(1)},
+		{"id": nbt.String("minecraft:air")},
+		{"id": nbt.String("minecraft:stone"), "count": nbt.Int(0)},
+		{"id": nbt.String("minecraft:stone"), "count": nbt.Int(-1)},
+		{"id": nbt.String("minecraft:stone"), "count": nbt.Int(100)},
+	}
+	for _, entry := range badStacks {
+		list := nbt.List{Elem: nbt.TypeCompound, Items: []nbt.Tag{entry}}
+		containerList := nbt.List{Elem: nbt.TypeCompound, Items: []nbt.Tag{
+			nbt.Compound{"slot": nbt.Int(0), "item": entry},
+		}}
+		potTag := nbt.Compound{"back": entry}
+		for _, tc := range []struct {
+			name  string
+			value nbt.Tag
+		}{
+			{"minecraft:bundle_contents", list},
+			{"minecraft:charged_projectiles", list},
+			{"minecraft:container", containerList},
+			{"minecraft:sulfur_cube_content", entry},
+			{"minecraft:pot_decorations", potTag},
+		} {
+			var probe protocol.ItemStack
+			if ReadComponent(&probe, tc.name, tc.value) {
+				t.Errorf("ReadComponent(%s, %v) succeeded, want refused", tc.name, entry)
+			}
+			if !ComponentRefused(tc.name, tc.value) {
+				t.Errorf("ComponentRefused(%s, %v) = false, want true", tc.name, entry)
+			}
+		}
+	}
+
+	// StoredStackPartial drops refused components while keeping the stack and valid components.
+	tag := nbt.Compound{
+		"id":    nbt.String("minecraft:bundle"),
+		"count": nbt.Int(1),
+		"components": nbt.Compound{
+			"minecraft:bundle_contents": nbt.List{Elem: nbt.TypeCompound, Items: []nbt.Tag{
+				nbt.Compound{"id": nbt.String("minecraft:air")},
+			}},
+			"minecraft:repair_cost": nbt.Int(3),
+		},
+	}
+	if _, ok := StoredStack(tag); ok {
+		t.Error("StoredStack accepted refused bundle_contents")
+	}
+	partial, ok := StoredStackPartial(tag)
+	if !ok || Item(partial.ItemID) != ItemBundle || partial.Count != 1 {
+		t.Fatalf("StoredStackPartial = %+v, %v, want bundle x1", partial, ok)
+	}
+	if _, has := partial.BundleContentsOf(); has {
+		t.Error("StoredStackPartial kept refused bundle_contents")
+	}
+	if partial.RepairCost != 3 {
+		t.Errorf("StoredStackPartial repair_cost = %d, want 3", partial.RepairCost)
+	}
+}

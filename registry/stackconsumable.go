@@ -406,19 +406,7 @@ func (lookup *TagLookup) useRemainderOf(value nbt.Tag) (protocol.ItemStack, bool
 	if !ok {
 		return protocol.ItemStack{}, false
 	}
-	if components, has := entry["components"]; has {
-		if _, ok := nbt.CompoundView(components); !ok {
-			return protocol.ItemStack{}, false
-		}
-	}
-	if tag, has := entry["count"]; has {
-		// A template's explicit count must be 1..99; a stored stack's is recovered instead.
-		if count, ok := nbt.IntValue(tag); !ok || count < 1 || count > 99 {
-			return protocol.ItemStack{}, false
-		}
-	}
-	remainder, ok := lookup.storedStack(entry, false)
-	return remainder, ok && Item(remainder.ItemID) != ItemAir && !remainder.Empty()
+	return lookup.storedStackStrict(entry)
 }
 
 // useCooldownOf reads a minecraft:use_cooldown value: a positive seconds

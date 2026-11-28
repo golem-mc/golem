@@ -896,7 +896,7 @@ func StoredSlot(equipment nbt.Compound, slot string) protocol.ItemStack {
 	if !ok {
 		return protocol.ItemStack{}
 	}
-	stack, _ := registry.StoredStack(tag)
+	stack, _ := registry.StoredStackPartial(tag)
 	return stack
 }
 
