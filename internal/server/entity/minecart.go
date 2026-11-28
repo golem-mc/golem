@@ -399,6 +399,10 @@ func (m *Minecart) Step(w World, ridden bool) {
 // vanilla: AbstractMinecart.move, AbstractMinecart.applyEffectsFromBlocks,
 // OldMinecartBehavior.getKnownMovement
 func (m *Minecart) blockEffects(w World) {
+	// vanilla: Entity.applyEffectsFromBlocks's stepOn
+	if m.OnGround {
+		slimeStep(w, m.X, m.Y, m.Z, MinecartHalfWidth, m.VY, &m.VX, &m.VZ)
+	}
 	sideways := m.VX != 0 || m.VZ != 0
 	move := bodyMove{fx: m.X, fy: m.Y, fz: m.Z, tx: m.X, ty: m.Y, tz: m.Z}
 	rel := AABB{-MinecartHalfWidth, 0, -MinecartHalfWidth, MinecartHalfWidth, MinecartHeight, MinecartHalfWidth}
@@ -709,6 +713,9 @@ func (m *Minecart) comeOffTrack(w World, inWater bool) {
 	// The move's block effects run before the drag; Step runs them again
 	// after the tick.
 	// vanilla: Entity.move, OldMinecartBehavior.tick
+	f := blockSpeedFactor(w, m.X, m.Y, m.Z)
+	m.VX *= f
+	m.VZ *= f
 	m.VY, _ = bubbleColumnDrift(w, m.cartBox(), m.VY)
 	m.blockEffects(w)
 	if !m.OnGround {
