@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"maps"
 	"math"
-	"regexp"
 	"slices"
 	"strings"
 
@@ -18,17 +17,34 @@ type codecField struct {
 	optional bool
 }
 
-var identifierPattern = regexp.MustCompile(`^([a-z0-9_.-]+:)?[a-z0-9_./-]+$`)
-
 func identifierCheck(t nbt.Tag) error {
 	s, ok := t.(nbt.String)
 	if !ok {
 		return fmt.Errorf("not a string")
 	}
-	if !identifierPattern.MatchString(string(s)) {
+	ns, path, found := strings.Cut(string(s), ":")
+	if !found {
+		ns, path = "minecraft", string(s)
+	}
+	// vanilla: Identifier.bySeparator, isValidNamespace (rejects "..")
+	if ns == ".." || !validNamespace(ns) || !validPath(path) {
 		return fmt.Errorf("not a valid resource location: %s", s)
 	}
 	return nil
+}
+
+// enumField accepts one of the listed strings, as a closed enum codec does.
+func enumField(allowed ...string) func(nbt.Tag) error {
+	return func(t nbt.Tag) error {
+		s, ok := t.(nbt.String)
+		if !ok {
+			return fmt.Errorf("not a string")
+		}
+		if !slices.Contains(allowed, string(s)) {
+			return fmt.Errorf("unknown value: %s", s)
+		}
+		return nil
+	}
 }
 
 // textField accepts what ComponentSerialization.CODEC reads: a string, a
@@ -79,8 +95,6 @@ func soundField(t nbt.Tag) error {
 
 func numberValue(t nbt.Tag) (float64, bool) {
 	switch v := t.(type) {
-	case nbt.Byte:
-		return float64(v), true
 	case nbt.Short:
 		return float64(v), true
 	case nbt.Int:
@@ -191,7 +205,7 @@ func checkFields(t nbt.Tag, fields map[string]codecField) error {
 func decoration(t nbt.Tag) error {
 	return checkFields(t, map[string]codecField{
 		"translation_key": {check: stringField},
-		"parameters":      {check: listField(stringField)},
+		"parameters":      {check: listField(enumField("sender", "target", "content"))},
 		"style":           {check: compoundField, optional: true},
 	})
 }
@@ -211,10 +225,12 @@ func fieldsOf(pairs ...any) map[string]codecField {
 
 func opt(check func(nbt.Tag) error) codecField { return codecField{check: check, optional: true} }
 
-// modelVariant is a pig, cow, chicken or zombie nautilus variant: a model
-// name (not checked: the client reads it), an asset and the spawn rules.
-var modelVariant = fieldsOf("asset_id", identifierCheck, "model", opt(stringField),
-	"baby_asset_id", identifierCheck, "spawn_conditions", selectors)
+// modelVariant is a pig, cow or chicken variant: a ModelType name, an asset
+// and the spawn rules.
+func modelVariant(models ...string) map[string]codecField {
+	return fieldsOf("asset_id", identifierCheck, "model", opt(enumField(models...)),
+		"baby_asset_id", identifierCheck, "spawn_conditions", selectors)
+}
 
 // registryCodecs are the client-side codecs of the registries a data pack
 // commonly fills, by registry name without the namespace. A registry absent
@@ -238,10 +254,10 @@ var registryCodecs = map[string]map[string]codecField{
 		"spawn_conditions", selectors),
 	"cat_variant":             fieldsOf("asset_id", identifierCheck, "baby_asset_id", identifierCheck, "spawn_conditions", selectors),
 	"frog_variant":            fieldsOf("asset_id", identifierCheck, "spawn_conditions", selectors),
-	"pig_variant":             modelVariant,
-	"cow_variant":             modelVariant,
-	"chicken_variant":         modelVariant,
-	"zombie_nautilus_variant": fieldsOf("asset_id", identifierCheck, "model", opt(stringField), "spawn_conditions", selectors),
+	"pig_variant":             modelVariant("normal", "cold"),
+	"cow_variant":             modelVariant("normal", "cold", "warm"),
+	"chicken_variant":         modelVariant("normal", "cold"),
+	"zombie_nautilus_variant": fieldsOf("asset_id", identifierCheck, "model", opt(enumField("normal", "warm")), "spawn_conditions", selectors),
 	"dialog":                  fieldsOf("type", stringField),
 }
 

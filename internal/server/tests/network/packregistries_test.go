@@ -123,6 +123,10 @@ func TestInvalidPackRegistryEntryStopsStartup(t *testing.T) {
 		{"jukebox output", "jukebox_song", `{"sound_event":"minecraft:music_disc.13","description":"d","length_in_seconds":1,"comparator_output":16}`, "comparator_output"},
 		{"instrument range", "instrument", `{"sound_event":"minecraft:item.goat_horn.sound.0","use_duration":1,"range":0,"description":"d"}`, "range"},
 		{"damage type", "damage_type", `{"message_id":"x","scaling":"sideways","exhaustion":0}`, "scaling"},
+		{"pig model", "pig_variant", `{"asset_id":"a","model":"warm","baby_asset_id":"b","spawn_conditions":[]}`, "model"},
+		{"chat parameter", "chat_type", `{"chat":{"translation_key":"k","parameters":["nope"]},"narration":{"translation_key":"k","parameters":[]}}`, "parameters"},
+		{"painting boolean width", "painting_variant", `{"asset_id":"minecraft:kebab","width":true,"height":1}`, "width"},
+		{"painting namespace", "painting_variant", `{"asset_id":"..:kebab","width":1,"height":1}`, "asset_id"},
 		{"wolf spawn", "wolf_variant", `{"assets":{"wild":"a","tame":"b","angry":"c"},"baby_assets":{"wild":"a","tame":"b","angry":"c"}}`, "spawn_conditions"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
