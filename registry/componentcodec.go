@@ -103,6 +103,9 @@ func (lookup *TagLookup) componentValueMalformed(key string, tag nbt.Tag) string
 		}
 	case "minecraft:container":
 		// vanilla: ItemContainerContents.CODEC, ItemContainerContents.Slot.CODEC
+		if msg := componentFieldMalformed(key, tag); msg != "" {
+			return msg
+		}
 		if msg, _ := codecListDiagnostic(tag, lookup.containerSlotDiagnostic, false); msg != "" {
 			return msg
 		}
@@ -130,7 +133,7 @@ func (lookup *TagLookup) componentValueMalformed(key string, tag nbt.Tag) string
 		if lookup.componentRefused(key, tag) {
 			return componentCodecRefusal
 		}
-	case "minecraft:lore", "minecraft:container", "minecraft:fireworks", "minecraft:max_damage", "minecraft:rarity",
+	case "minecraft:lore", "minecraft:fireworks", "minecraft:max_damage", "minecraft:rarity",
 		"minecraft:food", "minecraft:consumable", "minecraft:ominous_bottle_amplifier", "minecraft:trim":
 		if msg := componentFieldMalformed(key, tag); msg != "" {
 			return msg
