@@ -229,6 +229,7 @@ func buildForLevel(level int) *Node {
 		}
 		wireRedirectRoot(child, root)
 	}
+	indexLiterals(root)
 	return root
 }
 

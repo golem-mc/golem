@@ -186,6 +186,14 @@ type Node struct {
 	Name             string
 	Executable       bool
 	Children         []*Node
+	// literals indexes the literal children by name for FindLiteralChild;
+	// nil on a node whose children are still being built.
+	literals map[string]*Node
+	// dispatch is the registry command a root literal runs, resolved by
+	// indexLiterals; dispatched says it was (nil: a plugin root, or a
+	// word no command has).
+	dispatch   *Command
+	dispatched bool
 
 	// Required is the permission level a player needs for this node, and
 	// flagRestricted announces it on the wire. A command at one level gates
@@ -270,10 +278,34 @@ type ResourceArg struct {
 // FindLiteralChild returns the child of node with the given literal name, or
 // nil if there is none.
 func FindLiteralChild(node *Node, name string) *Node {
+	if node.literals != nil {
+		return node.literals[name]
+	}
 	for _, child := range node.Children {
 		if child.Type == NodeLiteral && child.Name == name {
 			return child
 		}
 	}
 	return nil
+}
+
+// indexLiterals fills root's literal index once its children are final and
+// the tree is shared read-only. The first of two same-named children wins,
+// as in FindLiteralChild's loop.
+func indexLiterals(root *Node) {
+	root.literals = make(map[string]*Node, len(root.Children))
+	for _, child := range root.Children {
+		if child.Type != NodeLiteral {
+			continue
+		}
+		if _, dup := root.literals[child.Name]; !dup {
+			root.literals[child.Name] = child
+			child.dispatch, child.dispatched = nil, true
+			if !child.Plugin {
+				if cmd, ok := dispatchRegistry(child, child.Name); ok {
+					child.dispatch = &cmd
+				}
+			}
+		}
+	}
 }

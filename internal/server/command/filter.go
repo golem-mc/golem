@@ -60,7 +60,7 @@ func copyGraph(root *Node, extra []*Node, roots, descendants func(*Node) bool) *
 		}
 		c := *n
 		converted[n] = &c
-		c.Children = nil
+		c.Children, c.literals, c.dispatch, c.dispatched = nil, nil, nil, false
 		for _, child := range n.Children {
 			if moved := replaced[child]; moved != nil {
 				child = moved
@@ -88,5 +88,7 @@ func copyGraph(root *Node, extra []*Node, roots, descendants func(*Node) bool) *
 		}
 		return &c
 	}
-	return copyNode(root)
+	out := copyNode(root)
+	indexLiterals(out)
+	return out
 }
