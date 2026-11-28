@@ -212,8 +212,8 @@ func applyMobTag(m *entity.Mob, ent *mobEntity, compound nbt.Compound) {
 	}
 	// A name the component codec refuses leaves the mob unnamed.
 	// vanilla: Entity.readAdditionalSaveData
-	if name, ok := compound["CustomName"]; ok && protocol.IsTextComponent(name) {
-		ent.name = name
+	if name, ok := protocol.LenientTextOf(compound["CustomName"]); ok {
+		ent.name = protocol.TextTag(name)
 	} else {
 		ent.name = nil
 	}

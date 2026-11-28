@@ -185,8 +185,8 @@ func applyMannequinTag(ent *mannequinEntity, compound nbt.Compound) bool {
 	m.Invulnerable = nbt.BoolField(compound, "Invulnerable")
 	m.HideLabel = nbt.BoolField(compound, "hide_description")
 	m.Label = nil
-	if label, ok := compound["description"]; ok && protocol.IsTextComponent(label) {
-		if text, ok := protocol.StyledTextOf(label); ok {
+	if label, ok := compound["description"]; ok {
+		if text, ok := protocol.LenientTextOf(label); ok {
 			m.Label = &text
 		}
 	}

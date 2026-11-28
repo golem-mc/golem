@@ -2280,10 +2280,11 @@ func decodeSignText(entry nbt.Compound) SignText {
 		return fresh
 	}
 	for i, item := range messages.Items {
-		if !componentShaped(item) {
+		cleaned, ok := protocol.LenientTextOf(nbt.ListElement(item))
+		if !ok {
 			return fresh
 		}
-		item = nbt.ListElement(item)
+		item = protocol.TextTag(cleaned)
 		if line, bare := signLine(item); bare {
 			text.Messages[i] = line
 			continue
@@ -2297,11 +2298,12 @@ func decodeSignText(entry nbt.Compound) SignText {
 		var lines [4]nbt.Tag
 		valid := true
 		for i, item := range filtered.Items {
-			if !componentShaped(item) {
+			cleaned, ok := protocol.LenientTextOf(nbt.ListElement(item))
+			if !ok {
 				valid = false
 				break
 			}
-			item = nbt.ListElement(item)
+			item = protocol.TextTag(cleaned)
 			if line, bare := signLine(item); bare {
 				item = nbt.String(line)
 			}
@@ -2327,31 +2329,6 @@ func decodeSignText(entry nbt.Compound) SignText {
 		text.Glowing = nbt.DoubleFieldOr(entry, "has_glowing_text", 0) != 0
 	}
 	return text
-}
-
-// componentShaped reports whether a tag has a text component's shape: a
-// string, a non-empty list of components, or a compound (one holding only an
-// "" key is a list element's wrapper, read through). A compound's fields are
-// not checked further.
-// vanilla: ComponentSerialization.createCodec
-func componentShaped(tag nbt.Tag) bool {
-	switch v := tag.(type) {
-	case nbt.String:
-		return true
-	case nbt.List:
-		for _, item := range v.Items {
-			if !componentShaped(item) {
-				return false
-			}
-		}
-		return len(v.Items) > 0
-	case nbt.CompoundTag:
-		if inner, ok := v.Entries()[""]; ok && len(v.Entries()) == 1 {
-			return componentShaped(inner)
-		}
-		return true
-	}
-	return false
 }
 
 // encode writes one side: four lines plus colour and glow, the last two always

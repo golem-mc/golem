@@ -22,6 +22,12 @@ func (lookup *TagLookup) styledTextOf(tag nbt.Tag) (protocol.Text, bool) {
 	})
 }
 
+func (lookup *TagLookup) lenientTextOf(tag nbt.Tag) (protocol.Text, bool) {
+	return protocol.LenientTextWithDialog(tag, func(dialog nbt.Tag) bool {
+		return lookup.dialogRefMalformed(dialog) == ""
+	})
+}
+
 // DialogMalformed reports inline-dialog codec refusals in codec field order.
 // vanilla: Dialog.DIRECT_CODEC, CommonDialogData.MAP_CODEC
 func DialogMalformed(c nbt.Compound) string {

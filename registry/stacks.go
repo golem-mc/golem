@@ -693,7 +693,7 @@ func (lookup *TagLookup) storedStack(tag nbt.CompoundTag, partial bool) (protoco
 		// Keys are read in the compound's native order, which the patch keeps.
 		for _, name := range nbt.HashOrderedKeys(components) {
 			value := components.Entries()[name]
-			if !lookup.ReadComponent(&stack, name, value) {
+			if !lookup.readStoredComponent(&stack, name, value) {
 				if partial && Qualify(name) == "minecraft:written_book_content" {
 					book, ok := lookup.readWrittenBook(value, true)
 					if ok && stack.SetWrittenBook(book) {
@@ -722,12 +722,23 @@ func readComponent(stack *protocol.ItemStack, name string, value nbt.Tag) bool {
 
 // ReadComponent decodes a component against this tag snapshot.
 func (lookup *TagLookup) ReadComponent(stack *protocol.ItemStack, name string, value nbt.Tag) bool {
+	return lookup.readComponentMode(stack, name, value, false)
+}
+
+// readStoredComponent decodes a component from saved or summoned NBT, reading
+// text components leniently the way TagValueInput.read takes partial results.
+// vanilla: TagValueInput.read, ComponentSerialization.CODEC
+func (lookup *TagLookup) readStoredComponent(stack *protocol.ItemStack, name string, value nbt.Tag) bool {
+	return lookup.readComponentMode(stack, name, value, true)
+}
+
+func (lookup *TagLookup) readComponentMode(stack *protocol.ItemStack, name string, value nbt.Tag, lenientText bool) bool {
 	// Noted first so a reader that leaves the component at its default can
 	// take it back out with ResetComponent.
 	if id, named := ComponentID(Qualify(strings.TrimPrefix(name, "!"))); named {
 		stack.NotePatch(id)
 	}
-	ok, _ := lookup.readComponentKnown(stack, name, value)
+	ok, _ := lookup.readComponentKnown(stack, name, value, lenientText)
 	return ok
 }
 
@@ -740,7 +751,7 @@ func ComponentRefused(name string, value nbt.Tag) bool {
 
 func (lookup *TagLookup) componentRefused(name string, value nbt.Tag) bool {
 	var scratch protocol.ItemStack
-	ok, modeled := lookup.readComponentKnown(&scratch, name, value)
+	ok, modeled := lookup.readComponentKnown(&scratch, name, value, false)
 	return modeled && !ok
 }
 
@@ -748,10 +759,10 @@ func (lookup *TagLookup) componentRefused(name string, value nbt.Tag) bool {
 // component has a reader at all (modeled). A shape with no reading refuses
 // the whole stack, so a half-read stack is never saved back half-written.
 func readComponentKnown(stack *protocol.ItemStack, name string, value nbt.Tag) (ok, modeled bool) {
-	return CurrentTagLookup().readComponentKnown(stack, name, value)
+	return CurrentTagLookup().readComponentKnown(stack, name, value, false)
 }
 
-func (lookup *TagLookup) readComponentKnown(stack *protocol.ItemStack, name string, value nbt.Tag) (ok, modeled bool) {
+func (lookup *TagLookup) readComponentKnown(stack *protocol.ItemStack, name string, value nbt.Tag, lenientText bool) (ok, modeled bool) {
 	if removed, isRemoval := strings.CutPrefix(name, "!"); isRemoval {
 		if component, kept := protocol.RemovableType(Qualify(removed)); kept {
 			if entry, isMap := nbt.CompoundView(value); !isMap || len(entry) != 0 {
@@ -760,6 +771,10 @@ func (lookup *TagLookup) readComponentKnown(stack *protocol.ItemStack, name stri
 			stack.Remove(component)
 			return true, true
 		}
+	}
+	textOf := lookup.styledTextOf
+	if lenientText {
+		textOf = lookup.lenientTextOf
 	}
 	name = Qualify(name) // an Identifier: namespace defaults to minecraft
 	switch name {
@@ -777,13 +792,13 @@ func (lookup *TagLookup) readComponentKnown(stack *protocol.ItemStack, name stri
 		stack.Unbreakable = stack.Unbreakable || name == "minecraft:unbreakable"
 		stack.Intangible = stack.Intangible || name == "minecraft:intangible_projectile"
 	case "minecraft:item_name":
-		text, ok := lookup.styledTextOf(value)
+		text, ok := textOf(value)
 		if !ok {
 			return false, true
 		}
 		stack.SetItemName(text)
 	case "minecraft:custom_name":
-		text, ok := lookup.styledTextOf(value)
+		text, ok := textOf(value)
 		if !ok {
 			return false, true
 		}
@@ -858,7 +873,7 @@ func (lookup *TagLookup) readComponentKnown(stack *protocol.ItemStack, name stri
 		}
 		lines := make([]protocol.Text, 0, len(list.Items))
 		for _, item := range list.Items {
-			line, ok := lookup.styledTextOf(item)
+			line, ok := textOf(nbt.ListElement(item))
 			if !ok {
 				return false, true
 			}
