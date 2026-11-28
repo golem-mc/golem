@@ -105,12 +105,9 @@ func (s *Server) resolveDisplayText(ent *fixtureEntity, tag nbt.Compound) {
 	if ent.kind != entity.FixtureTextDisplay || !has {
 		return
 	}
-	cleaned, ok := protocol.LenientTextOf(text)
-	if !ok {
-		delete(tag, "text")
-		return
+	if cleaned, ok := protocol.ComponentTextOf(protocol.CleanStyle(text)); ok {
+		text = protocol.TextTag(cleaned)
 	}
-	text = protocol.TextTag(cleaned)
 	// Unbound to fixtureEntityOps: @s only reads, and binding would make the
 	// package-level ops table depend on fixtureOfTag.
 	pos := player.Position{X: ent.x, Y: ent.y, Z: ent.z, Yaw: ent.yaw, Pitch: ent.pitch}

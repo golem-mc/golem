@@ -19,7 +19,7 @@ type customName struct {
 // codec refuses leaves the body unnamed.
 func customNameOfTag(compound nbt.Compound) customName {
 	n := customName{visible: nbt.BoolField(compound, "CustomNameVisible")}
-	if name, ok := protocol.LenientTextOf(compound["CustomName"]); ok {
+	if name, ok := protocol.ComponentTextOf(protocol.CleanStyle(compound["CustomName"])); ok {
 		if data, err := nbt.EncodeNetwork(protocol.TextTag(name)); err == nil {
 			n.wire = string(data)
 		}

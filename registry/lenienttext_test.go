@@ -107,14 +107,6 @@ func TestLenientTextOfDropsUnreadableStyleFields(t *testing.T) {
 			},
 		},
 		{
-			name: "selector content preserved with bad hover dropped",
-			tag: nbt.Compound{
-				"selector":    nbt.String("@p"),
-				"hover_event": nbt.Compound{"action": nbt.String("show_text")},
-			},
-			want: nbt.Compound{"selector": nbt.String("@p")},
-		},
-		{
 			name: "valid custom click_event kept, invalid custom click_event dropped",
 			tag: nbt.Compound{
 				"text":        nbt.String("Act"),
@@ -147,6 +139,20 @@ func TestLenientTextOfDropsUnreadableStyleFields(t *testing.T) {
 				t.Errorf("protocol.TextTag(LenientTextOf) = %s, want %s", gotSNBT, wantSNBT)
 			}
 		})
+	}
+}
+
+func TestCleanStyleKeepsUnmodelledContent(t *testing.T) {
+	tag := nbt.Compound{
+		"selector":    nbt.String("@p"),
+		"hover_event": nbt.Compound{"action": nbt.String("show_text")},
+	}
+	got, ok := protocol.ComponentTextOf(protocol.CleanStyle(tag))
+	if !ok {
+		t.Fatalf("ComponentTextOf(CleanStyle(%v)) = _, false, want true", tag)
+	}
+	if got, want := nbt.Stringify(protocol.TextTag(got)), nbt.Stringify(nbt.Compound{"selector": nbt.String("@p")}); got != want {
+		t.Errorf("TextTag = %s, want %s", got, want)
 	}
 }
 
