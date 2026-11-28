@@ -53,7 +53,7 @@ func TestBodiesMovingSidewaysAreMovedByEachBubbleColumnLeg(t *testing.T) {
 		t.Errorf("item Motion[1] after 2 ticks = %v, want 0.32889", sideways)
 	}
 	if math.Abs(still-0.212464) > 1e-4 {
-		t.Errorf("item without sideways travel Motion[1] after 2 ticks = %v, want 0.212464 (vanilla 26.3 reads the same; unchanged by the leg walk)", still)
+		t.Errorf("item without sideways travel Motion[1] after 2 ticks = %v, want 0.212464 (two ticks of (vy-0.04+0.1)*0.98 from 0.1; unchanged by the leg walk)", still)
 	}
 	if stands := srv.ArmorStandsInDimension("minecraft:overworld"); len(stands) != 1 || math.Abs(stands[0].VY-0.7) > 1e-4 {
 		t.Errorf("armor stand after 2 ticks = %+v, want Motion[1] 0.7", stands)
