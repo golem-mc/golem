@@ -1534,12 +1534,7 @@ func (ws worldScope) query(q entityQuery) []command.Entity {
 		snapshotAppender(s, &q, &knotTracker, (*Server).knotSnapshot),
 		snapshotAppender(s, &q, &paintingTracker, (*Server).paintingSnapshot),
 		snapshotAppender(s, &q, &frameTracker, (*Server).frameSnapshot),
-		func(out []command.Entity) []command.Entity {
-			if q.Type == "" || entity.FixtureKind(q.Type) {
-				return snapshotAppender(s, &q, &fixtureTracker, (*Server).fixtureSnapshot)(out)
-			}
-			return out
-		},
+		snapshotAppender(s, &q, &fixtureTracker, (*Server).fixtureSnapshot),
 		snapshotAppender(s, &q, &fallingTracker, (*Server).fallingSnapshot),
 	}
 	for {
@@ -1604,6 +1599,9 @@ func (ws worldScope) query(q entityQuery) []command.Entity {
 // and UUID queries.
 func snapshotAppender[E comparable, S any](s *Server, q *entityQuery, k *trackedKind[E, S], snap func(*Server, E, *entityQuery) *entitySnapshot) func([]command.Entity) []command.Entity {
 	return func(out []command.Entity) []command.Entity {
+		if q.Type != "" && k.admitsType != nil && !k.admitsType(q.Type) {
+			return out
+		}
 		mu := k.lock(s)
 		mu.Lock()
 		defer mu.Unlock()
@@ -1705,6 +1703,9 @@ func rejectsEntityHead(q *entityQuery, typ string, id uuid.UUID, tags nbt.String
 }
 
 func (s *Server) appendMobSnapshots(out []command.Entity, q *entityQuery) []command.Entity {
+	if q.Type != "" && !entity.KnownMobKind(entity.MobTypeOf(q.Type)) {
+		return out
+	}
 	s.mobsMu.Lock()
 	defer s.mobsMu.Unlock()
 	for _, dim := range s.allDims() {

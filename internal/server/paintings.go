@@ -66,6 +66,7 @@ type paintingEntity struct {
 // paintingTracker tracks the paintings, measured from the hanging cell's
 // corner. A painting has no movement schedule.
 var paintingTracker = trackedKind[*paintingEntity, struct{}]{
+	admitsType:  func(typ string) bool { return typ == paintingEntityID },
 	rangeChunks: entity.PaintingTrackingRange,
 	lock:        func(s *Server) *sync.Mutex { return &s.paintingsMu },
 	list:        func(s *Server) *[]*paintingEntity { return &s.paintings },

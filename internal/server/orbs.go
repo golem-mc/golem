@@ -46,6 +46,7 @@ type orbEntity struct {
 // orbTracker tracks the orbs. An orb is never told on the ground, and its
 // Teleport Entity carries no velocity: the motion packets do.
 var orbTracker = trackedKind[*orbEntity, struct{}]{
+	admitsType:       func(typ string) bool { return typ == orbEntityID },
 	invalidatePiston: func(dim *dimension) { dim.pistons.orbs.built = false },
 	pistonBit:        pistonOrbs,
 

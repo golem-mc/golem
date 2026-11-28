@@ -36,6 +36,7 @@ type mannequinEntity struct {
 
 // mannequinTracker tracks mannequin travel and commanded teleports.
 var mannequinTracker = trackedKind[*mannequinEntity, struct{}]{
+	admitsType:     func(typ string) bool { return typ == mannequinEntityID },
 	steppedPath:    true,
 	frozenSchedule: true,
 	rangeChunks:    entity.MannequinTrackingRange,

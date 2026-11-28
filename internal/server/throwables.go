@@ -82,6 +82,14 @@ type thrownEntity struct {
 // thrownTracker tracks the thrown bodies for their pairing alone: their
 // movement keeps its own schedule off the flight's tick count.
 var thrownTracker = trackedKind[*thrownEntity, struct{}]{
+	admitsType: func(typ string) bool {
+		t, ok := registry.EntityTypeByName(typ)
+		if !ok {
+			return false
+		}
+		_, ok = savedThrownKind(int32(t))
+		return ok
+	},
 	rangeChunks: entity.ThrownTracking,
 	interval:    entity.ThrownInterval,
 	rangeOf:     func(it *thrownEntity) int { return it.throwable.Kind.TrackingRange() },

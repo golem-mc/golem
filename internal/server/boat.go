@@ -142,6 +142,7 @@ func boatShownOf(it *boatEntity) boatShown {
 // boatTracker tracks the boats; a watcher's own state is the metadata it was
 // last told.
 var boatTracker = trackedKind[*boatEntity, boatShown]{
+	admitsType:       func(typ string) bool { return entity.BoatKind(typ) != "" },
 	invalidatePiston: func(dim *dimension) { dim.pistons.boats.built = false },
 	pistonBit:        pistonBoats,
 

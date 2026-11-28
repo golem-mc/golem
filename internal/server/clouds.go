@@ -76,6 +76,7 @@ var cloudUnshown = cloudShown{radius: entity.CloudStartRadius}
 // cloudTracker tracks the clouds, which never move: a watcher's own state is
 // the radius and waiting flag it was last told.
 var cloudTracker = trackedKind[*cloudEntity, cloudShown]{
+	admitsType:  func(typ string) bool { return typ == cloudEntityID },
 	rangeChunks: entity.CloudTracking,
 	lock:        func(s *Server) *sync.Mutex { return &s.arrowsMu },
 	list:        func(s *Server) *[]*cloudEntity { return &s.clouds },

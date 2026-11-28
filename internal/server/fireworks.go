@@ -60,6 +60,7 @@ type fireworkEntity struct {
 // fireworkTracker tracks the rockets. A rocket's flight is never on the
 // ground, and its Teleport Entity carries no velocity: the motion packets do.
 var fireworkTracker = trackedKind[*fireworkEntity, struct{}]{
+	admitsType:     func(typ string) bool { return typ == fireworkEntityID },
 	rangeChunks:    entity.FireworkTrackingRange,
 	interval:       entity.FireworkUpdateInterval,
 	frozenSchedule: true,

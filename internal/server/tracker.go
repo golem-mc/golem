@@ -156,6 +156,9 @@ func (t *bodyTrack[S]) motionDue(vx, vy, vz float64, stopping bool) bool {
 // trackedKind is what the tracker reads off a kind of body B whose watchers
 // each keep S.
 type trackedKind[B any, S any] struct {
+	// admitsType, if not nil, reports whether a body of the kind can have
+	// the entity type; a typed query skips the whole kind when it cannot.
+	admitsType  func(typ string) bool
 	rangeChunks int
 	// steppedPath sends positions as a stepped path over the ticks
 	// since the last movement tick, for a LivingEntity; a teleport waits for

@@ -71,6 +71,7 @@ type frameEntity struct {
 // frameTracker tracks the frames, measured from the hanging cell's corner.
 // A frame has no movement schedule.
 var frameTracker = trackedKind[*frameEntity, struct{}]{
+	admitsType:  func(typ string) bool { return typ == frameEntityID || typ == glowFrameEntityID },
 	rangeChunks: entity.ItemFrameTrackingRange,
 	lock:        func(s *Server) *sync.Mutex { return &s.framesMu },
 	list:        func(s *Server) *[]*frameEntity { return &s.frames },

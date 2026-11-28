@@ -88,6 +88,7 @@ type minecartEntity struct {
 // by the tick's settle, not by a join send.
 // vanilla: ChunkMap.tick, TrackedEntity.updatePlayer
 var minecartTracker = trackedKind[*minecartEntity, minecartMeta]{
+	admitsType:       func(typ string) bool { _, ok := entity.MinecartKindOf(typ); return ok },
 	invalidatePiston: func(dim *dimension) { dim.pistons.minecarts.built = false },
 	pistonBit:        pistonMinecarts,
 

@@ -52,6 +52,7 @@ type fallingEntity struct {
 // fallingTracker tracks the falling blocks. The velocity rides the
 // Teleport Entity: the type does not track its delta.
 var fallingTracker = trackedKind[*fallingEntity, struct{}]{
+	admitsType:       func(typ string) bool { return typ == fallingEntityID },
 	invalidatePiston: func(dim *dimension) { dim.pistons.fallings.built = false },
 	pistonBit:        pistonFallings,
 

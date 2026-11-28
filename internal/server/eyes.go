@@ -42,6 +42,7 @@ type eyeEntity struct {
 // eyeTracker tracks the eyes of ender. Their movement is tickEyes' own: an
 // absolute teleport with the velocity every EyeInterval ticks of the flight.
 var eyeTracker = trackedKind[*eyeEntity, struct{}]{
+	admitsType:  func(typ string) bool { return typ == eyeEntityID },
 	rangeChunks: entity.EyeTrackingRange,
 	lock:        func(s *Server) *sync.Mutex { return &s.eyesMu },
 	list:        func(s *Server) *[]*eyeEntity { return &s.eyes },

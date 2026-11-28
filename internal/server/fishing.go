@@ -68,6 +68,7 @@ type bobberTold struct {
 // bobberTracker tracks the hooks. A hook's Teleport Entity carries no
 // velocity: the motion packets do.
 var bobberTracker = trackedKind[*bobberEntity, bobberTold]{
+	admitsType:  func(typ string) bool { return typ == bobberEntityID },
 	rangeChunks: entity.BobberTracking,
 	interval:    entity.BobberInterval,
 	lock:        func(s *Server) *sync.Mutex { return &s.bobbersMu },

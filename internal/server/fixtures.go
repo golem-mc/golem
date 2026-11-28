@@ -47,6 +47,7 @@ type fixtureEntity struct {
 // fixtureTracker tracks the fixtures, each at its kind's range. A fixture
 // moves only when teleported, and a dimension arrival shows none.
 var fixtureTracker = trackedKind[*fixtureEntity, struct{}]{
+	admitsType: entity.FixtureKind,
 	// Any fixture sets the cushions bit; a push that finds no cushion clears it.
 	pistonBit:        pistonCushions,
 	invalidatePiston: func(dim *dimension) { dim.pistons.fixtures.built = false },
