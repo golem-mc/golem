@@ -43,6 +43,9 @@ func (t *responseTracker[E]) feedback(src Source, failedKey, prefix string, name
 	if t.nonZero == 0 && failedKey != "" {
 		return 0, refuse(src, failedKey)
 	}
+	if !wantsFeedback(src) {
+		return int32(min(t.total, math.MaxInt32)), nil
+	}
 	form, who := t.target(name)
 	return resultOf(int32(min(t.total, math.MaxInt32)), feedbackToAdmins(src, prefix+form, args(who, t.total)...))
 }

@@ -109,6 +109,9 @@ func runPostEffect(src Source, input string, args []string) error {
 	if len(changed) == 0 {
 		return refuse(src, key+".failed")
 	}
+	if !wantsFeedback(src) {
+		return nil
+	}
 	var with []protocol.Text
 	if args[0] != "clear" {
 		with = append(with, postEffectArg(id))

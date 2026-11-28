@@ -746,7 +746,7 @@ func (r *scoreboardRun) changeScores(verb string) (int32, error) {
 	if verb != "set" {
 		total = int32(sum) // Java's int sum wraps
 	}
-	if r.src.Silent() {
+	if !wantsFeedback(r.src) {
 		return total, nil
 	}
 	number := entityCount(int(v))
@@ -780,7 +780,7 @@ func (r *scoreboardRun) getScore() (int32, error) {
 	if !ok {
 		return 0, refuse(r.src, scoreboardKey+"players.get.null", protocol.Text{Text: o.Name}, h.feedback())
 	}
-	if r.src.Silent() {
+	if !wantsFeedback(r.src) {
 		return score.Value, nil
 	}
 	return score.Value, r.feedback(false, "players.get.success", h.feedback(), entityCount(int(score.Value)), formatted(o))
@@ -793,7 +793,7 @@ func (r *scoreboardRun) resetScores() (int32, error) {
 	}
 	if len(r.args) <= 2+span {
 		r.board.ResetAll(holderNames(hs))
-		if r.src.Silent() {
+		if !wantsFeedback(r.src) {
 			return int32(len(hs)), nil
 		}
 		who, form := countOrName(hs)
@@ -804,7 +804,7 @@ func (r *scoreboardRun) resetScores() (int32, error) {
 		return 0, err
 	}
 	r.board.Reset(holderNames(hs), o.Name)
-	if r.src.Silent() {
+	if !wantsFeedback(r.src) {
 		return int32(len(hs)), nil
 	}
 	who, form := countOrName(hs)
@@ -826,6 +826,9 @@ func (r *scoreboardRun) enable() (int32, error) {
 	count := int32(r.board.Enable(boardHolders(hs), o.Name))
 	if count == 0 {
 		return 0, refuse(r.src, scoreboardKey+"players.enable.failed")
+	}
+	if !wantsFeedback(r.src) {
+		return count, nil
 	}
 	who, form := countOrName(hs)
 	return count, r.feedback(true, "players.enable.success."+form, formatted(o), who)
@@ -902,7 +905,7 @@ func (r *scoreboardRun) operation() (int32, error) {
 		return 0, refuse(r.src, operationDivZeroKey)
 	}
 	total := int32(sum)
-	if r.src.Silent() {
+	if !wantsFeedback(r.src) {
 		return total, nil
 	}
 	who, form := countOrName(targets)

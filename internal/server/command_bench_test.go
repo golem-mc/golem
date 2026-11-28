@@ -59,29 +59,21 @@ func BenchmarkCommandBlockExecute100Silent(b *testing.B) {
 	benchCommandBlockExecute(b, 100, false)
 }
 
-// BenchmarkCommandBlockExecuteAsScore is the loadtest's armor-stand line: a
-// scoreboard add run once per tagged stand, whose tail execute tokenizes for
-// every context.
-func BenchmarkCommandBlockExecuteAsScore(b *testing.B) {
-	benchCommandBlockLine(b, 40, true, "execute as @e[type=armor_stand,tag=mcb] run scoreboard players add @s k 1", "scoreboard objectives add k dummy")
-}
-
 func benchCommandBlockExecute(b *testing.B, stands int, feedback bool) {
-	benchCommandBlockLine(b, stands, feedback, benchExecuteTp)
+	benchCommandBlockLine(b, stands, func(s *Server) {
+		if !feedback {
+			s.SetGameRule(world.RuleCommandBlockOutput.String(), false)
+			s.SetGameRule(world.RuleLogAdminCommands.String(), false)
+			s.SetGameRule(world.RuleSendFeedback.String(), false)
+		}
+	}, "", benchExecuteTp)
 }
 
-func benchCommandBlockLine(b *testing.B, stands int, feedback bool, line string, setup ...string) {
+func benchCommandBlockLine(b *testing.B, stands int, rules func(*Server), nbt, line string) {
 	s, w := newCommandBenchServer(b, stands)
-	for _, l := range setup {
-		s.RunRconLine(l)
-	}
-	if !feedback {
-		s.SetGameRule(world.RuleCommandBlockOutput.String(), false)
-		s.SetGameRule(world.RuleLogAdminCommands.String(), false)
-		s.SetGameRule(world.RuleSendFeedback.String(), false)
-	}
+	rules(s)
 	y := int32(world.GroundLevel + 2)
-	s.RunRconLine(fmt.Sprintf("setblock 2 %d 2 minecraft:command_block{Command:%q}", y, line))
+	s.RunRconLine(fmt.Sprintf("setblock 2 %d 2 minecraft:command_block{%sCommand:%q}", y, nbt, line))
 	be := w.BlockEntity(2, y, 2)
 	if be == nil || be.Kind != world.KindCommandBlock {
 		b.Fatal("no command block entity")
@@ -91,6 +83,17 @@ func benchCommandBlockLine(b *testing.B, stands int, feedback bool, line string,
 	for i := range b.N {
 		s.performCommandBlock(w, be, int64(i))
 	}
+}
+
+// BenchmarkCommandBlockExecuteAsScore runs a command block that keeps no
+// output over 40 stands, each adding to a score.
+func BenchmarkCommandBlockExecuteAsScore(b *testing.B) {
+	rule := func(s *Server) {
+		s.SetGameRule(world.RuleCommandBlockOutput.String(), false)
+		s.RunRconLine("scoreboard objectives add k dummy")
+	}
+	benchCommandBlockLine(b, 40, rule, "TrackOutput:0b,",
+		"execute as @e[type=armor_stand,tag=mcb] run scoreboard players add @s k 1")
 }
 
 // BenchmarkRconLongExecuteChain matches and runs an execute of about 32k
