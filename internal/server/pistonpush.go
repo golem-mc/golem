@@ -1,6 +1,7 @@
 package server
 
 import (
+	"math"
 	"sync"
 
 	"github.com/golem-mc/golem/internal/server/entity"
@@ -18,13 +19,15 @@ type pistonMove struct {
 // bodyPistonGrid indexes one kind's boxes for a dimension's physics step.
 // The kind's lock guards the grid and its source list.
 type bodyPistonGrid[B comparable] struct {
-	grid   entity.BoxGrid
-	bodies []B
-	hits   []B
-	length int
-	last   B
-	built  bool
-	active bool
+	grid             entity.BoxGrid
+	bodies           []B
+	hits             []B
+	length           int
+	last             B
+	minX, minY, minZ float64
+	maxX, maxY, maxZ float64
+	built            bool
+	active           bool
 }
 
 // candidates keeps list order. Outside a physics step positions can change
@@ -47,7 +50,7 @@ func (g *bodyPistonGrid[B]) candidates(list []B, pp *world.PistonPush) []B {
 		return list
 	}
 	r := pp.ReachBox()
-	if r[0] > r[3] {
+	if !(r[0] < g.maxX && r[3] > g.minX && r[1] < g.maxY && r[4] > g.minY && r[2] < g.maxZ && r[5] > g.minZ) {
 		return nil
 	}
 	clear(g.hits)
@@ -65,14 +68,20 @@ func (g *bodyPistonGrid[B]) build(list []B, eligible func(B) bool, box func(B) [
 	g.grid.Reset()
 	clear(g.bodies)
 	g.bodies = g.bodies[:0]
+	minX, minY, minZ := math.Inf(1), math.Inf(1), math.Inf(1)
+	maxX, maxY, maxZ := math.Inf(-1), math.Inf(-1), math.Inf(-1)
 	for _, it := range list {
 		if !eligible(it) {
 			continue
 		}
 		b := box(it)
+		minX, minY, minZ = min(minX, b[0]), min(minY, b[1]), min(minZ, b[2])
+		maxX, maxY, maxZ = max(maxX, b[3]), max(maxY, b[4]), max(maxZ, b[5])
 		g.grid.Add(int32(len(g.bodies)), entity.NewAABB(b[0], b[1], b[2], b[3], b[4], b[5]))
 		g.bodies = append(g.bodies, it)
 	}
+	g.minX, g.minY, g.minZ = minX, minY, minZ
+	g.maxX, g.maxY, g.maxZ = maxX, maxY, maxZ
 	g.length, g.last = len(list), list[len(list)-1]
 	g.built = true
 }
@@ -88,6 +97,8 @@ const (
 	pistonArmorStands
 	pistonMinecarts
 	pistonEndCrystals
+	pistonMobs
+	pistonCushions
 )
 
 type bodyPistonGrids struct {
@@ -103,10 +114,19 @@ type bodyPistonGrids struct {
 	endCrystals bodyPistonGrid[*endCrystalEntity]
 }
 
-func setBodyPistonGrid[B comparable](mu *sync.Mutex, g *bodyPistonGrid[B], active bool) {
+// setBodyPistonGrid toggles a kind's piston grid and, when turning it on,
+// refreshes its pistonPopulated bit under mu.
+func setBodyPistonGrid[B comparable](s *Server, mu *sync.Mutex, g *bodyPistonGrid[B], bit uint32, active bool, populated func() bool) {
 	mu.Lock()
 	defer mu.Unlock()
 	g.active, g.built = active, false
+	if active {
+		if populated() {
+			s.pistonPopulated.Or(bit)
+		} else {
+			s.pistonPopulated.And(^bit)
+		}
+	}
 }
 
 // setTrackedPistonGrid is setBodyPistonGrid for a tracked kind; turning it on
@@ -158,13 +178,16 @@ func pistonCarry(w *world.World, pp *world.PistonPush, box [6]float64, onGround 
 // client moves and bounces itself.
 // vanilla: PistonMovingBlockEntity.moveCollidedEntities, ServerPlayer
 func (s *Server) pushByPiston(w *world.World, pp *world.PistonPush) {
+	populated := s.pistonPopulated.Load()
+	if populated == 0 {
+		return
+	}
 	dim := s.dimensionOfWorld(w)
-	// A zero bit is a kind that is always visited.
 	collectors := [...]struct {
 		bit     uint32
 		collect func(*Server, *dimension, *world.PistonPush) []func()
 	}{
-		{0, (*Server).collectMobsPistonPush},
+		{pistonMobs, (*Server).collectMobsPistonPush},
 		{pistonItems, (*Server).collectItemsPistonPush},
 		{pistonOrbs, (*Server).collectOrbsPistonPush},
 		{pistonArrows, (*Server).collectArrowsPistonPush},
@@ -172,14 +195,13 @@ func (s *Server) pushByPiston(w *world.World, pp *world.PistonPush) {
 		{pistonFallings, (*Server).collectFallingsPistonPush},
 		{pistonBoats, (*Server).collectBoatsPistonPush},
 		{pistonArmorStands, (*Server).collectArmorStandsPistonPush},
-		{0, (*Server).collectCushionsPistonPush},
+		{pistonCushions, (*Server).collectCushionsPistonPush},
 		{pistonMinecarts, (*Server).collectMinecartsPistonPush},
 		{pistonEndCrystals, (*Server).collectEndCrystalsPistonPush},
 	}
-	populated := s.pistonPopulated.Load()
 	var moves []func()
 	for _, c := range collectors {
-		if c.bit != 0 && populated&c.bit == 0 {
+		if populated&c.bit == 0 {
 			continue
 		}
 		moves = append(moves, c.collect(s, dim, pp)...)

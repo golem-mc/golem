@@ -85,6 +85,7 @@ func fixtureOfTag(s *Server, w *world.World, compound nbt.Compound) *fixtureEnti
 	yaw, pitch := entityRotationOfTag(compound)
 	if id == entity.FixtureCushion {
 		s.cushionsMade.Store(true)
+		s.pistonPopulated.Or(pistonCushions)
 	}
 	ent := &fixtureEntity{
 		id: s.nextEntity(), w: w, uuid: identity, kind: string(id),
