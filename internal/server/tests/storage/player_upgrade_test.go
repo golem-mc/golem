@@ -182,6 +182,35 @@ func TestPlayerFileBefore1_16KeepsItsDimension(t *testing.T) {
 	}
 }
 
+// TestPlayerFileBefore1_20_5KeepsLockedShulkerBox loads a 1.20.4 player file
+// whose ender chest holds a locked shulker box and finds it saved with the
+// lock as an item predicate.
+// vanilla: LockComponentPredicateFix
+func TestPlayerFileBefore1_20_5KeepsLockedShulkerBox(t *testing.T) {
+	t.Parallel()
+	saved := joinOldPlayer(t, nbt.Compound{
+		"DataVersion": nbt.Int(3700),
+		"Inventory":   list(legacyStack("minecraft:diamond", 1, 0, nil)),
+		"EnderItems": list(legacyStack("minecraft:shulker_box", 1, 0, nbt.Compound{
+			"BlockEntityTag": nbt.Compound{"Lock": nbt.String("key"), "Items": list(
+				legacyStack("minecraft:chain", 2, 0, nil))}})),
+	})
+	box := savedStack(t, saved, "EnderItems", "minecraft:shulker_box")
+	comps, _ := nbt.Get[nbt.Compound](box, "components")
+	want := nbt.Compound{"components": nbt.Compound{"minecraft:custom_name": nbt.String(`"key"`)}}
+	if lock, _ := nbt.CompoundView(comps["minecraft:lock"]); !nbt.Equal(lock, want) {
+		t.Errorf("lock = %v", comps["minecraft:lock"])
+	}
+	contents, _ := nbt.Get[nbt.List](comps, "minecraft:container")
+	if len(contents.Items) != 1 {
+		t.Fatalf("container = %v", comps["minecraft:container"])
+	}
+	slot, _ := nbt.CompoundView(contents.Items[0])
+	if item, _ := nbt.CompoundView(slot["item"]); item["id"] != nbt.String("minecraft:iron_chain") {
+		t.Errorf("contents = %v", slot)
+	}
+}
+
 // TestPlayerFileTextEventsAreRenamed loads a 1.20.4 file whose book page and
 // item name carry click and hover events.
 // vanilla: TextComponentHoverAndClickEventFix

@@ -156,6 +156,22 @@ func fixContainerLock(tag nbt.Compound) {
 	if name == "" {
 		return
 	}
-	quoted := strings.NewReplacer(`"`, `\"`, `\`, `\\`).Replace(string(name))
-	tag["lock"] = nbt.Compound{"components": nbt.Compound{"minecraft:custom_name": nbt.String(`"` + quoted + `"`)}}
+	tag["lock"] = lockPredicate(string(name))
+}
+
+// lockPredicate is the item predicate matching a stack named name.
+// vanilla: LockComponentPredicateFix.fixLock
+func lockPredicate(name string) nbt.Compound {
+	quoted := strings.NewReplacer(`"`, `\"`, `\`, `\\`).Replace(name)
+	return nbt.Compound{"components": nbt.Compound{"minecraft:custom_name": nbt.String(`"` + quoted + `"`)}}
+}
+
+// fixBannerOverride moves an ominous banner's custom name into its item name
+// component; fixStoredComponents then gives it the uncommon rarity.
+// vanilla: BannerEntityCustomNameToOverrideComponentFix
+func fixBannerOverride(tag nbt.Compound) {
+	if key, ok := jsonTranslationKey(tag["CustomName"]); ok && key == ominousBannerKey {
+		tag["components"] = nbt.Compound{"minecraft:item_name": tag["CustomName"], "minecraft:hide_additional_tooltip": nbt.Compound{}}
+		delete(tag, "CustomName")
+	}
 }

@@ -16,6 +16,7 @@ const (
 	blendingDataVersion         = 3108 // vanilla: DataFixers.addFixers (BlendingDataRemoveFromNetherEndFix)
 	chunkStatusVersion          = 3450 // vanilla: DataFixers.addFixers (RemapChunkStatusFix)
 	mobEffectIDVersion          = 3568 // vanilla: DataFixers.addFixers (MobEffectIdFix)
+	sweepingRenameVersion       = 3803 // vanilla: DataFixers.addFixers (Rename sweeping enchant to sweeping_edge)
 	scuteRenameVersion          = 3800 // vanilla: DataFixers.addFixers (Rename scute item to turtle_scute)
 	signDoubleSidedVersion      = 3439 // vanilla: DataFixers.addFixers (BlockEntitySignDoubleSidedEditableTextFix)
 	signFilteredVersion         = 3564 // vanilla: DataFixers.addFixers (DropInvalidSignDataFix)
@@ -76,6 +77,9 @@ func upgradeLegacyStacks(tag nbt.Tag, version int32) nbt.Tag {
 			entries["count"] = nbt.Int(count)
 			name, _ := nbt.Get[nbt.String](entries, "id")
 			if tag, ok := nbt.CompoundView(entries["tag"]); ok {
+				if version < sweepingRenameVersion {
+					renameSweeping(tag)
+				}
 				fixStackUUIDsAndNames(tag, string(name), version)
 				fixStackEffects(tag, string(name), version)
 			}
@@ -95,9 +99,8 @@ func upgradeLegacyStacks(tag nbt.Tag, version int32) nbt.Tag {
 	return tag
 }
 
-// renameOldItem applies the item renames between version and
-// storedItemVersion.
-// vanilla: DataFixers.addFixers (ItemRenameFix: v3438, v3447, v3692, v3800)
+// renameOldItem applies the item renames newer than version.
+// vanilla: DataFixers.addFixers (ItemRenameFix: v3438, v3447, v3692, v3800, v4541, v5012)
 func renameOldItem(name string, version int32) string {
 	if version < brushableBlockVersion {
 		if to, ok := potShardRenames[name]; ok {
@@ -108,6 +111,21 @@ func renameOldItem(name string, version int32) string {
 		name = strings.TrimSuffix(name, "_pottery_shard") + "_pottery_sherd"
 	}
 	return RenameOldItem(name, version)
+}
+
+// renameSweeping renames the sweeping enchantment in a legacy stack's tag.
+// vanilla: RenameEnchantmentsFix
+func renameSweeping(tag nbt.Compound) {
+	for _, key := range []string{"Enchantments", "StoredEnchantments"} {
+		list, _ := tag[key].(nbt.List)
+		for _, item := range list.Items {
+			if e, ok := nbt.CompoundView(item); ok {
+				if id, ok := e["id"].(nbt.String); ok && registry.Qualify(string(id)) == "minecraft:sweeping" {
+					e["id"] = nbt.String("minecraft:sweeping_edge")
+				}
+			}
+		}
+	}
 }
 
 // potShardRenames are the pottery shard item names of before 3447 and their
@@ -169,6 +187,9 @@ func fixOldBlockEntity(entry nbt.CompoundTag, version int32) bool {
 		if version < blockEntityUUIDFixed {
 			fixBlockEntityUUIDs(string(id), tag)
 		}
+	}
+	if kind == KindBanner && version < customNameOverrideVersion {
+		fixBannerOverride(tag)
 	}
 	fixStoredComponents(entry, version)
 	fixBlockEntityFields(string(id), kind, tag, version)
