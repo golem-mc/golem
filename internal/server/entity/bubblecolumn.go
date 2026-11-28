@@ -43,12 +43,13 @@ const movedFarSqr = 0.9999900000002526 * 0.9999900000002526
 // projectileBubblePush applies the column cell (x, y, z), met on an inside
 // walk's leg from box from with travel d, to a projectile's vertical speed.
 // Only a precise contact counts: a leg of about a block or more, or a cell
-// the box at the leg's end overlaps. A pearl takes the clamped entity
-// speeds, every other kind the unclamped projectile ones; a surface cell is
+// the box at the leg's end overlaps. A clamped body (a pearl or any
+// non-projectile) takes the clamped entity speeds, every other projectile
+// the unclamped ones; a surface cell is
 // added to spots for its splash. ok is false for a cell that is no column.
 // vanilla: BubbleColumnBlock.entityInside, Projectile.onAboveBubbleColumn,
 // Projectile.onInsideBubbleColumn, ThrownEnderpearl.onAboveBubbleColumn
-func projectileBubblePush(w World, x, y, z int32, state uint16, from AABB, dx, dy, dz, vy float64, pearl bool, spots *[]bubbleSpot) (newVY float64, ok bool) {
+func projectileBubblePush(w World, x, y, z int32, state uint16, from AABB, dx, dy, dz, vy float64, clamped bool, spots *[]bubbleSpot) (newVY float64, ok bool) {
 	drag, ok := rules.BubbleColumnDrag(state)
 	if !ok {
 		return vy, false
@@ -62,16 +63,16 @@ func projectileBubblePush(w World, x, y, z int32, state uint16, from AABB, dx, d
 	if !precise {
 		return vy, true
 	}
-	return projectileBubbleSpeed(w, x, y, z, drag, vy, pearl, spots), true
+	return projectileBubbleSpeed(w, x, y, z, drag, vy, clamped, spots), true
 }
 
 // projectileBubbleSpeed is a projectile's vertical speed after a precise
 // contact with the column cell (x, y, z).
-func projectileBubbleSpeed(w World, x, y, z int32, drag bool, vy float64, pearl bool, spots *[]bubbleSpot) float64 {
+func projectileBubbleSpeed(w World, x, y, z int32, drag bool, vy float64, clamped bool, spots *[]bubbleSpot) float64 {
 	if bubbleSurfaceAt(w, x, y, z) {
 		*spots = append(*spots, bubbleSpot{x, y, z})
 		switch {
-		case pearl:
+		case clamped:
 			return rules.BubbleColumnAboveSpeed(vy, drag)
 		case drag:
 			return vy - 0.03
@@ -79,7 +80,7 @@ func projectileBubbleSpeed(w World, x, y, z int32, drag bool, vy float64, pearl 
 		return vy + 0.1
 	}
 	switch {
-	case pearl:
+	case clamped:
 		return rules.BubbleColumnInsideSpeed(vy, drag)
 	case drag:
 		return vy - 0.03

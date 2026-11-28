@@ -119,6 +119,7 @@ func (t *TNT) Step(w World) []TNTEvent {
 	if !t.NoGravity {
 		t.VY -= tntGravity
 	}
+	fx, fy, fz, ax, az := t.X, t.Y, t.Z, t.VX, t.VZ
 	t.OnGround = t.move(w)
 	var events []TNTEvent
 	if t.OnGround {
@@ -126,8 +127,12 @@ func (t *TNT) Step(w World) []TNTEvent {
 			events = append(events, TNTEvent{Kind: TntSteppedOnRedstoneOre, X: float64(x), Y: float64(y), Z: float64(z)})
 		}
 	}
-	t.VY, _ = bubbleColumnDrift(w, AABB{t.X - TNTHalfWidth, t.Y, t.Z - TNTHalfWidth,
-		t.X + TNTHalfWidth, t.Y + TNTHeight, t.Z + TNTHalfWidth}, t.VY)
+	var spots []bubbleSpot
+	walkInside(w, []bodyMove{{fx, fy, fz, t.X, t.Y, t.Z, ax, az, true}}, AABB{-TNTHalfWidth, 0, -TNTHalfWidth, TNTHalfWidth, TNTHeight, TNTHalfWidth},
+		func(x, y, z int32, state uint16, _ int, from AABB, dx, dy, dz float64) bool {
+			t.VY, _ = projectileBubblePush(w, x, y, z, state, from, dx, dy, dz, t.VY, true, &spots)
+			return true
+		})
 	t.VX *= tntAirDrag
 	t.VY *= tntAirDrag
 	t.VZ *= tntAirDrag
