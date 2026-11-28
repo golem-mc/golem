@@ -307,6 +307,8 @@ func (s *Server) stepThrown(fx *thrownEffects, in *thrownTickInputs, it *thrownE
 			if d, ok := deflectedBy(it.w, tw.bodies.mobs[ev.Target.EntityID]); ok {
 				fx.deflects = append(fx.deflects, d)
 			}
+		case entity.ThrownBurnedUp:
+			fx.fireballs.strikes = append(fx.fireballs.strikes, bulletStrike{w: it.w, id: t.ID, x: ev.X, y: ev.Y, z: ev.Z})
 		case entity.ThrownSplashed:
 			fx.splashes = append(fx.splashes, projectileSplash{w: it.w, x: ev.X, y: ev.Y, z: ev.Z,
 				volume: ev.Volume, pitch: ev.Pitch, silent: t.Silent, owner: it.ownerUUID})
@@ -448,7 +450,11 @@ func (in *thrownTickInputs) mobTargets(targets []entity.ArrowTarget, s *Server, 
 func (fx *thrownEffects) watchThrown(it *thrownEntity, watchers []thrownWatcher, near *nearbyPlayers) {
 	t := it.throwable
 	gate := t.TickCount%t.Kind.UpdateInterval() == 0
-	told := !t.Dead && (it.firstPass || gate)
+	// The on-fire bit goes out the tick it turns, off the movement schedule.
+	// vanilla: ServerEntity.sendChanges, SynchedEntityData.packDirty
+	fireTurned := t.FireFlag != it.toldFire
+	it.toldFire = t.FireFlag
+	told := !t.Dead && (it.firstPass || gate || fireTurned)
 	if gate {
 		it.teleported = false // the gate's own Teleport Entity tells it
 	}
@@ -468,6 +474,8 @@ func (fx *thrownEffects) watchThrown(it *thrownEntity, watchers []thrownWatcher,
 		if it.firstPass {
 			// The tracked entity's first pass: no distance, metadata again.
 			tell.data[0], tell.data[1] = thrownZeroDeltaPayload(it), thrownMetadataPayload(it, false)
+		} else if fireTurned {
+			tell.data[1] = thrownFlagsPayload(it)
 		}
 		if gate {
 			tell.data[2], tell.data[3] = entityVelocityPayload(t.ID, t.VX, t.VY, t.VZ), thrownTeleportPayload(t)
@@ -678,6 +686,11 @@ func (s *Server) endThrown(fx *thrownEffects, in *thrownTickInputs, tw *thrownWo
 		}
 		fx.landings = append(fx.landings, land)
 	case entity.ThrownDragonFireball, entity.ThrownSmallFireball, entity.ThrownLargeFireball, entity.ThrownWitherSkull, entity.ThrownShulkerBullet, entity.ThrownLlamaSpit:
+		for _, ev := range events {
+			if ev.Kind == entity.ThrownBurnedUp {
+				return // the strike already told the removal
+			}
+		}
 		land := fireballLanding{tags: it.tags.Values(), silent: t.Silent, w: it.w, id: t.ID, kind: t.Kind,
 			ownerID: t.OwnerID, ownerUUID: it.ownerUUID, uuid: it.uuid, custom: it.custom, ownerMob: tw.bodies.mobs[t.OwnerID] != nil,
 			ownerPlayer: shooterIsPlayer(t.OwnerID, tw.bodies.clients),
