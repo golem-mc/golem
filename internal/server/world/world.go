@@ -211,7 +211,10 @@ type World struct {
 	// unloadsPending is true while unloadedChunks is non-empty; set under mu,
 	// cleared where the list is taken, so takeUnloads can skip the lock.
 	unloadsPending atomic.Bool
-	tickSource     func(ChunkPos) chunkTicks
+	// loadedTicksPending is true while pendingLoaded is non-empty; kept like
+	// unloadsPending so a booking can skip the lock.
+	loadedTicksPending atomic.Bool
+	tickSource         func(ChunkPos) chunkTicks
 
 	// chunkWriteGate is a test hook; see SetChunkWriteGate.
 	chunkWriteGate atomic.Pointer[func()]

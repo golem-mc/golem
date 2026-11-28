@@ -115,6 +115,7 @@ func (w *World) takeLoadedTicks() (loaded []loadedTick, unloaded []ChunkPos) {
 	loaded, unloaded = w.pendingLoaded, w.unloadedChunks
 	w.pendingLoaded, w.unloadedChunks = nil, nil
 	w.unloadsPending.Store(false)
+	w.loadedTicksPending.Store(false)
 	return loaded, unloaded
 }
 
@@ -123,6 +124,7 @@ func (w *World) takeLoadedTicks() (loaded []loadedTick, unloaded []ChunkPos) {
 func (w *World) queueLoadedTicks(c *Chunk) {
 	w.pendingLoaded = append(w.pendingLoaded, c.loadedTicks...)
 	c.loadedTicks = nil
+	w.loadedTicksPending.Store(len(w.pendingLoaded) > 0)
 }
 
 // dropChunkTicks notes the chunk left memory: its queued ticks go too, unsaved
@@ -135,6 +137,7 @@ func (w *World) dropChunkTicks(pos ChunkPos) {
 		}
 	}
 	w.pendingLoaded = kept
+	w.loadedTicksPending.Store(len(kept) > 0)
 	w.unloadedChunks = append(w.unloadedChunks, pos)
 	w.unloadsPending.Store(true)
 }
@@ -159,11 +162,18 @@ func (w *World) takeUnloads() []ChunkPos {
 // ticks booked after the last save on shutdown.
 func (w *World) prepareTick(x, z int32, dirty, takeLoaded bool) (loaded []loadedTick, unloaded []ChunkPos) {
 	pos := ChunkPos{X: x >> 4, Z: z >> 4}
+	if !w.unloadsPending.Load() && (!takeLoaded || !w.loadedTicksPending.Load()) {
+		if dirty {
+			w.touchContainerChunk(pos)
+		}
+		return nil, nil
+	}
 	w.mu.Lock()
 	unloaded, w.unloadedChunks = w.unloadedChunks, nil
 	w.unloadsPending.Store(false)
 	if takeLoaded {
 		loaded, w.pendingLoaded = w.pendingLoaded, nil
+		w.loadedTicksPending.Store(false)
 	}
 	if c, ok := w.chunks[pos]; ok && dirty {
 		c.markDirty()
