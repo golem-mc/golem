@@ -281,6 +281,13 @@ func (b *Boat) Step(w World, ridden bool) {
 
 	fx, fy, fz, ax, az := b.X, b.Y, b.Z, b.VX, b.VZ
 	b.OnGround = b.move(w, ridden)
+	if b.OnGround {
+		// AbstractBoat.tick applies the block effects twice.
+		// vanilla: Entity.applyEffectsFromBlocks's stepOn
+		for range 2 {
+			slimeStep(w, b.X, b.Y, b.Z, BoatHalfWidth, b.VY, &b.VX, &b.VZ)
+		}
+	}
 	b.Movement = b.stride.vehicleEvent(w, bodyMove{fx: fx, fy: fy, fz: fz, tx: b.X, ty: b.Y, tz: b.Z}, BoatHalfWidth, b.OnGround, false, inWater)
 	b.stepMove, b.stepMoved = bodyMove{fx, fy, fz, b.X, b.Y, b.Z, ax, az, true}, true
 	b.bubbleColumn(w, false)
@@ -383,24 +390,7 @@ func (b *Boat) updateFluids(w World, withCurrent bool) {
 	if !withCurrent {
 		return
 	}
-	if b.water.height > 0 {
-		if dx, dy, dz, any := b.water.currentImpulse(waterCurrent, b.VX, b.VZ); any {
-			b.VX += dx
-			b.VY += dy
-			b.VZ += dz
-		}
-	}
-	if b.lava.height > 0 {
-		scale := lavaCurrent
-		if w.FastLava() {
-			scale = fastLavaCurrent
-		}
-		if dx, dy, dz, any := b.lava.currentImpulse(scale, b.VX, b.VZ); any {
-			b.VX += dx
-			b.VY += dy
-			b.VZ += dz
-		}
-	}
+	b.VX, b.VY, b.VZ = applyCurrents(w, &b.water, &b.lava, b.VX, b.VY, b.VZ)
 }
 
 // boatBox is the hull's span as a fluid-walk AABB.
@@ -583,6 +573,10 @@ func (b *Boat) move(w World, ridden bool) bool {
 			b.bounced = true
 		}
 	}
+	// vanilla: Entity.move ends with the block speed factor
+	f := blockSpeedFactor(w, b.X, b.Y, b.Z)
+	b.VX *= f
+	b.VZ *= f
 	bankFall(&b.fallDistance, startY, b.Y, onGround)
 	return onGround
 }

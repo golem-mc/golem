@@ -435,7 +435,7 @@ func (o *Orb) insideEffects(w World, move bodyMove, events *[]OrbEvent) {
 		switch {
 		case fluid == fluidWater:
 			o.fireTicks = 0
-		case fluid == fluidLava:
+		case fluid == fluidLava || sweptLavaCauldron(x, y, z, state, from, dx, dy, dz):
 			if o.fireTicks < fireTicksLava {
 				o.fireTicks = fireTicksLava
 			}
@@ -591,6 +591,10 @@ func (o *Orb) move(w World) bool {
 			o.VZ = 0
 		}
 	}
+	// vanilla: Entity.move ends with the block speed factor
+	f := blockSpeedFactor(w, o.X, o.Y, o.Z)
+	o.VX *= f
+	o.VZ *= f
 	o.LandedFall = bankFall(&o.fallDistance, startY, o.Y, o.OnGround)
 	return o.OnGround
 }

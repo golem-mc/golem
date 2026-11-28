@@ -3391,6 +3391,18 @@ func (s *Server) MinecartVelocityY(id int32) (vy float64, ok bool) {
 	return 0, false
 }
 
+// MinecartVelocityZ is the z velocity of the cart with the given entity ID.
+func (s *Server) MinecartVelocityZ(id int32) (vz float64, ok bool) {
+	s.minecartsMu.Lock()
+	defer s.minecartsMu.Unlock()
+	for _, it := range s.minecarts {
+		if it.cart.ID == id && !it.cart.Dead {
+			return it.cart.VZ, true
+		}
+	}
+	return 0, false
+}
+
 // MinecartDimension is the wire name of the dimension the cart with the
 // given entity ID stands in, for the tests that watch a rider's cart cross
 // with them.

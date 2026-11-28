@@ -181,7 +181,7 @@ type Minecart struct {
 	// rolls each for a snowflake.
 	Snowflakes []int32
 
-	water fluidTracker
+	water, lava fluidTracker
 	// stuck is the multiplier the cells the cart's last block check found
 	// leave for the next move.
 	stuck stuckFactor
@@ -364,8 +364,8 @@ func (m *Minecart) Step(w World, ridden bool) {
 	m.bubbleColumns(w, bodyMove{oldX, oldY, oldZ, m.X, m.Y, m.Z, m.X - oldX, m.Z - oldZ, true})
 	m.blockEffects(w)
 	m.Splash = m.step(w, m.cartBox(), m.VX, m.VY, m.VZ)
-	var lava fluidTracker
-	updateFluid(w, m.cartBox(), m.X, m.Y+MinecartHeight, m.Z, false, &m.water, &lava)
+	updateFluid(w, m.cartBox(), m.X, m.Y+MinecartHeight, m.Z, true, &m.water, &m.lava)
+	m.VX, m.VY, m.VZ = applyCurrents(w, &m.water, &m.lava, m.VX, m.VY, m.VZ)
 	// The explicit lava hurt still succeeds after block effects removed the cart.
 	// vanilla: AbstractMinecart.tick, VehicleEntity.hurtServer
 	if BoxInLava(w, m.X, m.Y, m.Z, MinecartHalfWidth*2, MinecartHeight) {
@@ -399,6 +399,10 @@ func (m *Minecart) Step(w World, ridden bool) {
 // vanilla: AbstractMinecart.move, AbstractMinecart.applyEffectsFromBlocks,
 // OldMinecartBehavior.getKnownMovement
 func (m *Minecart) blockEffects(w World) {
+	// vanilla: Entity.applyEffectsFromBlocks's stepOn
+	if m.OnGround {
+		slimeStep(w, m.X, m.Y, m.Z, MinecartHalfWidth, m.VY, &m.VX, &m.VZ)
+	}
 	sideways := m.VX != 0 || m.VZ != 0
 	move := bodyMove{fx: m.X, fy: m.Y, fz: m.Z, tx: m.X, ty: m.Y, tz: m.Z}
 	rel := AABB{-MinecartHalfWidth, 0, -MinecartHalfWidth, MinecartHalfWidth, MinecartHeight, MinecartHalfWidth}
@@ -721,6 +725,9 @@ func (m *Minecart) comeOffTrack(w World, inWater bool) {
 	// The move's block effects run before the drag; Step runs them again
 	// after the tick.
 	// vanilla: Entity.move, OldMinecartBehavior.tick
+	f := blockSpeedFactor(w, m.X, m.Y, m.Z)
+	m.VX *= f
+	m.VZ *= f
 	m.bubbleColumns(w, bodyMove{fromX, startY, fromZ, m.X, m.Y, m.Z, dx, dz, !held})
 	m.blockEffects(w)
 	if !m.OnGround {

@@ -48,6 +48,7 @@ type boatEffects struct {
 	burns     []burnSpot
 	fizzles   []burnSpot
 	paddles   []boatPaddle
+	steps     []groundStep
 	gateways  []gatewayTouch
 	travels   []boatPortalTravel
 	// flakes are the points hulls in powder snow may kick up a snowflake at.
@@ -74,6 +75,7 @@ func (fx *boatEffects) apply(s *Server) {
 	applyEach(s, fx.burns, (*Server).burnVehicle)
 	applyEach(s, fx.fizzles, (*Server).fizzleVehicle)
 	applyEach(s, fx.paddles, (*Server).playPaddle)
+	s.runGroundSteps(fx.steps)
 	s.applyMobShares(fx.mobShares)
 	// The seats the tick leaves mobs in, written under the mob lock alone.
 	if len(fx.carries) > 0 || len(fx.boards) > 0 || len(fx.offboards) > 0 {

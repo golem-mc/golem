@@ -327,6 +327,7 @@ func (s *Server) tickMinecarts() {
 		tntFx        tntCartEffects
 		falls        []cartFall
 		bodyLandings []bodyLanding
+		groundSteps  []groundStep
 		spawners     []*minecartEntity
 		gates        []gatewayTouch
 		travels      []minecartPortalTravel
@@ -415,6 +416,11 @@ func (s *Server) tickMinecarts() {
 			it.cart.Step(pushes.bodyWorld(it), ridden || len(it.mobs) > 0)
 		}
 		it.look.pitch = 0 // vanilla: OldMinecartBehavior.tick
+		if it.cart.OnGround && !it.cart.Dead {
+			if st, ok := groundStepOf(it.w, it.cart.X, it.cart.Y, it.cart.Z, entity.MinecartHalfWidth, true); ok {
+				groundSteps = append(groundSteps, st)
+			}
+		}
 		movements.add(it.w, it.uuid, it.cart.Movement)
 		if it.cart.TakeBounceEffect() {
 			bounces = append(bounces, bodyBounce{w: it.w, source: it.uuid, x: it.cart.X, y: it.cart.Y, z: it.cart.Z, halfWidth: entity.MinecartHalfWidth})
@@ -509,6 +515,7 @@ func (s *Server) tickMinecarts() {
 		s.fallOntoCartRiders(f)
 	}
 	s.runBodyLandings(bodyLandings)
+	s.runGroundSteps(groundSteps)
 
 	for w, ids := range removals {
 		s.broadcastWorld(w, protocol.IDPlayRemoveEntities, removeEntitiesPayload(ids))
