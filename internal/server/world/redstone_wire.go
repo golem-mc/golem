@@ -160,7 +160,9 @@ func (p *Physics) wireBlockSignal(x, y, z int32) int {
 	for _, d := range updateNeighborOrder {
 		gx, gy, gz := x+dirDelta[d][0], y+dirDelta[d][1], z+dirDelta[d][2]
 		if s := p.signalThrough(gx, gy, gz, blocklogic.Opposite(d)); s > best {
-			best = s
+			if best = s; best >= 15 {
+				break
+			}
 		}
 	}
 	return best
@@ -182,15 +184,31 @@ func (p *Physics) wireIncomingSignal(x, y, z int32) int {
 			best = power
 		}
 	}
+	// above: 0 unread, 1 above is not a conductor, 2 it is.
+	above := 0
 	for _, d := range [4]int{dirNorth, dirSouth, dirEast, dirWest} {
 		nx, ny, nz := x+dirDelta[d][0], y+dirDelta[d][1], z+dirDelta[d][2]
-		take(nx, ny, nz)
-		if r.conductor(nx, ny, nz) {
-			if !r.conductor(x, y+1, z) {
+		state := r.at(nx, ny, nz)
+		if signalKindOf(state) == kindWire {
+			if power := registry.StatePower(state); power > best {
+				best = power
+			}
+		}
+		if p.w.conductorState(nx, ny, nz, state) {
+			if above == 0 {
+				above = 1
+				if r.conductor(x, y+1, z) {
+					above = 2
+				}
+			}
+			if above == 1 {
 				take(nx, ny+1, nz)
 			}
 		} else {
 			take(nx, ny-1, nz)
+		}
+		if best >= 15 {
+			break
 		}
 	}
 	if best-1 > 0 {
