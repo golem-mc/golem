@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/golem-mc/golem/internal/protocol"
@@ -358,12 +359,22 @@ func (s *Server) executeCommandChain(w *world.World, startX, startY, startZ int3
 // vanilla: BaseCommandBlock.performCommand, Commands.performPrefixedCommand
 func (s *Server) runBlockCommand(src *commandBlockSource, line string) int {
 	line = strings.TrimPrefix(line, "/")
+	tree := src.CommandTree()
+	if !s.blockLines.accepted(tree, line) {
+		command.CacheLineTokens(line)
+	}
 	tokens := command.Tokenize(line)
 	if len(tokens) == 0 {
 		return 0
 	}
-	node, fail := command.Match(src.CommandTree(), line, tokens, true)
-	if node == nil {
+	node, fail := (*command.Node)(nil), (*command.Failure)(nil)
+	if !s.blockLines.accepted(tree, line) {
+		node, fail = command.Match(tree, line, tokens, true)
+		if node != nil {
+			s.blockLines.accept(tree, line)
+		}
+	}
+	if fail != nil {
 		// Refusals go to the block's output, as red lines and context from the
 		// source's fail.
 		if fail.Err != nil {
@@ -623,3 +634,35 @@ func (src *commandBlockSource) OutgoingMessage(_ protocol.Text, _ *chatsecurity.
 
 // Silent reports whether nothing reaches the source's output.
 func (src *commandBlockSource) Silent() bool { return false }
+
+// maxBlockLines bounds blockLineCache.
+const maxBlockLines = 4096
+
+// blockLineCache remembers which command-block lines Match accepted against
+// which command tree. The tree pointer changes on /reload and on plugin
+// command changes, which drops every older entry.
+type blockLineCache struct {
+	mu    sync.Mutex
+	lines map[blockLineKey]struct{}
+}
+
+type blockLineKey struct {
+	tree *command.Node
+	line string
+}
+
+func (c *blockLineCache) accepted(tree *command.Node, line string) bool {
+	c.mu.Lock()
+	_, ok := c.lines[blockLineKey{tree, line}]
+	c.mu.Unlock()
+	return ok
+}
+
+func (c *blockLineCache) accept(tree *command.Node, line string) {
+	c.mu.Lock()
+	if c.lines == nil || len(c.lines) >= maxBlockLines {
+		c.lines = make(map[blockLineKey]struct{})
+	}
+	c.lines[blockLineKey{tree, line}] = struct{}{}
+	c.mu.Unlock()
+}
