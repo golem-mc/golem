@@ -637,7 +637,7 @@ func (t *mobDimTick) attackedPlayer(fx *mobEffects, ev entity.MobEvent) {
 		pitch:  ev.Pitch,
 		beam:   ev.Magic,
 		hoglin: ev.Hoglin, stab: ev.Stab,
-		roar: ev.Roar, sonic: ev.Sonic,
+		roar: ev.Roar, throw: ev.Throw, sonic: ev.Sonic,
 		ram: ev.Ram, ramYaw: ev.RamYaw, ramPush: ev.RamPush,
 	})
 }

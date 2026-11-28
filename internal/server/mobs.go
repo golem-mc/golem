@@ -617,7 +617,9 @@ type mobStrike struct {
 	puff          int // a puffed pufferfish's state: poison, no scaling or swing
 	dragonContact bool
 	contactPush   [3]float64
-	pitch         float32
+	// throw is a roar's push of a mob victim, after the hurt.
+	throw [3]float64
+	pitch float32
 	// beam is a guardian beam's magic damage, dealt ahead of the blow; else 0.
 	beam float64
 	// hoglin is a hoglin or zoglin blow's tell and throw, nil otherwise.
@@ -1652,6 +1654,10 @@ func (s *Server) landingMobBlow(strike mobStrike) {
 		// The shove follows the hurt whether or not it landed.
 		// vanilla: RamTarget.tick
 		victim.KnockbackAlong(strike.ramYaw, strike.ramPush)
+	}
+	if strike.roar {
+		// vanilla: Ravager.strongKnockback
+		victim.Push(strike.throw[0], strike.throw[1], strike.throw[2])
 	}
 	if landed {
 		// vanilla: Mob.doHurtTarget

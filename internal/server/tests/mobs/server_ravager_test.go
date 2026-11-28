@@ -10,6 +10,7 @@ import (
 	"github.com/golem-mc/golem/internal/server/player"
 	"github.com/golem-mc/golem/internal/server/rules"
 	"github.com/golem-mc/golem/internal/server/servertest"
+	"github.com/golem-mc/golem/nbt"
 	"github.com/golem-mc/golem/registry"
 )
 
@@ -201,5 +202,34 @@ func TestARavagerRiddenByAPillagerStillAttacks(t *testing.T) {
 	id := riddenRavager(t, srv, "minecraft:pillager")
 	if !ravagerGores(c, srv, playerID, id, 400) {
 		t.Error("the ridden ravager never hit the player in 400 ticks")
+	}
+}
+
+// TestARavagersRoarThrowsAfterTheHurtKnockback: the roar's hurt knockback
+// runs first, on the old motion, and the four-block throw is added after it:
+// X = -4 / d - 0.4 for a mob d blocks west, not half the throw.
+// vanilla: Ravager.roar, Ravager.strongKnockback
+func TestARavagersRoarThrowsAfterTheHurtKnockback(t *testing.T) {
+	t.Parallel()
+	srv, _, _ := ravagerWorld(t)
+	noAI := nbt.Compound{"NoAI": nbt.Byte(1)}
+	id := srv.SpawnMobTagged(ravagerKind, 0.5, 64, 8.5, nbt.Compound{"NoAI": nbt.Byte(1), "StunTick": nbt.Int(5)})
+	cow := srv.SpawnMobTagged("minecraft:cow", -3.5, 64, 8.5, noAI)
+	witch := srv.SpawnMobTagged("minecraft:witch", -1.5, 64, 8.5, noAI)
+	if id == 0 || cow == 0 || witch == 0 {
+		t.Fatal("a mob was refused")
+	}
+	servertest.RunTicks(t, srv, 30)
+	for _, c := range []struct {
+		id   int32
+		want float64
+	}{{cow, -1.4}, {witch, -2.4}} {
+		vx, vy, _, ok := srv.MobVelocity(c.id)
+		if !ok {
+			t.Fatalf("mob %d is gone", c.id)
+		}
+		if math.Abs(vx-c.want) > 1e-6 || math.Abs(vy-0.2) > 1e-6 {
+			t.Errorf("mob %d motion = (%v, %v), want (%v, 0.2)", c.id, vx, vy, c.want)
+		}
 	}
 }
