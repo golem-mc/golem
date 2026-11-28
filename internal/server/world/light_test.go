@@ -503,3 +503,67 @@ func TestSkyLightThroughSlabs(t *testing.T) {
 		t.Errorf("sky light under the top slab = %d, want 14 (side lit)", got)
 	}
 }
+
+func TestLightCtxCache(t *testing.T) {
+	t.Parallel()
+	w := newTestWorld(t, NewFlatGenerator())
+	// Load a checkerboard subset of a 4x4 neighborhood crossing zero plus one
+	// chunk 4 away on X to test slot eviction.
+	loaded := make(map[ChunkPos]*Chunk)
+	for cx := int32(-2); cx <= 1; cx++ {
+		for cz := int32(-2); cz <= 1; cz++ {
+			if (cx+cz)&1 == 0 {
+				pos := ChunkPos{X: cx, Z: cz}
+				_, _ = w.Acquire(pos)
+				defer w.Release(pos)
+				w.mu.RLock()
+				loaded[pos] = w.chunks[pos].chunk
+				w.mu.RUnlock()
+			}
+		}
+	}
+	farPos := ChunkPos{X: 2, Z: -2} // collides with (-2, -2)
+	_, _ = w.Acquire(farPos)
+	defer w.Release(farPos)
+	w.mu.RLock()
+	farChunk := w.chunks[farPos].chunk
+	w.mu.RUnlock()
+
+	w.mu.RLock()
+	defer w.mu.RUnlock()
+	ctx := &lightCtx{w: w}
+
+	// Fill all 16 slots (both loaded and unloaded nil neighbors).
+	for cx := int32(-2); cx <= 1; cx++ {
+		for cz := int32(-2); cz <= 1; cz++ {
+			want := loaded[ChunkPos{X: cx, Z: cz}]
+			got, ok := ctx.resolve(cx*16+15, cz*16+15)
+			if got != want || ok != (want != nil) {
+				t.Fatalf("resolve(%d,%d) = (%v, %v), want (%v, %v)", cx, cz, got, ok, want, want != nil)
+			}
+		}
+	}
+	if ctx.cacheValid != 0xFFFF {
+		t.Fatalf("cacheValid = %#04x, want 0xffff", ctx.cacheValid)
+	}
+
+	// Remove the world pointer to prove all 16 slots (including nil entries)
+	// serve hits from the cache without touching w.chunks.
+	ctx.w = nil
+	for cx := int32(-2); cx <= 1; cx++ {
+		for cz := int32(-2); cz <= 1; cz++ {
+			want := loaded[ChunkPos{X: cx, Z: cz}]
+			got, ok := ctx.resolve(cx*16, cz*16)
+			if got != want || ok != (want != nil) {
+				t.Fatalf("cached resolve(%d,%d) = (%v, %v), want (%v, %v)", cx, cz, got, ok, want, want != nil)
+			}
+		}
+	}
+
+	// Evict slot for (-2, -2) with (2, -2) and verify the new chunk is returned.
+	ctx.w = w
+	got, ok := ctx.resolve(farPos.X*16+3, farPos.Z*16+7)
+	if got != farChunk || !ok {
+		t.Fatalf("evicting resolve(%d,%d) = (%v, %v), want (%v, true)", farPos.X, farPos.Z, got, ok, farChunk)
+	}
+}
