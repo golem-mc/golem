@@ -255,9 +255,10 @@ type BlockEntity struct {
 	BrewingBottles *[3]bool
 
 	// The crafter's disabled slots and whether a pulse has it mid-craft, saved
-	// as disabled_slots (an int array of indexes) and triggered.
+	// as disabled_slots (an int array of indexes) and triggered, an int that
+	// /data may set beyond 0 and 1 (CrafterBlockEntity.isTriggered is 1 only).
 	DisabledSlots [9]bool
-	Triggered     bool
+	Triggered     int
 	// CraftingTicks is the crafting animation's ticks left, saved as
 	// crafting_ticks_remaining.
 	// vanilla: CrafterBlockEntity.craftingTicksRemaining
@@ -1348,7 +1349,7 @@ func (w *World) EnsureBlockEntity(x, y, z int32, kind BlockEntityKind) *BlockEnt
 	created := newBlockEntity(kind, x, y, z)
 	if kind == KindCrafter {
 		// vanilla: CrafterBlock.newBlockEntity
-		created.Triggered = registry.StateBool(loaded.chunk.BlockAt(x&15, y, z&15), registry.PropTriggered)
+		created.Triggered = int(boolByte(registry.StateBool(loaded.chunk.BlockAt(x&15, y, z&15), registry.PropTriggered)))
 	}
 	loaded.chunk.removePistonRide(x, y, z)
 	loaded.chunk.setBlockEntity(created)
@@ -2275,19 +2276,20 @@ func lockableKind(kind BlockEntityKind) bool {
 	return false
 }
 
-// decodeSignText reads one side: four messages, colour, glow. A side the codec
-// refuses (other than four messages, a message that is no component, a colour
-// that is no dye, a glow that is no number) gives a fresh empty side; a
-// non-plain line (styled or translated) is kept raw so a save writes it back.
-// vanilla: SignText.DIRECT_CODEC, SignBlockEntity.loadAdditional
+// decodeSignText reads one side: four messages, colour, glow. A side whose
+// messages are fewer than four or are no components gives a fresh empty side;
+// a longer list keeps its first four, and a colour that is no dye or a glow
+// that is no number reads as its default. A non-plain line (styled or
+// translated) is kept raw so a save writes it back.
+// vanilla: SignText.DIRECT_CODEC, SignBlockEntity.loadAdditional, LINES_CODEC (partial result), optionalFieldOf
 func decodeSignText(entry nbt.Compound) SignText {
 	fresh := SignText{Color: "black"}
 	text := fresh
 	messages, ok := nbt.Get[nbt.List](entry, "messages")
-	if !ok || len(messages.Items) != 4 {
+	if !ok || len(messages.Items) < 4 {
 		return fresh
 	}
-	for i, item := range messages.Items {
+	for i, item := range messages.Items[:4] {
 		item = protocol.CleanStyle(nbt.ListElement(item))
 		if !componentShaped(item) {
 			return fresh
@@ -2320,19 +2322,16 @@ func decodeSignText(entry nbt.Compound) SignText {
 		}
 	}
 	if tag, ok := entry["color"]; ok {
-		color, ok := tag.(nbt.String)
-		if !ok || !slices.Contains(registry.DyeNames, string(color)) {
-			return fresh
+		if color, ok := tag.(nbt.String); ok && slices.Contains(registry.DyeNames, string(color)) {
+			text.Color = string(color)
 		}
-		text.Color = string(color)
 	}
 	if tag, ok := entry["has_glowing_text"]; ok {
 		// Codec.BOOL reads any number, true when not nought.
 		// vanilla: NbtOps.getBooleanValue
-		if _, ok := nbt.LongValue(tag); !ok {
-			return fresh
+		if _, ok := nbt.LongValue(tag); ok {
+			text.Glowing = nbt.DoubleFieldOr(entry, "has_glowing_text", 0) != 0
 		}
-		text.Glowing = nbt.DoubleFieldOr(entry, "has_glowing_text", 0) != 0
 	}
 	return text
 }

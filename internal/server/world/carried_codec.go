@@ -2,7 +2,9 @@ package world
 
 import (
 	"maps"
+	"math"
 	"slices"
+	"strings"
 
 	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/nbt"
@@ -20,6 +22,8 @@ type carriedKind struct {
 	records     map[string][]string
 	read        func(nbt.Compound)
 	readInPlace func(entry, previous nbt.Compound)
+	// readAt is read for a kind that also needs its block state.
+	readAt func(e nbt.Compound, state uint16)
 }
 
 // vanilla: TrialSpawnerConfig.DIRECT_CODEC, VaultConfig.CODEC
@@ -35,21 +39,8 @@ var (
 )
 
 var carriedKinds = map[string]carriedKind{
-	"minecraft:banner": {fields: []string{"patterns", "CustomName"}, read: func(e nbt.Compound) {
-		if layers, ok := bannerPatternsFromTag(e); ok {
-			e["patterns"] = registry.BannerPatternsTag(layers)
-		}
-	}},
-	"minecraft:skull": {fields: []string{"profile", "note_block_sound", "custom_name"}, read: func(e nbt.Compound) {
-		// A name string is ResolvableProfile.CODEC's compact form.
-		if name, ok := nbt.Get[nbt.String](e, "profile"); ok {
-			if registry.ProfileComponentMalformed(name) == "" {
-				e["profile"] = nbt.Compound{"name": name}
-			} else {
-				delete(e, "profile")
-			}
-		}
-	}},
+	"minecraft:banner": {fields: []string{"patterns", "CustomName"}, read: readBannerPatterns},
+	"minecraft:skull":  {fields: []string{"profile", "note_block_sound", "custom_name"}, read: readSkull},
 	"minecraft:structure_block": {fields: structureBlockFields(), read: func(e nbt.Compound) {
 		ParseStructureBlock(e).save(func(k string, v nbt.Tag) { e[k] = v })
 	}},
@@ -66,12 +57,20 @@ var carriedKinds = map[string]carriedKind{
 		}
 		e["mode"], e["message"], e["powered"] = mode, message, powered
 	}},
-	"minecraft:jigsaw": {fields: []string{"name", "target", "pool", "final_state", "joint", "placement_priority", "selection_priority"}},
+	"minecraft:jigsaw": {fields: []string{"name", "target", "pool", "final_state", "joint", "placement_priority", "selection_priority"}, readAt: readJigsaw},
 	"minecraft:trial_spawner": {fields: []string{
 		"registered_players", "current_mobs", "cooldown_ends_at", "next_mob_spawns_at", "total_mobs_spawned",
 		"spawn_data", "ejecting_loot_table", "normal_config", "ominous_config", "target_cooldown_length",
 		"required_player_range",
 	}, records: map[string][]string{"normal_config": trialConfigFields, "ominous_config": trialConfigFields}, read: func(e nbt.Compound) {
+		// FullConfig.MAP_CODEC holds both configs: one refused leaves the default pair.
+		for _, key := range []string{"normal_config", "ominous_config"} {
+			if config, ok := nbt.Get[nbt.CompoundTag](e, key); ok && !trialConfigInRange(config.Entries()) {
+				delete(e, "normal_config")
+				delete(e, "ominous_config")
+				break
+			}
+		}
 		for _, key := range []string{"normal_config", "ominous_config"} {
 			if config, ok := nbt.Get[nbt.CompoundTag](e, key); ok {
 				config = blockRecord(config, trialConfigFields...)
@@ -108,10 +107,53 @@ var carriedKinds = map[string]carriedKind{
 			e["item"] = registry.CodecStackTag(item)
 		}
 		qualifyString(e, "LootTable")
+		// ItemStack.CODEC refuses an empty stack, which reads as no item.
+		if stack, ok := nbt.Get[nbt.CompoundTag](e, "item"); ok {
+			if item, ok := registry.StoredStack(stack); ok && item.Empty() {
+				delete(e, "item")
+			}
+		}
 	}},
 	"minecraft:test_instance_block": {fields: []string{"data", "errors"}, readInPlace: readTestInstanceBlock},
-	"minecraft:end_gateway":         {fields: []string{"Age", "exit_portal", "ExactTeleport"}},
-	"minecraft:beehive":             {fields: []string{"bees", "flower_pos"}},
+	"minecraft:end_gateway": {fields: []string{"Age", "exit_portal", "ExactTeleport"}, read: func(e nbt.Compound) {
+		readBlockPos(e, "exit_portal", true)
+	}},
+	"minecraft:beehive": {fields: []string{"bees", "flower_pos"}, read: func(e nbt.Compound) {
+		readBees(e)
+		readBlockPos(e, "flower_pos", false)
+	}},
+}
+
+// trialConfigInRange reports whether the numeric fields of a trial spawner
+// config are numbers within TrialSpawnerConfig.DIRECT_CODEC's ranges.
+func trialConfigInRange(config nbt.Compound) bool {
+	for _, f := range []struct {
+		key      string
+		min, max float64
+	}{
+		{"spawn_range", 1, 128},
+		{"total_mobs", 0, math.MaxFloat32},
+		{"simultaneous_mobs", 0, math.MaxFloat32},
+		{"total_mobs_added_per_player", 0, math.MaxFloat32},
+		{"simultaneous_mobs_added_per_player", 0, math.MaxFloat32},
+		{"ticks_between_spawn", 0, math.MaxInt32},
+	} {
+		tag, ok := config[f.key]
+		if !ok {
+			continue
+		}
+		v, ok := nbt.NumberValue(tag)
+		if !ok {
+			return false
+		}
+		if f.key == "spawn_range" || f.key == "ticks_between_spawn" {
+			v = math.Trunc(v)
+		}
+		if v < f.min || v > f.max {
+			return false
+		}
+	}
+	return true
 }
 
 // testBlockModes are TestBlockMode's names.
@@ -140,12 +182,143 @@ func freshCarriedTag(block registry.Block, state uint16) nbt.Compound {
 	return tag
 }
 
+// readBannerPatterns keeps the layers BannerPatternLayers.CODEC accepts: a
+// list codec drops a refused element and keeps the rest, and no layer left
+// saves no patterns.
+// vanilla: BannerBlockEntity.loadAdditional, ValueInput.read (resultOrPartial)
+func readBannerPatterns(e nbt.Compound) {
+	list, ok := nbt.Get[nbt.List](e, "patterns")
+	if !ok {
+		delete(e, "patterns")
+		return
+	}
+	var layers []protocol.BannerPatternLayer
+	for _, item := range list.Items {
+		if one, ok := registry.BannerPatternsOf(nbt.List{Elem: nbt.TypeCompound, Items: []nbt.Tag{item}}); ok {
+			layers = append(layers, one...)
+		}
+	}
+	if len(layers) == 0 {
+		delete(e, "patterns")
+		return
+	}
+	e["patterns"] = registry.BannerPatternsTag(layers)
+}
+
+// readSkull keeps a profile and note block sound their codecs accept; a name
+// string is ResolvableProfile.CODEC's compact form.
+// vanilla: SkullBlockEntity.loadAdditional, Identifier.CODEC
+func readSkull(e nbt.Compound) {
+	if profile, ok := e["profile"]; ok {
+		switch {
+		case registry.ProfileComponentMalformed(profile) != "":
+			delete(e, "profile")
+		default:
+			if name, ok := profile.(nbt.String); ok {
+				e["profile"] = nbt.Compound{"name": name}
+			}
+		}
+	}
+	if sound, ok := e["note_block_sound"]; ok {
+		name, isString := sound.(nbt.String)
+		if !isString || !protocol.ValidIdentifier(string(name)) {
+			delete(e, "note_block_sound")
+		} else {
+			e["note_block_sound"] = nbt.String(registry.Qualify(string(name)))
+		}
+	}
+}
+
+// readBlockPos keeps a BlockPos.CODEC value, three ints as an int array, and
+// drops anything else; spawnable limits the position to the world's bounds.
+// vanilla: BlockPos.CODEC, Level.isInSpawnableBounds
+func readBlockPos(e nbt.Compound, key string, spawnable bool) {
+	tag, ok := e[key]
+	if !ok {
+		return
+	}
+	var pos nbt.IntArray
+	switch v := tag.(type) {
+	case nbt.IntArray:
+		pos = v
+	case nbt.List:
+		for _, item := range v.Items {
+			n, isInt := item.(nbt.Int)
+			if !isInt {
+				break
+			}
+			pos = append(pos, int32(n))
+		}
+		if len(pos) != len(v.Items) {
+			pos = nil
+		}
+	}
+	const horizontal, vertical = 30000000, 20000000
+	if len(pos) != 3 || spawnable && (pos[0] < -horizontal || pos[0] > horizontal ||
+		pos[2] < -horizontal || pos[2] > horizontal || pos[1] < -vertical || pos[1] > vertical) {
+		delete(e, key)
+		return
+	}
+	e[key] = pos
+}
+
+// readBees keeps the occupants Occupant.CODEC accepts and drops each refused
+// one, so the list is always saved.
+// vanilla: BeehiveBlockEntity.loadAdditional, Occupant.LIST_CODEC
+func readBees(e nbt.Compound) {
+	list, ok := nbt.Get[nbt.List](e, "bees")
+	if !ok {
+		return
+	}
+	kept := list
+	kept.Items = nil
+	for _, item := range list.Items {
+		if _, ok := registry.BeesOf(nbt.List{Elem: nbt.TypeCompound, Items: []nbt.Tag{item}}); ok {
+			kept.Items = append(kept.Items, item)
+		}
+	}
+	e["bees"] = kept
+}
+
+// readJigsaw reads every field the way loadAdditional does, so each is saved:
+// a refused id is minecraft:empty, a refused joint the one the orientation
+// implies.
+// vanilla: JigsawBlockEntity.loadAdditional, StructureTemplate.getDefaultJointType
+func readJigsaw(e nbt.Compound, state uint16) {
+	for _, key := range []string{"name", "target", "pool"} {
+		id, _ := nbt.Get[nbt.String](e, key)
+		if !protocol.ValidIdentifier(string(id)) {
+			id = "minecraft:empty"
+		}
+		e[key] = nbt.String(registry.Qualify(string(id)))
+	}
+	if _, ok := nbt.Get[nbt.String](e, "final_state"); !ok {
+		e["final_state"] = nbt.String("minecraft:air")
+	}
+	if joint, _ := nbt.Get[nbt.String](e, "joint"); joint != "rollable" && joint != "aligned" {
+		front, _, _ := strings.Cut(registry.StateValue(state, registry.PropOrientation), "_")
+		joint = "aligned"
+		if front == "up" || front == "down" {
+			joint = "rollable"
+		}
+		e["joint"] = joint
+	}
+	for _, key := range []string{"placement_priority", "selection_priority"} {
+		v, _ := nbt.IntField(e, key)
+		e[key] = nbt.Int(v)
+	}
+}
+
 // readCarried normalises a command's tag in place as the type's codecs read it.
 func readCarried(chunk *Chunk, entry nbt.Compound) {
 	id, _ := nbt.Get[nbt.String](entry, "id")
 	kind := carriedKinds[string(id)]
 	if kind.read != nil {
 		kind.read(entry)
+	}
+	if kind.readAt != nil {
+		x, y, z := carriedPos(entry)
+		kind.readAt(entry, chunk.BlockAt(x&15, y, z&15))
 	}
 	if kind.readInPlace != nil {
 		x, y, z := carriedPos(entry)
