@@ -275,3 +275,45 @@ func (m *Mannequin) EnchEquipment() []rules.EnchPiece {
 func (m *Mannequin) WearEnchPiece(i int, n int32, rng *rand.Rand) uint8 {
 	return wearEnchPiece(&m.Worn, &m.MainHand, &m.OffHand, i, n, rng)
 }
+
+// DispenserEquip puts one piece a dispenser fires at the mannequin in the
+// slot its equippable component names, and reports whether it fit: an alive
+// mannequin with that slot bare and the piece allowed on mannequins.
+// vanilla: LivingEntity.canEquipWithDispenser
+func (m *Mannequin) DispenserEquip(stack protocol.ItemStack) bool {
+	return m.dispenserEquip(stack, true)
+}
+
+// CanDispenserEquip reports whether DispenserEquip would fit the piece, changing nothing.
+func (m *Mannequin) CanDispenserEquip(stack protocol.ItemStack) bool {
+	return m.dispenserEquip(stack, false)
+}
+
+func (m *Mannequin) dispenserEquip(stack protocol.ItemStack, commit bool) bool {
+	item, ok := registry.StackEquippable(stack)
+	if m.Dead || !ok || !item.Dispensable || !item.AllowsEntity("minecraft:mannequin") {
+		return false
+	}
+	var slot *protocol.ItemStack
+	switch item.Slot {
+	case "feet":
+		slot = &m.Worn[0]
+	case "legs":
+		slot = &m.Worn[1]
+	case "chest":
+		slot = &m.Worn[2]
+	case "head":
+		slot = &m.Worn[3]
+	default:
+		return false
+	}
+	if !slot.Empty() {
+		return false
+	}
+	if commit {
+		stack.Count = 1
+		*slot = stack
+		m.SyncEquipmentModifiers()
+	}
+	return true
+}

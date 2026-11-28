@@ -64,7 +64,7 @@ type equipFx struct {
 }
 
 // dispenseEquipment puts the item on the first body in the face's cell that
-// takes it, players, mobs and armor stands alike in entity ID order, which is
+// takes it, players, mobs, armor stands and mannequins alike in entity ID order, which is
 // vanilla's order only for bodies that never changed chunk section (it walks
 // sections by key, then insertion order). With nobody to take it, a carved
 // pumpkin or wither skull stays in the dispenser with the fail sound and any
@@ -117,6 +117,7 @@ func (s *Server) equipTargets(w *world.World, taken protocol.ItemStack, d world.
 		targets = s.equipPlayersIn(cell)
 		targets = s.equipMobsIn(cell, targets)
 		targets = s.equipStandsIn(cell, targets)
+		targets = s.equipMannequinsIn(cell, targets)
 	}
 	slices.SortStableFunc(targets, func(a, b equipTarget) int { return cmp.Compare(a.id, b.id) })
 	return targets
@@ -272,6 +273,36 @@ func (s *Server) equipStandsIn(cell equipCell, targets []equipTarget) []equipTar
 			fx := equipFx{x: ent.stand.X, y: ent.stand.Y, z: ent.stand.Z, category: protocol.SoundCategoryNeutral, event: true}
 			s.armorStandsMu.Unlock()
 			s.broadcastWorld(cell.w, protocol.IDPlayEntityEquipment, equipment)
+			return fx, true
+		}})
+	}
+	return targets
+}
+
+// equipMannequinsIn appends the mannequins whose box crosses the cell; one
+// that takes the piece tells the viewers.
+func (s *Server) equipMannequinsIn(cell equipCell, targets []equipTarget) []equipTarget {
+	s.mannequinsMu.Lock()
+	defer s.mannequinsMu.Unlock()
+	for _, ent := range s.mannequins {
+		if ent.w != cell.w || !cell.box.Crosses(entity.NewAABB(ent.mannequin.BlastBox())) {
+			continue
+		}
+		m := ent.mannequin
+		targets = append(targets, equipTarget{id: m.ID, uuid: ent.uuid, fits: func() bool {
+			s.mannequinsMu.Lock()
+			defer s.mannequinsMu.Unlock()
+			return m.CanDispenserEquip(cell.stack)
+		}, try: func() (equipFx, bool) {
+			s.mannequinsMu.Lock()
+			if !m.DispenserEquip(cell.stack) {
+				s.mannequinsMu.Unlock()
+				return equipFx{}, false
+			}
+			slots := mannequinEquipmentNow(m)
+			fx := equipFx{x: m.X, y: m.Y, z: m.Z, category: protocol.SoundCategoryNeutral, event: true}
+			s.mannequinsMu.Unlock()
+			s.broadcastWorld(cell.w, protocol.IDPlayEntityEquipment, equipmentEntriesPayload(m.ID, slots[:], []int{0, 1, 2, 3, 4, 5}))
 			return fx, true
 		}})
 	}
