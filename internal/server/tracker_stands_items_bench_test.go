@@ -4,8 +4,11 @@ import (
 	"math"
 	"testing"
 
+	"github.com/google/uuid"
+
 	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/internal/server/entity"
+	"github.com/golem-mc/golem/internal/server/player"
 	"github.com/golem-mc/golem/internal/server/world"
 	"github.com/golem-mc/golem/registry"
 )
@@ -33,20 +36,43 @@ func spawnBenchStands(s *Server, w *world.World) {
 	}
 }
 
+// addBenchWatchers adds n more synthetic players spread over -28..28.
+func addBenchWatchers(s *Server, n int) {
+	dim := s.allDims()[0]
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for i := range n {
+		p := &player.Player{UUID: uuid.New(), EntityID: s.nextEntity()}
+		p.SetPosition(player.Position{X: float64(i%7)*8 - 28, Y: float64(world.GroundLevel), Z: float64(i/7)*9 - 28})
+		c := &client{srv: s, player: p}
+		c.dim.Store(dim)
+		c.worldScope = worldScope{srv: s, in: c.dimension, by: c.Profile}
+		s.assignPlayerSlot(c)
+		s.clients[p.UUID] = c
+	}
+}
+
 // BenchmarkTickItemsTracked runs the whole item tick over stacks at rest,
 // every one watched by every player.
 func BenchmarkTickItemsTracked(b *testing.B) {
-	benchTickItemsTracked(b, false)
+	benchTickItemsTracked(b, false, 0)
 }
 
 // BenchmarkTickItemsTrackedTicketed includes gate construction and eligibility
 // checks with eight viewers and two hundred active items.
 func BenchmarkTickItemsTrackedTicketed(b *testing.B) {
-	benchTickItemsTracked(b, true)
+	benchTickItemsTracked(b, true, 0)
 }
 
-func benchTickItemsTracked(b *testing.B, ticketed bool) {
+// BenchmarkTickItemsTrackedCrowd is BenchmarkTickItemsTracked with fifty
+// watchers.
+func BenchmarkTickItemsTrackedCrowd(b *testing.B) {
+	benchTickItemsTracked(b, false, 42)
+}
+
+func benchTickItemsTracked(b *testing.B, ticketed bool, extra int) {
 	s, w := newTrackerBenchServer(b)
+	addBenchWatchers(s, extra)
 	if ticketed {
 		w.AddTicket(world.ChunkPos{}, 2)
 		b.Cleanup(func() { w.RemoveTicket(world.ChunkPos{}, 2) })
