@@ -181,3 +181,9 @@ func (m *Mob) ownerReference() (uuid.UUID, bool) {
 		return uuid.Nil, false
 	}
 }
+
+// BlastBox is the fangs' own box, what a piston's sweep meets.
+func (f *EvokerFangs) BlastBox() (minX, minY, minZ, maxX, maxY, maxZ float64) {
+	half := FangsWidth / 2
+	return f.X - half, f.Y, f.Z - half, f.X + half, f.Y + FangsHeight, f.Z + half
+}

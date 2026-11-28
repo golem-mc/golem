@@ -15,17 +15,19 @@ import (
 )
 
 var fangsTracker = trackedKind[*fangsEntity, struct{}]{
-	admitsType:  func(typ string) bool { return typ == fangsEntityID },
-	rangeChunks: entity.FangsTracking,
-	lock:        func(s *Server) *sync.Mutex { return &s.fangs.mu },
-	list:        func(s *Server) *[]*fangsEntity { return &s.fangs.list },
-	chunks:      func(s *Server) *entity.ChunkIndex[*fangsEntity] { return &s.fangs.chunks },
-	filing:      func(it *fangsEntity) *entity.Filing { return &it.fangs.Filing },
-	uuid:        func(it *fangsEntity) uuid.UUID { return it.uuid },
-	track:       func(it *fangsEntity) *bodyTrack[struct{}] { return &it.bodyTrack },
-	world:       func(it *fangsEntity) *world.World { return it.w },
-	id:          func(it *fangsEntity) int32 { return it.fangs.ID },
-	dead:        func(it *fangsEntity) bool { return it.fangs.Dead },
+	invalidatePiston: func(dim *dimension) { dim.pistons.fangs.built = false },
+	pistonBit:        pistonFangs,
+	admitsType:       func(typ string) bool { return typ == fangsEntityID },
+	rangeChunks:      entity.FangsTracking,
+	lock:             func(s *Server) *sync.Mutex { return &s.fangs.mu },
+	list:             func(s *Server) *[]*fangsEntity { return &s.fangs.list },
+	chunks:           func(s *Server) *entity.ChunkIndex[*fangsEntity] { return &s.fangs.chunks },
+	filing:           func(it *fangsEntity) *entity.Filing { return &it.fangs.Filing },
+	uuid:             func(it *fangsEntity) uuid.UUID { return it.uuid },
+	track:            func(it *fangsEntity) *bodyTrack[struct{}] { return &it.bodyTrack },
+	world:            func(it *fangsEntity) *world.World { return it.w },
+	id:               func(it *fangsEntity) int32 { return it.fangs.ID },
+	dead:             func(it *fangsEntity) bool { return it.fangs.Dead },
 	pose: func(it *fangsEntity) bodyPose {
 		return it.pose(it.fangs.X, it.fangs.Y, it.fangs.Z)
 	},

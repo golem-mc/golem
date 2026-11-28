@@ -398,6 +398,11 @@ func (s *Server) setPistonGrid(dim *dimension, active bool) {
 	setBodyPistonGrid(s, &s.fixturesMu, &dim.pistons.fixtures, pistonCushions, active, nil)
 	setTrackedPistonGrid(s, &minecartTracker, &dim.pistons.minecarts, active)
 	setTrackedPistonGrid(s, &endCrystalTracker, &dim.pistons.endCrystals, active)
+	setTrackedPistonGrid(s, &thrownTracker, &dim.pistons.thrown, active)
+	setTrackedPistonGrid(s, &fireworkTracker, &dim.pistons.fireworks, active)
+	setTrackedPistonGrid(s, &eyeTracker, &dim.pistons.eyes, active)
+	setTrackedPistonGrid(s, &fangsTracker, &dim.pistons.fangs, active)
+	setTrackedPistonGrid(s, &mannequinTracker, &dim.pistons.mannequins, active)
 }
 
 // tickRandomTicks runs a random tick pass over the dimension's chunks within

@@ -99,6 +99,11 @@ const (
 	pistonEndCrystals
 	pistonMobs
 	pistonCushions
+	pistonThrown
+	pistonFireworks
+	pistonEyes
+	pistonFangs
+	pistonMannequins
 )
 
 type bodyPistonGrids struct {
@@ -112,6 +117,11 @@ type bodyPistonGrids struct {
 	fixtures    bodyPistonGrid[*fixtureEntity]
 	minecarts   bodyPistonGrid[*minecartEntity]
 	endCrystals bodyPistonGrid[*endCrystalEntity]
+	thrown      bodyPistonGrid[*thrownEntity]
+	fireworks   bodyPistonGrid[*fireworkEntity]
+	eyes        bodyPistonGrid[*eyeEntity]
+	fangs       bodyPistonGrid[*fangsEntity]
+	mannequins  bodyPistonGrid[*mannequinEntity]
 }
 
 // setBodyPistonGrid toggles a kind's piston grid and, when turning it on,
@@ -202,6 +212,11 @@ func (s *Server) pushByPiston(w *world.World, pp *world.PistonPush) {
 		{pistonCushions, (*Server).collectCushionsPistonPush},
 		{pistonMinecarts, (*Server).collectMinecartsPistonPush},
 		{pistonEndCrystals, (*Server).collectEndCrystalsPistonPush},
+		{pistonThrown, (*Server).collectThrownPistonPush},
+		{pistonFireworks, (*Server).collectFireworksPistonPush},
+		{pistonEyes, (*Server).collectEyesPistonPush},
+		{pistonFangs, (*Server).collectFangsPistonPush},
+		{pistonMannequins, (*Server).collectMannequinsPistonPush},
 	}
 	var moves []func()
 	for _, c := range collectors {
@@ -569,5 +584,69 @@ func (s *Server) collectEndCrystalsPistonPush(dim *dimension, pp *world.PistonPu
 				ent.crystal.SetPos(to.X, to.Y, to.Z)
 				endCrystalTracker.invalidatePistonGrid(s, ent)
 			}
+		})
+}
+
+// vanilla: Entity.getPistonPushReaction is PUSH_PULL for these kinds
+func (s *Server) collectThrownPistonPush(dim *dimension, pp *world.PistonPush) []func() {
+	return collectTrackedPistonPush(s, &thrownTracker, &dim.pistons.thrown, dim.w, pp,
+		func(it *thrownEntity) pistonBodyState {
+			b := it.throwable
+			return pistonBodyState{pistonBoxOf(b.BlastBox()), false, b.VX, b.VY, b.VZ}
+		},
+		func(it *thrownEntity, vx, vy, vz float64) {
+			it.throwable.VX, it.throwable.VY, it.throwable.VZ = vx, vy, vz
+		},
+		func(s *Server, it *thrownEntity, to player.Position, _ string) {
+			thrownTracker.teleport(s, it, func() { it.throwable.SetPos(to.X, to.Y, to.Z) })
+		})
+}
+
+func (s *Server) collectFireworksPistonPush(dim *dimension, pp *world.PistonPush) []func() {
+	return collectTrackedPistonPush(s, &fireworkTracker, &dim.pistons.fireworks, dim.w, pp,
+		func(it *fireworkEntity) pistonBodyState {
+			b := it.rocket
+			return pistonBodyState{pistonBoxOf(b.Box().Corners()), false, b.VX, b.VY, b.VZ}
+		},
+		func(it *fireworkEntity, vx, vy, vz float64) { it.rocket.VX, it.rocket.VY, it.rocket.VZ = vx, vy, vz },
+		func(s *Server, it *fireworkEntity, to player.Position, _ string) {
+			fireworkTracker.teleport(s, it, func() { it.rocket.SetPos(to.X, to.Y, to.Z) })
+		})
+}
+
+func (s *Server) collectEyesPistonPush(dim *dimension, pp *world.PistonPush) []func() {
+	return collectTrackedPistonPush(s, &eyeTracker, &dim.pistons.eyes, dim.w, pp,
+		func(it *eyeEntity) pistonBodyState {
+			b := it.eye
+			return pistonBodyState{pistonBoxOf(b.Box().Corners()), false, b.VX, b.VY, b.VZ}
+		},
+		func(it *eyeEntity, vx, vy, vz float64) { it.eye.VX, it.eye.VY, it.eye.VZ = vx, vy, vz },
+		func(s *Server, it *eyeEntity, to player.Position, _ string) {
+			eyeTracker.teleport(s, it, func() { it.eye.SetPos(to.X, to.Y, to.Z) })
+		})
+}
+
+func (s *Server) collectFangsPistonPush(dim *dimension, pp *world.PistonPush) []func() {
+	return collectTrackedPistonPush(s, &fangsTracker, &dim.pistons.fangs, dim.w, pp,
+		func(it *fangsEntity) pistonBodyState {
+			return pistonBodyState{box: pistonBoxOf(it.fangs.BlastBox()), onGround: it.onGround}
+		},
+		func(*fangsEntity, float64, float64, float64) {},
+		func(s *Server, it *fangsEntity, to player.Position, _ string) {
+			fangsTracker.teleport(s, it, func() { it.fangs.SetPos(to.X, to.Y, to.Z) })
+		})
+}
+
+func (s *Server) collectMannequinsPistonPush(dim *dimension, pp *world.PistonPush) []func() {
+	return collectTrackedPistonPush(s, &mannequinTracker, &dim.pistons.mannequins, dim.w, pp,
+		func(it *mannequinEntity) pistonBodyState {
+			b := it.mannequin
+			return pistonBodyState{pistonBoxOf(b.BlastBox()), b.OnGround, b.VX, b.VY, b.VZ}
+		},
+		func(it *mannequinEntity, vx, vy, vz float64) {
+			it.mannequin.VX, it.mannequin.VY, it.mannequin.VZ = vx, vy, vz
+		},
+		func(s *Server, it *mannequinEntity, to player.Position, _ string) {
+			mannequinTracker.teleport(s, it, func() { it.mannequin.SetPos(to.X, to.Y, to.Z) })
 		})
 }
