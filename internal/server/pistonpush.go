@@ -513,7 +513,7 @@ func (s *Server) collectMinecartsPistonPush(dim *dimension, pp *world.PistonPush
 			// vanilla: PistonMovingBlockEntity.moveEntityByPiston
 			it.cart.SetPos(to.X, to.Y, to.Z)
 			minecartTracker.invalidatePistonGrid(s, it)
-			s.cartCols = nil
+			s.invalidateCartColumnsLocked()
 		})
 }
 

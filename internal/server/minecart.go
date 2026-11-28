@@ -206,6 +206,9 @@ func (s *Server) registerMinecart(it *minecartEntity) {
 	s.minecartsMu.Lock()
 	if s.cartCols != nil {
 		s.cartCols.add(it)
+		if len(s.cartCols.cols) > 0 {
+			s.cartColsEmptyWorld.Store(nil)
+		}
 	}
 	s.minecartsMu.Unlock()
 }
@@ -671,7 +674,7 @@ func (s *Server) teleportMinecart(it *minecartEntity, to player.Position, yaw fl
 		riders = slices.Clone(it.passengers)
 		// The hopper index is keyed by the old column; lookups scan until
 		// the pass ends.
-		s.cartCols = nil
+		s.invalidateCartColumnsLocked()
 	})
 	for _, r := range riders {
 		pos := r.player.Position()

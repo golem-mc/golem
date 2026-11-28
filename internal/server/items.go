@@ -367,7 +367,7 @@ func (s *Server) tickItems() {
 		itemTracker.unfile(it)
 		travels = append(travels, itemPortalTravel{it: it, kind: kind})
 	}
-	s.items = portalAlive
+	s.setItemsLocked(portalAlive)
 
 	// live and neighbours are the items alive as the tick began — a merge
 	// this tick makes does not take its victim out of a later item's
@@ -571,7 +571,7 @@ func (s *Server) tickItems() {
 			merges = append(merges, update)
 		}
 	}
-	s.items = alive
+	s.setItemsLocked(alive)
 	s.unlockTick(&s.itemsMu)
 	clear(list.live)
 	list.live = list.live[:0]
@@ -1670,12 +1670,19 @@ func (s *Server) finishItemTravel(it *itemEntity, kind rules.PortalKind) {
 	})
 }
 
+// setItemsLocked replaces s.items and keeps itemCount in step. Caller holds itemsMu.
+func (s *Server) setItemsLocked(items []*itemEntity) {
+	s.items = items
+	s.itemCount.Store(int32(len(items)))
+}
+
 // appendItemLocked appends it to s.items with the next registration order and
 // files it in the chunk and column indexes. Caller holds itemsMu.
 func (s *Server) appendItemLocked(it *itemEntity) {
 	s.itemOrder++
 	it.order = s.itemOrder
 	s.items = append(s.items, it)
+	s.itemCount.Store(int32(len(s.items)))
 	itemTracker.file(s, it)
 	if s.itemCols != nil {
 		s.itemCols.add(it)
