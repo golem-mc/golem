@@ -73,9 +73,7 @@ func (b pluginLectern) SetBook(book plugin.ItemStack) {
 	x, y, z := b.entity.X, b.entity.Y, b.entity.Z
 	// A lectern resolves selectors as a gamemaster at its centre, without @s.
 	// vanilla: LecternBlockEntity.createCommandSourceStack, resolveBook
-	src := s.newCommandBlockSource(w, b.entity, false)
-	src.name, src.pos.Yaw = "Lectern", 0
-	stack, _ = rules.ResolveBook(stack, func(t protocol.Text) protocol.Text { return command.ResolveText(src, t) })
+	stack = s.resolveLecternBook(w, b.entity, stack)
 	hasBook := false
 	if !b.mutate(func(e *world.BlockEntity) {
 		e.Put(0, stack)
@@ -103,3 +101,26 @@ var (
 	_ plugin.Jukebox = pluginJukebox{}
 	_ plugin.Lectern = pluginLectern{}
 )
+
+// resolveLecternBook resolves a book as the lectern: a gamemaster at its
+// centre, without @s.
+// vanilla: LecternBlockEntity.createCommandSourceStack, resolveBook
+func (s *Server) resolveLecternBook(w *world.World, be *world.BlockEntity, book protocol.ItemStack) protocol.ItemStack {
+	src := s.newCommandBlockSource(w, be, false)
+	src.name, src.pos.Yaw = "Lectern", 0
+	book, _ = rules.ResolveBook(book, func(t protocol.Text) protocol.Text { return command.ResolveText(src, t) })
+	return book
+}
+
+type bookResolver struct {
+	s *Server
+	w *world.World
+}
+
+func (r bookResolver) ResolveLecternBook(x, y, z int32, book protocol.ItemStack) protocol.ItemStack {
+	be := r.w.BlockEntity(x, y, z)
+	if be == nil {
+		return book
+	}
+	return r.s.resolveLecternBook(r.w, be, book)
+}

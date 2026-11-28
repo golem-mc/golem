@@ -297,6 +297,7 @@ func (s *Server) initDimension(d *dimension, followSpawn bool) error {
 	d.mobs.lootExtra = s.mobLootExtra
 	d.w.SetSaveFailureHook(s.sendLowDiskSpaceWarning)
 	d.w.SetSignResolver(signResolver{s: s, w: d.w})
+	d.w.SetBookResolver(bookResolver{s: s, w: d.w})
 	d.border = d.w.LoadBorder(s.world)
 	d.border.SetAbsoluteMax(int32(s.Config.MaxWorldSize))
 	d.w.SetBorder(d.border)

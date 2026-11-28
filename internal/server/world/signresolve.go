@@ -3,6 +3,7 @@ package world
 import (
 	"maps"
 
+	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/nbt"
 )
 
@@ -40,4 +41,30 @@ func (w *World) ResolveSignTag(x, y, z int32, tag nbt.Compound) nbt.Compound {
 		out[side] = text.encode()
 	}
 	return out
+}
+
+// BookResolver resolves a written book's pages as a lectern at x, y, z.
+type BookResolver interface {
+	ResolveLecternBook(x, y, z int32, book protocol.ItemStack) protocol.ItemStack
+}
+
+// SetBookResolver sets the book resolver before the world is shared.
+func (w *World) SetBookResolver(resolver BookResolver) { w.bookResolver = resolver }
+
+// resolveLecternBook resolves the book a lectern just loaded. No world or
+// entity lock may be held: components can read either.
+// vanilla: LecternBlockEntity.loadAdditional, resolveBook
+func (w *World) resolveLecternBook(x, y, z int32) {
+	be := w.BlockEntity(x, y, z)
+	if be == nil || be.Kind != KindLectern {
+		return
+	}
+	var book protocol.ItemStack
+	be.Use(func(b *BlockEntity) { book = b.Slots[0] })
+	if _, ok := book.WrittenBookOf(); !ok {
+		return
+	}
+	resolved := w.bookResolver.ResolveLecternBook(x, y, z, book)
+	be.Use(func(b *BlockEntity) { b.Slots[0] = resolved })
+	w.TouchEntity(be)
 }

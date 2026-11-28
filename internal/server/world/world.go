@@ -97,6 +97,8 @@ type World struct {
 	lootReads LootReads
 	// signResolver reads command state when a live sign loads its text.
 	signResolver SignResolver
+	// bookResolver resolves a lectern's book when its data is loaded.
+	bookResolver BookResolver
 	// sittingCats is the mob query behind ChestBlockedAt; set once at start-up.
 	sittingCats SittingCats
 	// storage is the dimension's folder, holding its region and entities
