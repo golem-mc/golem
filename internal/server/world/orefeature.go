@@ -104,6 +104,7 @@ func (r *decorRegion) placeOre(p [3]int32, cfg *oreConfig) bool {
 	placed := false
 	var data [maxOreSize * 4]float64
 	n := int(size)
+	zStride := sizeXZ * sizeY
 	for i := range n {
 		step := float32(i) / float32(size)
 		ss := rng.NextDouble() * float64(size) / 16.0
@@ -155,7 +156,9 @@ func (r *decorRegion) placeOre(p [3]int32, cfg *oreConfig) bool {
 		zMax := max(int32(math.Floor(zz+rad)), zMin)
 		yMin = max(yMin, r.minY)
 		yMax = min(yMax, r.minY+r.height-1)
-		zStride := sizeXZ * sizeY
+		if yMin > yMax {
+			continue
+		}
 		for x := xMin; x <= xMax; x++ {
 			xd := (float64(x) + 0.5 - xx) / rad
 			xd2 := xd * xd
