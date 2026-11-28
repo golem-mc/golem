@@ -40,6 +40,7 @@ func (b *BlockEntity) Tick(fn func(*BlockEntity) bool) {
 	if v&1 != 0 || b.removed.Load() {
 		return
 	}
+	b.useGen.Add(1)
 	if fn(b) {
 		// A block write can wake while fn holds mu. Never overwrite that wake
 		// with a sleep based on the state fn read before the write.

@@ -181,6 +181,9 @@ type BlockEntity struct {
 	// HopperTargets holds runtime lookup and failed-transfer stamps, under mu.
 	HopperTargets    *HopperTargets
 	inventoryVersion atomic.Uint64
+	// useGen counts calls that may mutate the entity, so CachedChunkPacket can
+	// skip re-encoding update tags when no entity changed.
+	useGen atomic.Uint64
 
 	// Slots is the contents, indexed as the NBT and window number them. Stored
 	// holds the file's compound for a slot this server cannot show
@@ -624,6 +627,7 @@ func (w *World) UnpackBrushLoot(x, y, z int32, roll func(table string, seed int6
 func (b *BlockEntity) Use(fn func(*BlockEntity)) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
+	b.useGen.Add(1)
 	b.Wake()
 	fn(b)
 }
@@ -638,6 +642,7 @@ func (b *BlockEntity) UseLive(fn func(*BlockEntity)) {
 	if b.removed.Load() {
 		return
 	}
+	b.useGen.Add(1)
 	b.Wake()
 	fn(b)
 }
@@ -648,8 +653,19 @@ func (b *BlockEntity) UseLive(fn func(*BlockEntity)) {
 // written them.
 func (b *BlockEntity) Unlocked(fn func()) {
 	b.mu.Unlock()
-	defer b.mu.Lock()
+	defer func() {
+		b.mu.Lock()
+		b.useGen.Add(1)
+	}()
 	fn()
+}
+
+// readUpdateTag returns the entity's update tag under its lock without waking
+// its ticker or advancing useGen.
+func (b *BlockEntity) readUpdateTag() nbt.Compound {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.UpdateTag()
 }
 
 // Removed reports whether the entity has left the world.
@@ -685,6 +701,7 @@ func (b *BlockEntity) PutKeepingCook(slot int, stack protocol.ItemStack) {
 	}
 	b.Wake()
 	b.inventoryVersion.Add(1)
+	b.useGen.Add(1)
 	b.Slots[slot] = stack
 	if len(b.Stored) > 0 {
 		delete(b.Stored, slot)
@@ -703,6 +720,7 @@ func (b *BlockEntity) AdjustCount(slot int, delta int32) {
 	}
 	b.Wake()
 	b.inventoryVersion.Add(1)
+	b.useGen.Add(1)
 	b.Slots[slot].Count += delta
 }
 
@@ -725,6 +743,7 @@ func (b *BlockEntity) setFilled(slot int, on bool) {
 func (b *BlockEntity) recomputeFilled() {
 	b.Wake()
 	b.inventoryVersion.Add(1)
+	b.useGen.Add(1)
 	b.filled = 0
 	for i := range min(len(b.Slots), 64) {
 		if b.Slots[i].Count > 0 {
@@ -1063,6 +1082,22 @@ var blockEntityIDByKind = func() [len(kindNames)]int32 {
 	return t
 }()
 
+// hasUpdateTag is indexed by kind; true when a chunk packet carries the
+// entity's update tag.
+var hasUpdateTag = func() [len(kindNames)]bool {
+	var t [len(kindNames)]bool
+	for k, name := range kindNames {
+		if name != "" {
+			t[k] = registry.UpdateTagBlockEntityTypes[name]
+		}
+	}
+	return t
+}()
+
+func kindHasUpdateTag(kind BlockEntityKind) bool {
+	return int(kind) < len(hasUpdateTag) && hasUpdateTag[kind]
+}
+
 // TypeID is the entity's minecraft:block_entity_type ID.
 func (b *BlockEntity) TypeID() int32 { return blockEntityID(b.Kind) }
 
@@ -1137,6 +1172,7 @@ func (c *Chunk) setBlockEntity(b *BlockEntity) {
 	}
 	c.entityOrder = append(c.entityOrder, key)
 	c.entities[key] = b
+	c.entityGen++
 }
 
 // dropEntityOrder removes a position from the chunk's order, leaving the map.
@@ -1179,6 +1215,7 @@ func (c *Chunk) setCarriedBlockEntity(entry nbt.Compound) {
 	if isCarriedTicking(entry) {
 		c.tickingCarried++
 	}
+	c.entityGen++
 }
 
 // isCarriedTicking reports a trial spawner, vault, beehive or end gateway, the
@@ -1203,7 +1240,9 @@ func (c *Chunk) countTickingCarried() {
 // having gone) and returns how many, usually none.
 func (c *Chunk) removeCarriedBlockEntity(x, y, z int32) int {
 	delete(c.carriedHandles, entityKey(x, y, z))
-	delete(c.hiveTicks, [3]int32{x, y, z})
+	hivePos := [3]int32{x, y, z}
+	_, hadHive := c.hiveTicks[hivePos]
+	delete(c.hiveTicks, hivePos)
 	kept := c.carriedBlockEntities.Items[:0]
 	dropped := 0
 	for _, item := range c.carriedBlockEntities.Items {
@@ -1223,6 +1262,9 @@ func (c *Chunk) removeCarriedBlockEntity(x, y, z int32) int {
 	c.carriedBlockEntities.Items = kept
 	if len(kept) == 0 {
 		c.carriedBlockEntities = nbt.List{}
+	}
+	if dropped > 0 || hadHive {
+		c.entityGen++
 	}
 	return dropped
 }
@@ -1304,6 +1346,7 @@ func (c *Chunk) removeBlockEntity(x, y, z int32) *BlockEntity {
 	}
 	delete(c.entities, key)
 	c.dropEntityOrder(key)
+	c.entityGen++
 	return b
 }
 
@@ -2600,8 +2643,8 @@ func putBlockEntities(b *protocol.Buffer, own []*BlockEntity, rides []pistonRide
 			continue
 		}
 		e := entry{packed: uint8(be.X&0xF)<<4 | uint8(be.Z&0xF), y: int16(be.Y), typeID: id}
-		if registry.UpdateTagBlockEntityTypes[be.Kind.Name()] {
-			be.Use(func(b *BlockEntity) { e.tag = b.UpdateTag() })
+		if kindHasUpdateTag(be.Kind) {
+			e.tag = be.readUpdateTag()
 		}
 		entries = append(entries, e)
 	}

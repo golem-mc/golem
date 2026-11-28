@@ -72,6 +72,7 @@ func (w *World) AdvanceHiveClocks(hives []BeehiveAt) {
 			c.hiveTicks = make(map[[3]int32]int32)
 		}
 		c.hiveTicks[[3]int32{h.X, h.Y, h.Z}]++
+		c.entityGen++
 	}
 }
 
