@@ -75,7 +75,7 @@ type knotEntity struct {
 // knot has no movement schedule, and neither a join nor a frozen world
 // shows one: the knot tick's pass does.
 var knotTracker = trackedKind[*knotEntity, struct{}]{
-	admitsType:  func(typ string) bool { return typ == "minecraft:leash_knot" },
+	admitsType:  func(typ string) bool { return typ == knotEntityID },
 	rangeChunks: knotTracking,
 	lock:        func(s *Server) *sync.Mutex { return &s.knotsMu },
 	list:        func(s *Server) *[]*knotEntity { return &s.knots },
