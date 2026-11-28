@@ -78,7 +78,7 @@ func templateArchive(archive []byte) map[string]*Template {
 const maxTemplateInflate = 64 << 20
 
 // ParseTemplate reads a gzipped structure .nbt file. A state naming an unknown
-// block reads as air. Files older than DataVersion 4440 are rejected.
+// block reads as air. Files older than templateDataVersionFloor are rejected.
 // vanilla: StructureTemplate.load
 func ParseTemplate(data []byte) (*Template, error) {
 	if zr, err := gzip.NewReader(bytes.NewReader(data)); err == nil {

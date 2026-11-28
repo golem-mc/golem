@@ -11,9 +11,13 @@ import (
 
 //go:generate go run ../../../tools/gen templatefix
 
-// templateDataVersionFloor bounds the supported STRUCTURE chain. Earlier files
-// need item componentization and other schema conversions this loader cannot do.
-const templateDataVersionFloor = 4440
+// templateDataVersionFloor is the oldest structure DataVersion read: the oldest
+// one the chunk upgrade's palette, block entity and entity fixes cover.
+const templateDataVersionFloor = entityDataVersionFloor
+
+// templateChainVersion is where the generated STRUCTURE chain's coverage starts;
+// a file below it first takes the chunk upgrade's fixes.
+const templateChainVersion = 4440
 
 type templateFixEdge struct{ path, target string }
 
@@ -29,12 +33,61 @@ func upgradeTemplate(tag nbt.Compound) error {
 	if version < templateDataVersionFloor {
 		return fmt.Errorf("structure: DataVersion %d is below supported minimum %d", version, templateDataVersionFloor)
 	}
+	if version < templateChainVersion {
+		upgradeOldTemplate(tag, version)
+	}
 	for _, v := range templateFixStages {
 		if int64(version)*10 < int64(v) {
 			templateFixSchemas[v].value(tag, "structure", v)
 		}
 	}
 	return nil
+}
+
+// upgradeOldTemplate applies the chunk upgrade's fixes to the palettes, block
+// entities and entities of a structure written before templateChainVersion.
+// vanilla: DataFixTypes.STRUCTURE (the BLOCK_STATE, BLOCK_ENTITY and ENTITY fixes)
+func upgradeOldTemplate(tag nbt.Compound, version int32) {
+	if palette, ok := nbt.Get[nbt.List](tag, "palette"); ok {
+		fixLegacyPalette(palette, version)
+	}
+	if lists, ok := nbt.Get[nbt.List](tag, "palettes"); ok {
+		for _, item := range lists.Items {
+			if palette, ok := item.(nbt.List); ok {
+				fixLegacyPalette(palette, version)
+			}
+		}
+	}
+	if blocks, ok := nbt.Get[nbt.List](tag, "blocks"); ok {
+		for _, item := range blocks.Items {
+			entry, ok := item.(nbt.Compound)
+			if !ok {
+				continue
+			}
+			be, ok := nbt.Get[nbt.Compound](entry, "nbt")
+			if !ok {
+				continue
+			}
+			if !fixOldBlockEntity(be, version) {
+				delete(entry, "nbt")
+				continue
+			}
+			if version < furnaceBurnTimeVersion {
+				fixFurnaceBurnTime(be)
+			}
+		}
+	}
+	if list, ok := nbt.Get[nbt.List](tag, "entities"); ok {
+		var nbts []nbt.Tag
+		for _, item := range list.Items {
+			if entry, ok := item.(nbt.Compound); ok {
+				if e, ok := nbt.Get[nbt.Compound](entry, "nbt"); ok {
+					nbts = append(nbts, e)
+				}
+			}
+		}
+		upgradeEntities(nbt.List{Elem: nbt.TypeCompound, Items: nbts}, version)
+	}
 }
 
 // templateFixer holds one stage's input paths and supported pre-read hook.
