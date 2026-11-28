@@ -130,6 +130,9 @@ const (
 	// per EnchEquipment piece whose stack changed, and LocatedMoved for a new
 	// cell or a landing.
 	ArmorStandLocated
+	// ArmorStandSlid: the stand slid down a honey block's side, owed the
+	// slide's sound and particles.
+	ArmorStandSlid
 )
 
 // ArmorStandEvent is one event out of an armor stand's tick.
@@ -284,8 +287,20 @@ func (s *ArmorStand) Step(w World) []ArmorStandEvent {
 					s.causeDamage(ignitingDamage) {
 					broke = true
 				}
+			case isLitCampfire(w.BlockAt(x, y, z)):
+				// vanilla: CampfireBlock.entityInside; minecraft:campfire is in #ignites_armor_stands
+				if s.FireTicks > 0 {
+					if !s.Invisible && !s.InvulnerableTo(rules.DamageTypeCampfire, false) &&
+						s.causeDamage(ignitingDamage) {
+						broke = true
+					}
+				} else if !s.Invisible && !s.InvulnerableTo(rules.DamageTypeCampfire, false) {
+					s.igniteFor(fireTicksCampfire)
+				}
 			case rules.IsLava(w.BlockAt(x, y, z)), rules.IsLavaCauldron(w.BlockAt(x, y, z)):
 				s.igniteFor(fireTicksLava)
+			case honeySlideCell(w.BlockAt(x, y, z), x, y, z, s.X, s.Y, s.Z, 2*s.HalfWidth(), s.OnGround, &s.VX, &s.VY, &s.VZ, &s.FallDistance):
+				events = append(events, ArmorStandEvent{Kind: ArmorStandSlid})
 			}
 		})
 		if broke {
@@ -764,3 +779,8 @@ func (s *ArmorStand) dispenserEquip(stack protocol.ItemStack, commit bool) bool 
 
 // CapFall is Entity.checkFallDistanceAccumulation.
 func (s *ArmorStand) CapFall() { CapFallAccumulation(s.VY, &s.FallDistance) }
+
+func isLitCampfire(state uint16) bool {
+	_, lit := rules.CampfireDamage(state)
+	return lit
+}

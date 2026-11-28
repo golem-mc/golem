@@ -430,6 +430,7 @@ func (s *Server) tickBoats() {
 		state := it.w.BlockAt(rules.BlockOf(it.boat.X), rules.BlockOf(it.boat.Y), rules.BlockOf(it.boat.Z))
 		s.notePortalTouch(nil, it.uuid, it.w, it.boat.X, it.boat.Y, it.boat.Z, state)
 		if kind, due := it.portal.Step(state, rules.PortalTransitionTime, vehiclePortalCooldownTicks); due && driver == nil {
+			boatTracker.unfile(it)
 			fx.travels = append(fx.travels, boatPortalTravel{it: it, kind: kind})
 			continue
 		}
@@ -468,6 +469,7 @@ func (s *Server) tickBoats() {
 		for range it.boat.LavaHurts {
 			fx.burns = append(fx.burns, burnSpot{it.w, it.boat.X, it.boat.Y, it.boat.Z})
 		}
+		fx.slides = appendSlides(fx.slides, honeySlide{it.w, it.boat.ID, it.boat.X, it.boat.Y, it.boat.Z}, it.boat.Slides)
 		for range it.boat.Extinguishes {
 			fx.fizzles = append(fx.fizzles, burnSpot{it.w, it.boat.X, it.boat.Y, it.boat.Z})
 		}

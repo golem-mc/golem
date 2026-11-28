@@ -48,6 +48,9 @@ const (
 	// TntSteppedOnRedstoneOre: the body rests on the unlit redstone ore at the
 	// cell X, Y, Z (whole numbers).
 	TntSteppedOnRedstoneOre
+	// TntSlid: the body slid down a honey block's side, owed the slide's
+	// sound and particles.
+	TntSlid
 )
 
 // TNTEvent is one event out of a primed TNT's tick. The X, Y, Z and the
@@ -132,6 +135,9 @@ func (t *TNT) Step(w World) []TNTEvent {
 	walkInside(w, []bodyMove{{fx, fy, fz, t.X, t.Y, t.Z, ax, az, true}}, AABB{-TNTHalfWidth, 0, -TNTHalfWidth, TNTHalfWidth, TNTHeight, TNTHalfWidth},
 		func(x, y, z int32, state uint16, _ int, from AABB, dx, dy, dz float64) bool {
 			t.VY, _ = projectileBubblePush(w, x, y, z, state, from, dx, dy, dz, t.VY, true, &spots)
+			if honeySlideCell(state, x, y, z, t.X, t.Y, t.Z, 2*TNTHalfWidth, t.OnGround, &t.VX, &t.VY, &t.VZ, &t.fallDistance) {
+				events = append(events, TNTEvent{Kind: TntSlid})
+			}
 			return true
 		})
 	t.VX *= tntAirDrag
