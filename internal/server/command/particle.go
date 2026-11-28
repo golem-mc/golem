@@ -2,6 +2,8 @@ package command
 
 import (
 	"strconv"
+	"sync"
+	"sync/atomic"
 
 	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/internal/server/rules"
@@ -111,6 +113,66 @@ func parseParticleArgument(tokens []Token) *ParseError {
 	return nil
 }
 
+// parsedParticle is what a particle argument (name and options text) decodes
+// to, or why it does not. data is shared between runs and never written to.
+type parsedParticle struct {
+	name     string
+	id       int32
+	data     []byte
+	invalid  string // particle.invalidOptions detail
+	unknown  bool
+	unparsed bool
+}
+
+// particleCache holds parsedParticle by argument text, which a tick function
+// repeats every tick; it is cleared when it passes particleCacheMax entries.
+var (
+	particleCache      sync.Map // string -> parsedParticle
+	particleCacheCount atomic.Int32
+)
+
+const particleCacheMax = 1024
+
+// cachedParticle decodes a particle argument once per distinct text; false
+// means the text is not a resource location.
+func cachedParticle(text string) (parsedParticle, bool) {
+	if v, ok := particleCache.Load(text); ok {
+		return v.(parsedParticle), true
+	}
+	name, n, ok := readIdentifier(text)
+	if !ok {
+		return parsedParticle{}, false
+	}
+	pa := parsedParticle{name: name}
+	id, withData, known := registry.ParticleID(name)
+	pa.id = int32(id)
+	switch {
+	case !known:
+		pa.unknown = true
+	case text[n:] != "" || withData:
+		verdict, _, _, opts := readSummonTag(text[n:])
+		switch {
+		case text[n:] == "":
+			opts = nbt.Compound{}
+		case verdict != nbtIsCompound:
+			pa.unparsed = true
+		}
+		if !pa.unparsed {
+			data, err := registry.ParticleData(name, opts)
+			if err != nil {
+				pa.invalid = err.Error()
+			}
+			pa.data = data
+		}
+	}
+	if particleCacheCount.Add(1) > particleCacheMax {
+		particleCache.Clear()
+		particleCacheCount.Store(1)
+	}
+	particleCache.Store(text, pa)
+	return pa, true
+}
+
 // runParticle sends the particle to the viewers within range of its position
 // and answers how many it was sent to.
 // A particle type with data reads its options off the name as SNBT.
@@ -119,29 +181,20 @@ func runParticle(src Source, input string, args []string) (int32, error) {
 	// The options are an SNBT compound that may span words.
 	span := blockSpanCount(args)
 	text := wordsIn(input, args, 0, span)
-	name, n, ok := readIdentifier(text)
+	pa, ok := cachedParticle(text)
 	if !ok {
 		src.Debug("particle is not a resource location", "particle", text)
 		return 0, nil
 	}
-	id, withData, ok := registry.ParticleID(name)
-	if !ok {
+	name, id, data := pa.name, pa.id, pa.data
+	switch {
+	case pa.unknown:
 		return 0, refuse(src, "particle.notFound", protocol.Text{Text: name})
-	}
-	var data []byte
-	if text[n:] != "" || withData {
-		verdict, _, _, opts := readSummonTag(text[n:])
-		switch {
-		case text[n:] == "":
-			opts = nbt.Compound{}
-		case verdict != nbtIsCompound:
-			src.Debug("particle options did not parse", "particle", text)
-			return 0, nil
-		}
-		var err error
-		if data, err = registry.ParticleData(name, opts); err != nil {
-			return 0, refuse(src, "particle.invalidOptions", protocol.Text{Text: err.Error()})
-		}
+	case pa.unparsed:
+		src.Debug("particle options did not parse", "particle", text)
+		return 0, nil
+	case pa.invalid != "":
+		return 0, refuse(src, "particle.invalidOptions", protocol.Text{Text: pa.invalid})
 	}
 
 	at := src.Position()

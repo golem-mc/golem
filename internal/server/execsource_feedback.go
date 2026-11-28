@@ -10,8 +10,10 @@ func (s *execSource) WantsFeedback() bool {
 	if s.silent {
 		return false
 	}
-	if w, ok := s.Source.(command.FeedbackWanter); !ok || w.WantsFeedback() {
-		return true
+	// Under execute the source keeps its own CommandSource, so its answer is
+	// final (vanilla: CommandSourceStack.sendSuccess).
+	if w, ok := s.Source.(command.FeedbackWanter); ok {
+		return w.WantsFeedback()
 	}
 	send, _, logAdmin := s.rules().FeedbackRules()
 	return send || logAdmin

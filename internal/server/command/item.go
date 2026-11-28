@@ -633,6 +633,9 @@ func itemFeedback(src Source, side *itemSide, counts []int, kind string, item *p
 		}
 		return 0, refuse(src, itemTargetFailedKey)
 	}
+	if !wantsFeedback(src) {
+		return int32(tracker.total), nil
+	}
 	key := "commands.item.block." + kind + ".success"
 	with := []protocol.Text{entityCount(tracker.total), entityCount(int(side.x)), entityCount(int(side.y)), entityCount(int(side.z))}
 	if !side.block {

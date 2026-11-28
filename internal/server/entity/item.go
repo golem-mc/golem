@@ -172,6 +172,10 @@ type Item struct {
 	// fireTicks is remainingFireTicks: lit by lava and fire, biting one damage
 	// every 20th tick while it lasts.
 	fireTicks int
+	// TicksFrozen is the powder snow count, up to rules.FullyFrozenTicks; only
+	// lava takes it down.
+	// vanilla: Entity.setTicksFrozen
+	TicksFrozen int
 	// fireFlag is shared flag bit 0 as the base tick last set it: burning
 	// after the run-down, before the move can light or douse the item.
 	// vanilla: Entity.baseTick, setSharedFlagOnFire
@@ -683,17 +687,21 @@ func (it *Item) insideEffects(w World, events *[]ItemEvent) {
 	wasOnFire := it.isOnFire()
 	previousFireTicks := it.fireTicks
 	var spots []bubbleSpot
-	it.VY, _, _ = bubbleColumnPush(w, it.itemBox(), it.VY, &spots)
-	for _, p := range spots {
-		*events = append(*events, ItemEvent{Kind: ItemBubbleSurface, X: p.x, Y: p.y, Z: p.z})
-	}
 	var cauldrons [][3]int32
+	inSnow, inLava := false, false
 	var moves []bodyMove
 	if it.hasLastMove {
 		moves = []bodyMove{it.lastMove}
 	}
 	rel := AABB{-halfSize, -halfSize, -halfSize, halfSize, halfSize, halfSize}
 	walkInside(w, moves, rel, func(x, y, z int32, state uint16, _ int, from AABB, dx, dy, dz float64) bool {
+		if vy, ok := projectileBubblePush(w, x, y, z, state, from, dx, dy, dz, it.VY, true, &spots); ok {
+			it.VY = vy
+			for _, p := range spots {
+				*events = append(*events, ItemEvent{Kind: ItemBubbleSurface, X: p.x, Y: p.y, Z: p.z})
+			}
+			spots = spots[:0]
+		}
 		fluid := sweptFluid(w, x, y, z, state, from, dx, dy, dz)
 		switch {
 		case rules.IsLayeredCauldron(state):
@@ -701,6 +709,7 @@ func (it *Item) insideEffects(w World, events *[]ItemEvent) {
 		case fluid == fluidWater:
 			it.fireTicks = 0
 		case fluid == fluidLava || sweptLavaCauldron(x, y, z, state, from, dx, dy, dz):
+			inLava = true
 			// The lava's two effects in vanilla's order: the burn lit
 			// for fifteen seconds, then the hurt and its sound.
 			if !it.fireImmune() && it.fireTicks < fireTicksLava {
@@ -732,6 +741,7 @@ func (it *Item) insideEffects(w World, events *[]ItemEvent) {
 			// vanilla: CactusBlock.entityInside
 			it.hurt(cactusDamage, rules.DamageTypeCactus, events)
 		case rules.IsPowderSnow(state):
+			inSnow = true
 			// The movement read is after the move, which spends it when
 			// the snow held the item from the tick before: only the tick
 			// the item comes in kicks up flakes.
@@ -741,6 +751,7 @@ func (it *Item) insideEffects(w World, events *[]ItemEvent) {
 		}
 		return !it.Dead // vanilla: the walk stops for a body no longer alive
 	})
+	applyFreeze(&it.TicksFrozen, inSnow, inLava)
 	// Every cauldron in the box drops a level while the item is still on
 	// fire as the pass ends, before the rain.
 	// vanilla: LayeredCauldronBlock.entityInside

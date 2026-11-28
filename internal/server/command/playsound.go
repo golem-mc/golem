@@ -211,6 +211,9 @@ func runPlaySound(src Source, input string, args []string) (int32, error) {
 	if count == 0 {
 		return 0, refuse(src, "commands.playsound.failed")
 	}
+	if !wantsFeedback(src) {
+		return int32(count), nil
+	}
 	sound := protocol.Text{Text: name}
 	if count == 1 {
 		return resultOf(1, feedbackToAdmins(src, "commands.playsound.success.single", sound, playedFor[0].DisplayName()))

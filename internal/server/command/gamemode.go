@@ -139,6 +139,9 @@ func runGamemode(src Source, input string, args []string) (int32, error) {
 			target.Notify(protocol.Text{Translate: "gameMode.changed", With: []protocol.Text{gameModeName(mode)}})
 		}
 		count++
+		if !wantsFeedback(src) {
+			continue
+		}
 		if err := feedbackToAdmins(src, "commands.gamemode.success.other", target.DisplayName(), gameModeName(mode)); err != nil {
 			return 0, err
 		}

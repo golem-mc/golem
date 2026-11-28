@@ -247,6 +247,7 @@ func applyFireworkTag(it *fireworkEntity, compound nbt.Compound) {
 	it.tags.Reset(tagsOfTag(compound))
 	it.custom = customNameOfTag(compound)
 	rocket.FireTicks = int(shortFieldOf(compound, "Fire"))
+	rocket.TicksFrozen = ticksFrozenOfTag(compound)
 }
 
 // registerFirework puts a built rocket into the world and shows it to every
@@ -329,17 +330,19 @@ type fireworkMetadataState struct {
 	attached    int32
 	shotAtAngle bool
 	fire        bool
+	frozen      int32
 }
 
 // fireworkBurnDelta sets the told on-fire flag from the burn and returns the
 // metadata, encoded once for every watcher; nil if the flag has not turned.
 func fireworkBurnDelta(it *fireworkEntity) *outbound {
 	burning := it.rocket.FireTicks > 0
-	if burning == it.fire {
+	if burning == it.fire && it.rocket.TicksFrozen == it.sentFrozen {
 		return nil
 	}
 	was := fireworkMetadataStateOf(it)
-	it.fire = burning
+	was.frozen = int32(it.sentFrozen)
+	it.fire, it.sentFrozen = burning, it.rocket.TicksFrozen
 	data := fireworkMetadataTable(it, &was)
 	if data == nil {
 		return nil
@@ -349,7 +352,8 @@ func fireworkBurnDelta(it *fireworkEntity) *outbound {
 
 func fireworkMetadataStateOf(it *fireworkEntity) fireworkMetadataState {
 	return fireworkMetadataState{stack: it.stack, name: it.custom,
-		attached: it.rocket.AttachedTo, shotAtAngle: it.rocket.ShotAtAngle, fire: it.fire}
+		attached: it.rocket.AttachedTo, shotAtAngle: it.rocket.ShotAtAngle, fire: it.fire,
+		frozen: int32(it.rocket.TicksFrozen)}
 }
 
 // fireworkMetadataTable writes spawn fields (was == nil) or fields changed by a command.
@@ -370,6 +374,10 @@ func fireworkMetadataTable(it *fireworkEntity, was *fireworkMetadataState) []byt
 			flags = protocol.EntityFlagOnFire
 		}
 		b.PutU8(flags)
+	}
+	if now.frozen != was.frozen {
+		b.PutMetadata(protocol.MetadataIndexTicksFrozen, protocol.MetadataVarInt)
+		b.PutVarInt(now.frozen)
 	}
 	// Pairing always includes the carried item, even an empty stack.
 	if spawn || !now.stack.Equal(was.stack) {

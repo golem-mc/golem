@@ -187,6 +187,9 @@ func runDialog(src Source, input string, args []string) (int32, error) {
 		}
 	}
 	count := int32(len(targets))
+	if !wantsFeedback(src) {
+		return count, nil
+	}
 	if len(targets) == 1 {
 		return count, feedbackToAdmins(src, single, targets[0].DisplayName())
 	}

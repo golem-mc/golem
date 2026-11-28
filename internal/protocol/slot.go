@@ -1003,3 +1003,15 @@ func (r *Reader) ReadHashedSlot() (HashedSlot, bool) {
 	}
 	return claim, true
 }
+
+// HasPatch reports whether any field that can put a component into the
+// saved patch is set; false means the stack saves as just id and count.
+// TestItemStackHasPatchCoversFields keeps it in step with the struct.
+func (s ItemStack) HasPatch() bool {
+	return s.Damage != 0 || len(s.Enchantments) > 0 || len(s.StoredEnchantments) > 0 ||
+		s.CustomName != nil || s.RepairCost != 0 || s.GlintOverride != 0 ||
+		s.Unbreakable || s.Intangible || s.Removed != (Removals{}) ||
+		s.Container != nil || s.Lock != nil || len(s.DebugStick) > 0 ||
+		len(s.Recipes) > 0 || s.ContainerLoot != (ContainerLoot{}) ||
+		len(s.MapDecorations) > 0 || len(s.Raw) > 0
+}

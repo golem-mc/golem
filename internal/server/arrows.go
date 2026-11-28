@@ -109,6 +109,7 @@ type arrowMetadataState struct {
 	// spawn; loyalty is the trident's, 0 to 127.
 	noGravity bool
 	silent    bool
+	frozen    int32
 	foil      bool
 	loyalty   int32
 	name      customName
@@ -123,7 +124,7 @@ func arrowMetadataStateOf(it *arrowEntity) arrowMetadataState {
 		noclip: a.NoPhysics,
 		color:  arrowColor(a.Effect),
 		pierce: a.PierceLevel,
-		silent: it.look.silent, noGravity: a.NoGravity, loyalty: a.Loyalty, foil: a.Foil,
+		silent: it.look.silent, noGravity: a.NoGravity, frozen: int32(a.TicksFrozen), loyalty: a.Loyalty, foil: a.Foil,
 		name: it.custom,
 	}
 }

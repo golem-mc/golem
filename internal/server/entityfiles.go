@@ -563,11 +563,38 @@ func (s *Server) liveEntityUUIDsInto(known map[uuid.UUID]bool) {
 	s.scanLiveEntityUUIDs(&uuidScan{into: known})
 }
 
-// liveEntityUUID reports whether a live non-mob body has the UUID.
+// liveEntityUUID reports whether a live non-mob body has the UUID, asked of
+// each kind's UUID index under its lock.
 func (s *Server) liveEntityUUID(want uuid.UUID) bool {
-	sc := uuidScan{want: want}
-	s.scanLiveEntityUUIDs(&sc)
-	return sc.found
+	return hasLiveUUID(s, &itemTracker, want, func(it *itemEntity) bool { return !it.item.Dead }) ||
+		hasLiveUUID(s, &arrowTracker, want, func(it *arrowEntity) bool { return !it.arrow.Dead }) ||
+		hasLiveUUID(s, &thrownTracker, want, func(it *thrownEntity) bool { return !it.throwable.Dead && thrownIsSaved(it) }) ||
+		hasLiveUUID(s, &cloudTracker, want, func(it *cloudEntity) bool { return !it.cloud.Dead }) ||
+		hasLiveUUID(s, &fireworkTracker, want, func(it *fireworkEntity) bool { return !it.rocket.Dead }) ||
+		hasLiveUUID(s, &eyeTracker, want, func(it *eyeEntity) bool { return !it.eye.Dead }) ||
+		hasLiveUUID(s, &fangsTracker, want, func(it *fangsEntity) bool { return !it.fangs.Dead }) ||
+		hasLiveUUID(s, &boltTracker, want, func(*boltEntity) bool { return true }) ||
+		hasLiveUUID(s, &orbTracker, want, func(it *orbEntity) bool { return !it.orb.Dead }) ||
+		hasLiveUUID(s, &tntTracker, want, func(it *tntEntity) bool { return !it.tnt.Dead }) ||
+		hasLiveUUID(s, &fallingTracker, want, func(it *fallingEntity) bool { return !it.fb.Dead }) ||
+		hasLiveUUID(s, &paintingTracker, want, func(*paintingEntity) bool { return true }) ||
+		hasLiveUUID(s, &frameTracker, want, func(*frameEntity) bool { return true }) ||
+		hasLiveUUID(s, &boatTracker, want, func(it *boatEntity) bool { return !it.boat.Dead }) ||
+		hasLiveUUID(s, &minecartTracker, want, func(it *minecartEntity) bool { return !it.cart.Dead }) ||
+		hasLiveUUID(s, &standTracker, want, func(it *armorStandEntity) bool { return !it.stand.Dead }) ||
+		hasLiveUUID(s, &endCrystalTracker, want, func(it *endCrystalEntity) bool { return !it.crystal.Dead }) ||
+		hasLiveUUID(s, &mannequinTracker, want, func(it *mannequinEntity) bool { return !it.mannequin.Dead }) ||
+		hasLiveUUID(s, &fixtureTracker, want, func(it *fixtureEntity) bool { return !it.dead })
+}
+
+// hasLiveUUID reports whether the kind's UUID index holds a body with the
+// UUID that is live.
+func hasLiveUUID[B any, S any](s *Server, k *trackedKind[B, S], want uuid.UUID, live func(B) bool) bool {
+	mu := k.lock(s)
+	mu.Lock()
+	defer mu.Unlock()
+	b, ok := k.chunks(s).ByUUID(want)
+	return ok && live(b)
 }
 
 // scanLiveEntityUUIDs feeds every live non-mob UUID to sc, each kind under

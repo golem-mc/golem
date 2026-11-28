@@ -86,6 +86,10 @@ type FallingBlock struct {
 	VX, VY, VZ float64
 	OnGround   bool
 	stuck      stuckFactor
+	// TicksFrozen is the powder snow count, up to rules.FullyFrozenTicks; only
+	// lava takes it down.
+	// vanilla: Entity.setTicksFrozen
+	TicksFrozen int
 
 	BlockState     uint16
 	Time           int
@@ -233,7 +237,10 @@ func (f *FallingBlock) Step(w World) []FallingEvent {
 		f.VY -= fallingGravity
 	}
 	oldX, oldY, oldZ := f.X, f.Y, f.Z
+	ax, az := f.VX, f.VZ
 	f.OnGround = f.move(w)
+	freezeInside(w, bodyMove{fx: oldX, fy: oldY, fz: oldZ, tx: f.X, ty: f.Y, tz: f.Z},
+		AABB{-FallingHalfWidth, 0, -FallingHalfWidth, FallingHalfWidth, FallingHeight, FallingHalfWidth}, &f.TicksFrozen)
 	var events []FallingEvent
 	if f.OnGround {
 		if x, y, z, ok := unlitOreUnder(w, f.X, f.Y, f.Z, FallingHalfWidth); ok {
@@ -263,16 +270,23 @@ func (f *FallingBlock) Step(w World) []FallingEvent {
 	// The column's push comes after the fall is counted, so a body inside
 	// one forgets its distance.
 	// vanilla: Entity.onInsideBubbleColumn
-	box := AABB{f.X - FallingHalfWidth, f.Y, f.Z - FallingHalfWidth,
-		f.X + FallingHalfWidth, f.Y + FallingHeight, f.Z + FallingHalfWidth}
 	// vanilla: LavaFluid.entityInside, Entity.lavaIgnite
 	if BoxInLava(w, f.X, f.Y, f.Z, 2*FallingHalfWidth, FallingHeight) {
 		f.FireTicks = max(f.FireTicks, 300)
 	}
-	var inColumn bool
-	if f.VY, inColumn = bubbleColumnDrift(w, box, f.VY); inColumn {
-		f.FallDistance = 0
-	}
+	var spots []bubbleSpot
+	rel := AABB{-FallingHalfWidth, 0, -FallingHalfWidth, FallingHalfWidth, FallingHeight, FallingHalfWidth}
+	walkInside(w, []bodyMove{{oldX, oldY, oldZ, f.X, f.Y, f.Z, ax, az, true}}, rel,
+		func(x, y, z int32, state uint16, _ int, from AABB, dx, dy, dz float64) bool {
+			if vy, ok := projectileBubblePush(w, x, y, z, state, from, dx, dy, dz, f.VY, true, &spots); ok {
+				f.VY = vy
+				if len(spots) == 0 {
+					f.FallDistance = 0
+				}
+				spots = spots[:0]
+			}
+			return true
+		})
 	// The landing's hurt of the bodies under it, kept to ride out with
 	// the landing or the drop the same tick reaches.
 	f.LandedFall = 0

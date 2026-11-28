@@ -136,6 +136,10 @@ type Minecart struct {
 	HorizontalCollision bool
 	// FireTicks is ignition state only: AbstractMinecart.tick skips Entity.baseTick.
 	FireTicks int
+	// TicksFrozen is the powder snow count, up to rules.FullyFrozenTicks; only
+	// lava takes it down.
+	// vanilla: Entity.setTicksFrozen
+	TicksFrozen int
 	// LavaHurts and Extinguishes count this tick's sounds.
 	LavaHurts, Extinguishes int
 	// DousedCauldrons are the layered cauldrons a burning cart was put out in.
@@ -345,7 +349,7 @@ func (m *Minecart) Step(w World, ridden bool) {
 	inWater := m.water.height > 0
 
 	oldYaw := m.Yaw
-	oldX, oldZ := m.X, m.Z
+	oldX, oldY, oldZ := m.X, m.Y, m.Z
 	m.VY -= m.gravity(inWater)
 
 	posX, posY, posZ, state := m.railCell(w)
@@ -368,7 +372,7 @@ func (m *Minecart) Step(w World, ridden bool) {
 		m.comeOffTrack(w, inWater)
 	}
 
-	m.VY, _ = bubbleColumnDrift(w, m.cartBox(), m.VY)
+	m.bubbleColumns(w, bodyMove{oldX, oldY, oldZ, m.X, m.Y, m.Z, m.X - oldX, m.Z - oldZ, true})
 	m.blockEffects(w)
 	m.Splash = m.step(w, m.cartBox(), m.VX, m.VY, m.VZ)
 	updateFluid(w, m.cartBox(), m.X, m.Y+MinecartHeight, m.Z, true, &m.water, &m.lava)
@@ -413,7 +417,7 @@ func (m *Minecart) blockEffects(w World) {
 	sideways := m.VX != 0 || m.VZ != 0
 	move := bodyMove{fx: m.X, fy: m.Y, fz: m.Z, tx: m.X, ty: m.Y, tz: m.Z}
 	rel := AABB{-MinecartHalfWidth, 0, -MinecartHalfWidth, MinecartHalfWidth, MinecartHeight, MinecartHalfWidth}
-	burns, fizzles := vehicleBurnPass(w, move, rel, &m.FireTicks, &m.Dead, m.contactHurt, func(x, y, z int32, state uint16, _ int, _ AABB, _, _, _ float64) bool {
+	burns, fizzles := vehicleBurnPass(w, move, rel, &m.FireTicks, &m.TicksFrozen, &m.Dead, m.contactHurt, func(x, y, z int32, state uint16, _ int, _ AABB, _, _, _ float64) bool {
 		if honeySlideCell(state, x, y, z, m.X, m.Y, m.Z, 2*MinecartHalfWidth, m.OnGround, &m.VX, &m.VY, &m.VZ, &m.fallDistance) {
 			m.Slides++
 		}
@@ -424,6 +428,18 @@ func (m *Minecart) blockEffects(w World) {
 	}, &m.DousedCauldrons, &m.MeltedSnow)
 	m.LavaHurts += burns
 	m.Extinguishes += fizzles
+}
+
+// bubbleColumns moves the cart with the columns its move's legs crossed; no
+// surface splash is sent.
+// vanilla: BubbleColumnBlock.entityInside, Entity.onInsideBubbleColumn
+func (m *Minecart) bubbleColumns(w World, move bodyMove) {
+	var spots []bubbleSpot
+	rel := AABB{-MinecartHalfWidth, 0, -MinecartHalfWidth, MinecartHalfWidth, MinecartHeight, MinecartHalfWidth}
+	walkInside(w, []bodyMove{move}, rel, func(x, y, z int32, state uint16, _ int, from AABB, dx, dy, dz float64) bool {
+		m.VY, _ = projectileBubblePush(w, x, y, z, state, from, dx, dy, dz, m.VY, true, &spots)
+		return true
+	})
 }
 
 // cartBox is the cart's span as a fluid box.
@@ -726,7 +742,7 @@ func (m *Minecart) comeOffTrack(w World, inWater bool) {
 	f := blockSpeedFactor(w, m.X, m.Y, m.Z)
 	m.VX *= f
 	m.VZ *= f
-	m.VY, _ = bubbleColumnDrift(w, m.cartBox(), m.VY)
+	m.bubbleColumns(w, bodyMove{fromX, startY, fromZ, m.X, m.Y, m.Z, dx, dz, !held})
 	m.blockEffects(w)
 	if !m.OnGround {
 		m.VX *= minecartAirDrag
