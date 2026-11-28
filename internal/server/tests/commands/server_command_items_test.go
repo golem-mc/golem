@@ -695,3 +695,24 @@ func TestExecuteItemsAndSlotsCommandTree(t *testing.T) {
 	}
 	c.Disconnect()
 }
+
+// TestGiveAirNamesItWithoutHover checks that /give of air answers with the
+// plain [Air] text, since the client refuses a show-item hover of air.
+func TestGiveAirNamesItWithoutHover(t *testing.T) {
+	t.Parallel()
+	cfg := config.Default()
+	cfg.OnlineMode = false
+	cfg.GameMode = "creative"
+	_, c := servertest.Join(t, cfg, "Testificate", servertest.OpsListing(t, "Testificate"))
+
+	c.ChatCommand("give @s air")
+	one := int64(1)
+	servertest.ExpectFeedbackSoon(t, c, nil, "commands.give.success.single",
+		protocol.Text{Number: &one},
+		protocol.Text{
+			Translate: "chat.square_brackets",
+			With:      []protocol.Text{{Extra: []protocol.Text{{Translate: "block.minecraft.air"}}}},
+		},
+		servertest.PlayerDisplayComponent("Testificate"))
+	c.Disconnect()
+}
