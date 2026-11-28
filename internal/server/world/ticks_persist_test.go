@@ -546,3 +546,25 @@ func TestSavedAirTickKeepsAirThroughCopyAndSave(t *testing.T) {
 		}
 	}
 }
+
+// TestPrepareTickFlags checks the lock-free path leaves nothing to take and
+// the pending flags follow the unload and loaded-tick lists.
+func TestPrepareTickFlags(t *testing.T) {
+	w, _, _ := newSavedWorld(t)
+	t.Cleanup(func() { w.Close() })
+	if loaded, unloaded := w.prepareTick(0, 0, true, true); loaded != nil || unloaded != nil {
+		t.Fatalf("idle prepareTick = %v, %v; want nil, nil", loaded, unloaded)
+	}
+	w.mu.Lock()
+	w.dropChunkTicks(ChunkPos{X: 2, Z: 2})
+	w.pendingLoaded = []loadedTick{{}}
+	w.loadedTicksPending.Store(true)
+	w.mu.Unlock()
+	loaded, unloaded := w.prepareTick(0, 0, false, true)
+	if len(loaded) != 1 || len(unloaded) != 1 {
+		t.Fatalf("prepareTick took %d loaded, %d unloaded; want 1, 1", len(loaded), len(unloaded))
+	}
+	if w.loadedTicksPending.Load() || w.unloadsPending.Load() {
+		t.Error("flags still set after the lists were taken")
+	}
+}
