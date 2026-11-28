@@ -75,6 +75,7 @@ type bodyTrack[S any] struct {
 	// been told of it, so its removal tells none. Read under the kind's lock.
 	held bool
 
+	sentFrozen             int // the frozen count the watchers were last told
 	sentVX, sentVY, sentVZ float64
 	origin                 entityOrigin
 
@@ -89,6 +90,23 @@ type settledBody struct {
 	w     *world.World
 	x, z  float64
 	reach int
+}
+
+// frozenDelta is the Set Entity Metadata packet for a frozen count that
+// turned since the watchers were last told, nil where it did not; it records
+// the turn. Called under the kind's lock.
+// vanilla: ServerEntity.sendChanges, Entity.DATA_TICKS_FROZEN
+func (t *bodyTrack[S]) frozenDelta(id int32, ticks int) []byte {
+	if ticks == t.sentFrozen {
+		return nil
+	}
+	t.sentFrozen = ticks
+	var b protocol.Buffer
+	b.PutVarInt(id)
+	b.PutMetadata(protocol.MetadataIndexTicksFrozen, protocol.MetadataVarInt)
+	b.PutVarInt(int32(ticks))
+	b.EndMetadata()
+	return b.Bytes()
 }
 
 func (t *bodyTrack[S]) entityOrigin() entityOrigin { return t.origin }

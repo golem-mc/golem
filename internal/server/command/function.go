@@ -915,11 +915,5 @@ func runCommandIn(src Source, input string, words []string, f *frame, cb storeFn
 // storeLineTokens keeps the tokens of a line and of every tail after a "run",
 // the text execute hands to the command it runs.
 func storeLineTokens(line string, tokens []Token) {
-	lineTokens.Store(line, slices.Clip(tokens))
-	for i, t := range tokens[:len(tokens)-1] {
-		if t.Text == "run" {
-			tail := line[tokens[i+1].Start:]
-			storeLineTokens(tail, tokenize(tail))
-		}
-	}
+	walkRunTails(line, tokens, func(l string, t []Token) { lineTokens.Store(l, slices.Clip(t)) })
 }

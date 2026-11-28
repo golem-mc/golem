@@ -295,13 +295,18 @@ func (s *Server) tickFallingBlocks() {
 		body := fallingTracker.body(it)
 		mt := body.schedule(false)
 		still, prevTick := body.stillSince(tick)
+		frozen := it.frozenDelta(it.fb.ID, it.fb.TicksFrozen)
 		for _, i := range body.watchers(near[it.w]) {
 			wh := watchers[it.w][i]
 			c := wh.c
 			if c.theWorld() != it.w {
 				continue // crossed to another dimension since the snapshot
 			}
-			if was, seen := body.settleOrTold(wh, still, prevTick, &out); seen && mt.gate {
+			was, seen := body.settleOrTold(wh, still, prevTick, &out)
+			if seen && frozen != nil {
+				out.moves.add(c, outbound{id: protocol.IDPlayEntityMetadata, data: frozen})
+			}
+			if seen && mt.gate {
 				body.moveTold(was, c, mt, &out)
 			}
 		}
@@ -481,7 +486,7 @@ func fallingPairing(it *fallingEntity) []outbound {
 func fallingMetadataPayload(it *fallingEntity) []byte {
 	fb := it.fb
 	flags := it.look.glowFlags()
-	if fb.StartX == 0 && fb.StartY == 0 && fb.StartZ == 0 && !fb.NoGravity && it.custom == (customName{}) && flags == 0 && !it.look.silent {
+	if fb.StartX == 0 && fb.StartY == 0 && fb.StartZ == 0 && !fb.NoGravity && fb.TicksFrozen == 0 && it.custom == (customName{}) && flags == 0 && !it.look.silent {
 		return nil
 	}
 	var b protocol.Buffer
@@ -499,6 +504,10 @@ func fallingMetadataPayload(it *fallingEntity) []byte {
 		b.PutMetadata(protocol.MetadataIndexFallingBlockStartPos, protocol.MetadataBlockPos)
 		b.PutPosition(fb.StartX, fb.StartY, fb.StartZ)
 	}
+	if fb.TicksFrozen != 0 {
+		b.PutMetadata(protocol.MetadataIndexTicksFrozen, protocol.MetadataVarInt)
+		b.PutVarInt(int32(fb.TicksFrozen))
+	}
 	it.custom.putMetadata(&b, customName{})
 	b.EndMetadata()
 	return b.Bytes()
@@ -511,6 +520,7 @@ func fallingFields(it *fallingEntity) metaFields {
 	it.look.addSilentField(&m)
 	m.add(protocol.MetadataIndexEntityFlags, protocol.MetadataByte, func(b *protocol.Buffer) { b.PutU8(it.look.glowFlags()) })
 	m.add(protocol.MetadataIndexNoGravity, protocol.MetadataBoolean, func(b *protocol.Buffer) { b.PutBool(fb.NoGravity) })
+	m.add(protocol.MetadataIndexTicksFrozen, protocol.MetadataVarInt, func(b *protocol.Buffer) { b.PutVarInt(int32(fb.TicksFrozen)) })
 	m.add(protocol.MetadataIndexFallingBlockStartPos, protocol.MetadataBlockPos, func(b *protocol.Buffer) {
 		b.PutPosition(fb.StartX, fb.StartY, fb.StartZ)
 	})

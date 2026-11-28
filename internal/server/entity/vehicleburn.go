@@ -7,10 +7,12 @@ import (
 
 // vehicleBurnPass applies per-cell hurts in effect-step order, stopping when
 // a hurt removes the vehicle. Ignition is deduplicated per step; hurts are not.
+// Powder snow adds one frozen tick per step (once however many cells it meets),
+// lava clears the count. No non-living entity type is in freeze_immune_entity_types.
 // A layered cauldron met while on fire is appended to doused, and powder snow
 // to melted, as the step's extinguish runs.
 // vanilla: InsideBlockEffectApplier.StepBasedCollector, Entity.applyEffectsFromBlocks
-func vehicleBurnPass(w World, move bodyMove, rel AABB, fire *int, dead *bool, hurt func(float64, registry.DamageType, bool) bool, visit insideVisitor, doused, melted *[][3]int32) (burns, fizzles int) {
+func vehicleBurnPass(w World, move bodyMove, rel AABB, fire, frozen *int, dead *bool, hurt func(float64, registry.DamageType, bool) bool, visit insideVisitor, doused, melted *[][3]int32) (burns, fizzles int) {
 	if *dead {
 		return
 	}
@@ -25,6 +27,9 @@ func vehicleBurnPass(w World, move bodyMove, rel AABB, fire *int, dead *bool, hu
 	flush := func() {
 		if *dead {
 			return
+		}
+		if len(snows) > 0 {
+			*frozen = min(rules.FullyFrozenTicks, *frozen+1)
 		}
 		if len(fires) > 0 {
 			// vanilla: BaseFireBlock.fireIgnite (a vehicle is not a player)
@@ -42,6 +47,7 @@ func vehicleBurnPass(w World, move bodyMove, rel AABB, fire *int, dead *bool, hu
 			return
 		}
 		if lava > 0 {
+			*frozen = 0 // vanilla: InsideBlockEffectType.CLEAR_FREEZE
 			*fire = max(*fire, fireTicksLava)
 			for range lava {
 				if *dead {

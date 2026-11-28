@@ -79,6 +79,11 @@ type TNT struct {
 	// LandedFall is the fall a landing this tick ended, 0 when none.
 	LandedFall float64
 
+	// TicksFrozen is the powder snow count, up to rules.FullyFrozenTicks; only
+	// lava takes it down.
+	// vanilla: Entity.setTicksFrozen
+	TicksFrozen int
+
 	Fuse int
 	// Power is the blast radius. vanilla: PrimedTnt.explosionPower
 	Power      float32
@@ -124,6 +129,8 @@ func (t *TNT) Step(w World) []TNTEvent {
 	}
 	fx, fy, fz, ax, az := t.X, t.Y, t.Z, t.VX, t.VZ
 	t.OnGround = t.move(w)
+	freezeInside(w, bodyMove{fx: fx, fy: fy, fz: fz, tx: t.X, ty: t.Y, tz: t.Z},
+		AABB{-TNTHalfWidth, 0, -TNTHalfWidth, TNTHalfWidth, TNTHeight, TNTHalfWidth}, &t.TicksFrozen)
 	var events []TNTEvent
 	if t.OnGround {
 		slimeStep(w, t.X, t.Y, t.Z, TNTHalfWidth, t.VY, &t.VX, &t.VZ)

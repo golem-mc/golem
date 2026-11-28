@@ -21,9 +21,10 @@ func BenchmarkFunctionLines(b *testing.B) {
 		"execute_as_tp":         "execute as @e[type=marker,tag=t] at @s run tp @s ~ ~ ~",
 		"execute_as_score":      "execute as @e[type=marker,tag=t] at @s run scoreboard players add @s x 1",
 		"execute_if_block_tag":  "execute as @e[type=marker,tag=t] at @s if block ~ ~-1 ~ #minecraft:dirt run scoreboard players add @s x 1",
+		"execute_as_particle":   "execute as @e[type=marker,tag=t] at @s run particle minecraft:dust{color:[1.0,0.0,0.0],scale:1.0} ~ ~1 ~ 0 0 0 0 1",
 		"execute_as_store_data": "execute as @e[type=marker,tag=t] store result score @s x run data get entity @s Pos[0]",
 	}
-	for _, name := range []string{"score", "execute_if_score", "execute_as_tp", "execute_as_score", "execute_as_store_data", "execute_if_block_tag"} {
+	for _, name := range []string{"score", "execute_if_score", "execute_as_tp", "execute_as_score", "execute_as_particle", "execute_as_store_data", "execute_if_block_tag"} {
 		b.Run(name, func(b *testing.B) {
 			s, _ := newTrackerBenchServer(b)
 			s.mu.Lock()
