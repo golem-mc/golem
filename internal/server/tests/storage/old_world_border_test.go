@@ -3,6 +3,7 @@ package storage
 import (
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/golem-mc/golem/internal/config"
 	"github.com/golem-mc/golem/internal/server/servertest"
@@ -36,7 +37,7 @@ func TestOldWorldBorderFieldsReachEveryDimension(t *testing.T) {
 	srv, c := servertest.Join(t, cfg, "Warden", servertest.OpsListing(t, "Warden"))
 	srv.StopTick()
 	c.ChatCommand("execute in minecraft:the_nether run worldborder get")
-	servertest.AwaitCommandFeedback(t, c, "commands.worldborder.get", "100")
+	servertest.AwaitCommandFeedbackTextWithin(t, c, 30*time.Second, "commands.worldborder.get", servertest.FeedbackArgsForTest("commands.worldborder.get", []string{"100"})...)
 	srv.Shutdown()
 
 	for dim, cx := range map[string]float64{"overworld": 80, "the_nether": 10, "the_end": 80} {

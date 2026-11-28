@@ -76,6 +76,7 @@ var registryNameAllowed = map[string]nameAllowance{
 	"internal/server/entity/villagergolemspawn.go: string test on Name()":           {count: 1, issue: 6380},
 	"internal/server/entity/wardenvibration.go: string registry lookup":             {count: 1, boundary: "stored data decoding"},
 	"internal/server/world/entities_115.go: case on an entity name":                 {count: 13, boundary: "entity ids in old saved chunk data"},
+	"internal/server/world/entities_fixes.go: case on an entity name":               {count: 5, boundary: "entity ids in old saved chunk data"},
 	"internal/server/world/entities_115.go: comparison with an entity name":         {count: 3, boundary: "entity ids in old saved chunk data"},
 	"internal/server/entity/wolf.go: string block lookup":                           {count: 1, issue: 6380},
 	"internal/server/entity/zombiecure.go: string block lookup":                     {count: 1, issue: 6380},
