@@ -110,6 +110,13 @@ func fixComponentShapes(c nbt.Compound, id string, version int32) {
 			c["minecraft:custom_model_data"] = nbt.Compound{"floats": nbt.List{Elem: nbt.TypeFloat, Items: []nbt.Tag{nbt.Float(n)}}}
 		}
 	}
+	if data, ok := nbt.CompoundView(c["minecraft:block_entity_data"]); ok && isSignID(data) {
+		// A key added to an ordered compound through its map is never written,
+		// so the fixed sign data replaces the original as a plain copy.
+		plain, _ := nbt.PlainCopy(c["minecraft:block_entity_data"]).(nbt.Compound)
+		fixStackSign(plain, version)
+		c["minecraft:block_entity_data"] = plain
+	}
 	if version < textComponentVersion {
 		unflattenText(c, "minecraft:custom_name")
 		unflattenText(c, "minecraft:item_name")
@@ -121,8 +128,11 @@ func fixComponentShapes(c nbt.Compound, id string, version int32) {
 			c["minecraft:lore"] = mixedList(items)
 		}
 		unflattenBookText(c)
-		for _, key := range []string{"minecraft:entity_data", "minecraft:block_entity_data"} {
-			if data, ok := nbt.CompoundView(c[key]); ok {
+		if data, ok := nbt.CompoundView(c["minecraft:entity_data"]); ok {
+			unflattenText(data, "CustomName")
+		}
+		if data, ok := nbt.CompoundView(c["minecraft:block_entity_data"]); ok {
+			if !isSignID(data) {
 				unflattenText(data, "CustomName")
 				id, _ := nbt.Get[nbt.String](data, "id")
 				for _, k := range blockEntityTextKeys(string(id)) {
@@ -501,6 +511,32 @@ func fixFoodToConsumable(c nbt.Compound) {
 	c["minecraft:consumable"] = nbt.Compound{"consume_seconds": seconds, "on_consume_effects": list}
 }
 
+func isSignID(data nbt.Compound) bool {
+	id, _ := nbt.Get[nbt.String](data, "id")
+	kind, _ := BlockEntityKindByName(string(id))
+	return IsSignKind(kind)
+}
+
+// fixStackSign runs the chunk path's sign fixes on a sign stack's
+// block_entity_data.
+func fixStackSign(data nbt.Compound, version int32) {
+	if version < signsOpFlagVersion {
+		data["allow_op_features"] = nbt.Byte(1)
+	}
+	if version < filteredSignsVersion {
+		for _, key := range signTextFields[4:8] {
+			delete(data, key)
+		}
+	}
+	fixSignText(data, version)
+	if version < textComponentVersion {
+		unflattenBlockEntityText(data)
+	}
+	if version < clickEventVersion {
+		fixSignClickEvents(data)
+	}
+}
+
 func unflattenText(c nbt.Compound, key string) {
 	if v, ok := c[key]; ok {
 		c[key] = unflattenJSON(v)
@@ -519,7 +555,7 @@ func unflattenJSON(tag nbt.Tag) nbt.Tag {
 	if err := json.Unmarshal([]byte(s), &value); err != nil || value == nil {
 		return tag
 	}
-	return jsonToNBT(value)
+	return fixTextEvents(jsonToNBT(value))
 }
 
 // jsonToNBT converts a decoded JSON value as vanilla's JsonOps conversion

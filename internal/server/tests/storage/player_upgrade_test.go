@@ -211,6 +211,45 @@ func TestPlayerFileBefore1_20_5KeepsLockedShulkerBox(t *testing.T) {
 	}
 }
 
+// TestPlayerFileTextEventsAreRenamed loads a 1.20.4 file whose book page and
+// item name carry click and hover events.
+// vanilla: TextComponentHoverAndClickEventFix
+func TestPlayerFileTextEventsAreRenamed(t *testing.T) {
+	t.Parallel()
+	saved := joinOldPlayer(t, nbt.Compound{
+		"DataVersion": nbt.Int(3700),
+		"Inventory": list(
+			legacyStack("minecraft:written_book", 1, 0, nbt.Compound{
+				"title": nbt.String("T"), "author": nbt.String("A"),
+				"pages": list(nbt.String(`{"text":"x","clickEvent":{"action":"run_command","value":"/say hi"},"hoverEvent":{"action":"show_text","contents":"h"}}`))}),
+			legacyStack("minecraft:iron_sword", 1, 1, nbt.Compound{
+				"display": nbt.Compound{"Name": nbt.String(`{"text":"S","hoverEvent":{"action":"show_text","contents":"t"}}`)}}),
+		),
+	})
+	book, _ := nbt.Get[nbt.Compound](savedStack(t, saved, "Inventory", "minecraft:written_book"), "components")
+	content, _ := nbt.Get[nbt.Compound](book, "minecraft:written_book_content")
+	pages, _ := nbt.Get[nbt.List](content, "pages")
+	page, _ := nbt.CompoundView(pages.Items[0])
+	raw, _ := nbt.CompoundView(page["raw"])
+	click, _ := nbt.Get[nbt.Compound](raw, "click_event")
+	if action, _ := nbt.Get[nbt.String](click, "action"); action != "run_command" {
+		t.Errorf("page raw = %v, want a click_event", raw)
+	}
+	if cmd, _ := nbt.Get[nbt.String](click, "command"); cmd != "/say hi" {
+		t.Errorf("click_event = %v, want command /say hi", click)
+	}
+	hover, _ := nbt.Get[nbt.Compound](raw, "hover_event")
+	if v, _ := nbt.Get[nbt.String](hover, "value"); v != "h" {
+		t.Errorf("hover_event = %v, want value h", hover)
+	}
+	sword, _ := nbt.Get[nbt.Compound](savedStack(t, saved, "Inventory", "minecraft:iron_sword"), "components")
+	name, _ := nbt.Get[nbt.Compound](sword, "minecraft:custom_name")
+	hover, _ = nbt.Get[nbt.Compound](name, "hover_event")
+	if v, _ := nbt.Get[nbt.String](hover, "value"); v != "t" {
+		t.Errorf("custom_name = %v, want hover_event value t", name)
+	}
+}
+
 // TestPlayerFileVehicleUpgrades loads a 1.20.1 player file riding a saddled,
 // armoured horse and finds the horse upgraded when it is saved again.
 // vanilla: DataFixTypes.PLAYER.updateToCurrentVersion (ENTITY_TREE)
