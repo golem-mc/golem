@@ -127,6 +127,31 @@ func TestExecuteStoreWritesTheResultIntoStorage(t *testing.T) {
 	c.Disconnect()
 }
 
+// TestExecuteStoreWritesANestedStoragePathFromTwoContexts checks that each
+// context's write lands on the live storage and creates the missing parents.
+func TestExecuteStoreWritesANestedStoragePathFromTwoContexts(t *testing.T) {
+	t.Parallel()
+	c := dataWorld(t, "Testificate")
+
+	c.ChatCommand("data merge storage test:a {x:7,keep:1b}")
+	c.ExpectCommandFeedback("commands.data.storage.modified", "test:a")
+	for range 2 {
+		c.ChatCommand("summon minecraft:cow 2.5 64 2.5")
+		cow := c.ExpectMobSpawn(protocol.EntityTypeCow)
+		c.ExpectCommandFeedbackText("commands.summon.success",
+			servertest.EntityDisplayComponent("minecraft:cow", "entity.minecraft.cow", cow.Uuid))
+	}
+	c.ChatCommand("execute as @e[type=minecraft:cow] store result storage test:a a.b int 2 run data get storage test:a x")
+	c.ExpectCommandFeedback("commands.data.storage.query", "test:a", "7")
+	c.ExpectCommandFeedback("commands.data.storage.query", "test:a", "7")
+	c.ChatCommand("data get storage test:a a.b")
+	c.ExpectCommandFeedback("commands.data.storage.query", "test:a", "14")
+	c.ChatCommand("data get storage test:a keep")
+	c.ExpectCommandFeedback("commands.data.storage.query", "test:a", "1b")
+
+	c.Disconnect()
+}
+
 // TestExecuteStoreWritesIntoAnEntity checks the entity store: the value
 // loads onto the live body.
 func TestExecuteStoreWritesIntoAnEntity(t *testing.T) {

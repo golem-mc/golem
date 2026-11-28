@@ -35,6 +35,17 @@ func (p nbtPath) hasRootMatch() bool {
 	return ok
 }
 
+// isKeyChain reports whether every node names a compound child, the paths
+// whose set changes nothing when it refuses.
+func (p nbtPath) isKeyChain() bool {
+	for _, n := range p.nodes {
+		if _, ok := n.(compoundChildNode); !ok {
+			return false
+		}
+	}
+	return len(p.nodes) > 0
+}
+
 // rootKey is the only root entry this path can edit, if it names one.
 func (p nbtPath) rootKey() (string, bool) {
 	nodes := p.nodes
