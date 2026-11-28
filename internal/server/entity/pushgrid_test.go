@@ -218,3 +218,60 @@ func assertPushCandidates(t *testing.T, grid *pushGrid, query *Mob, inflate floa
 		t.Errorf("candidate IDs %v, want %v in herd order", got, want)
 	}
 }
+
+func TestPushGridLazyByIDAndCaravan(t *testing.T) {
+	cow := NewMob(TypeCow, 10, 0, 64, 0, 1)
+	cow.LeashHolderID = 99
+	dupCow := NewMob(TypeCow, 10, 4, 64, 0, 2)
+	idleLlama := NewMob(TypeLlama, 20, 8, 64, 0, 3)
+	leashedLlama := NewMob(TypeLlama, 21, 12, 64, 0, 4)
+	leashedLlama.LeashHolderID = 99
+	caravanLlama := NewMob(TypeLlama, 22, 16, 64, 0, 5)
+	caravanLlama.joinCaravan(leashedLlama)
+	herd := []*Mob{cow, dupCow, idleLlama, leashedLlama, caravanLlama}
+
+	g := takePushGrid(len(herd), nil)
+	defer g.release()
+	g.build(herd)
+
+	if g.byIDReady || len(g.byID) != 0 {
+		t.Fatalf("byID populated eagerly: ready=%v len=%d", g.byIDReady, len(g.byID))
+	}
+	if !g.present[TypeCow] || !g.present[TypeLlama] || g.present[TypeZombie] {
+		t.Fatalf("present flags wrong: cow=%v llama=%v zombie=%v", g.present[TypeCow], g.present[TypeLlama], g.present[TypeZombie])
+	}
+	if !slices.Equal(g.caravan, []*Mob{leashedLlama, caravanLlama}) {
+		t.Fatalf("caravan = %v, want [%v %v]", g.caravan, leashedLlama, caravanLlama)
+	}
+
+	view := &tickView{others: herd, push: g}
+	if got := view.mobByID(10); got != cow {
+		t.Fatalf("mobByID(10) = %v, want first-filed cow %v", got, cow)
+	}
+	if !g.byIDReady {
+		t.Fatal("byIDReady not set after first lookup")
+	}
+	if got := view.mobByID(22); got != caravanLlama {
+		t.Fatalf("mobByID(22) = %v, want %v", got, caravanLlama)
+	}
+	if got := view.mobByID(999); got != nil {
+		t.Fatalf("mobByID(999) = %v, want nil", got)
+	}
+
+	g.reset()
+	if g.byIDReady || len(g.byID) != 0 || g.mobs != nil {
+		t.Fatalf("reset did not clear lazy byID state: ready=%v len=%d mobs=%v", g.byIDReady, len(g.byID), g.mobs)
+	}
+
+	next := []*Mob{idleLlama}
+	g.build(next)
+	if g.byIDReady {
+		t.Fatal("second build populated byID eagerly")
+	}
+	if got := g.lookupByID(10); got != nil {
+		t.Fatalf("stale ID 10 found after reset: %v", got)
+	}
+	if got := g.lookupByID(20); got != idleLlama {
+		t.Fatalf("lookupByID(20) = %v, want %v", got, idleLlama)
+	}
+}
