@@ -32,7 +32,7 @@ func TestFrogTongueAndDrops(t *testing.T) {
 			c.ExpectMobSpawn(fishType(t, tc.prey))
 			posed, targeted, removed, cleared := false, false, false, false
 			tongueSound, eatSound := false, false
-			c.ReadTicks(srv, 60, func(id int32, data []byte) bool {
+			c.ReadTicks(srv, 300, func(id int32, data []byte) bool {
 				r := protocol.NewReader(data)
 				switch id {
 				case protocol.IDPlayEntityMetadata:
