@@ -269,8 +269,7 @@ func (s *Server) boltFire(it *boltEffect, extra int) {
 		return
 	}
 	dim := s.dimensionOfWorld(w)
-	age, _ := s.world.Time()
-	s.refreshFireSpreadPlayers(dim, age)
+	s.refreshFireSpreadPlayers(dim)
 	if !(fireSpreadChecker{s: s, dim: dim}).FireCanSpread(x, y, z) {
 		return
 	}

@@ -343,7 +343,7 @@ func (s *Server) tickPhysics() {
 	defer s.endTouchWindows()
 	gate := s.newEntityGate()
 	for _, dim := range s.allDims() {
-		s.refreshFireSpreadPlayers(dim, age)
+		s.refreshFireSpreadPlayers(dim)
 		// A debug level runs no scheduled or random ticks.
 		// vanilla: ServerLevel.tick, ServerChunkCache.tickChunks
 		if dim.w.IsDebug() {
@@ -1293,24 +1293,18 @@ type fireSpreadChecker struct {
 }
 
 // fireSpreadView holds the feet of the dimension's non-spectator players as
-// of world age age. Players do not move during the level tick, so one read
+// of the last refresh. Players do not move during the level tick, so one read
 // per tick is what vanilla's per-call loop sees.
 type fireSpreadView struct {
-	pts   []fireSpreadPoint
-	age   int64
-	valid bool
+	pts []fireSpreadPoint
 }
 
 type fireSpreadPoint struct{ x, y, z float64 }
 
-// refreshFireSpreadPlayers rereads the players unless the view is already
-// from this world age.
-func (s *Server) refreshFireSpreadPlayers(dim *dimension, age int64) {
+// refreshFireSpreadPlayers rereads the dimension's players.
+func (s *Server) refreshFireSpreadPlayers(dim *dimension) {
 	v := &dim.fireSpread
-	if v.valid && v.age == age {
-		return
-	}
-	v.pts, v.age, v.valid = v.pts[:0], age, true
+	v.pts = v.pts[:0]
 	s.mu.RLock()
 	for _, c := range s.clients {
 		if c.theWorld() != dim.w || c.player.GameMode() == protocol.GameModeSpectator {
