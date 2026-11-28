@@ -142,7 +142,6 @@ func TestWaterloggedScaffoldingKeepsBothTicksAfterReload(t *testing.T) {
 	setBlock(t, w, p, 8, GroundLevel, 8, state)
 
 	w, p = reopenWorld(t, w, dir)
-	p.Tick(0) // Adopt the saved delays before advancing game time.
 	p.Tick(1)
 	checkScaffold(t, w, 8, GroundLevel, 8, "0", "false", "stability after reload")
 	for tick := int64(2); tick <= 4; tick++ {
@@ -737,6 +736,31 @@ func TestDuplicateBookingLeavesChunkClean(t *testing.T) {
 		p.mu.Unlock()
 		if !dirty || dup {
 			t.Errorf("new booking dirty %v, duplicate dirty %v; want true, false", dirty, dup)
+		}
+	}
+}
+
+// TestLoadedTickFiresOnItsSavedDelay checks a tick saved with delay d runs on
+// the d-th game tick after the load.
+// vanilla: LevelChunkTicks.unpack
+func TestLoadedTickFiresOnItsSavedDelay(t *testing.T) {
+	w, p, dir := newSavedWorld(t)
+	lamp := rsState(t, "minecraft:redstone_lamp", map[string]string{"lit": "true"})
+	setBlock(t, w, p, 8, GroundLevel, 8, lamp)
+	var clock int64
+	for range 5 {
+		clock++
+		p.Tick(clock)
+	}
+	p.insertTick(blockKey{8, GroundLevel, 8}, 0, p.now+4, tickPriorityNormal)
+	w.touchContainerChunk(ChunkPos{})
+	w, p = reopenWorld(t, w, dir)
+	for step := 1; step <= 4; step++ {
+		clock++
+		p.Tick(clock)
+		_, props := rsNameAt(t, w, 8, GroundLevel, 8)
+		if want := step < 4; (props["lit"] == "true") != want {
+			t.Fatalf("step %d: lit = %q", step, props["lit"])
 		}
 	}
 }
