@@ -589,15 +589,10 @@ func (v *trackedBody[B, S]) stillSince(tick uint64) (still bool, prevTick uint64
 	return prev.tick+1 == tick && prev.w == now.w && prev.x == now.x && prev.z == now.z && prev.reach == now.reach, prev.tick
 }
 
-// settleOrTold settles the watcher, or, when the body is still and the
-// watcher changed nothing since the previous pass, returns the record the
-// pair already has.
-func (v *trackedBody[B, S]) settleOrTold(wt trackingWatcher, still bool, prevTick uint64, out *trackSends) (*toldBody[S], bool) {
-	if still && wt.changedAt < prevTick {
-		return v.t.tracked.get(wt.c)
-	}
-	return v.settle(wt.c, wt.x, wt.z, wt.chunkRadius, out)
-}
+// unchanged reports whether a watcher read at changedAt needs no settle:
+// the body is still and the watcher changed nothing since the previous pass,
+// so the pair's record stands.
+func unchanged(still bool, changedAt, prevTick uint64) bool { return still && changedAt < prevTick }
 
 // settle pairs the body with a client standing at (x, z) that the range has
 // brought in and unpairs it from one the range has left. It reports whether
@@ -1043,7 +1038,13 @@ func (k *trackedKind[B, S]) settleBody(b B, watchers []trackingWatcher, near *ne
 			continue // crossed to another dimension since the snapshot
 		}
 		paired := len(out.showTos)
-		was, seen := v.settleOrTold(wt, still, prevTick, out)
+		var was *toldBody[S]
+		var seen bool
+		if unchanged(still, wt.changedAt, prevTick) {
+			was, seen = v.t.tracked.get(wt.c)
+		} else {
+			was, seen = v.settle(wt.c, wt.x, wt.z, wt.chunkRadius, out)
+		}
 		if !seen {
 			continue
 		}
