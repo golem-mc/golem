@@ -540,13 +540,23 @@ const positionCacheMax = 1024
 // read is the cached parse of words, or parse's result on a miss; failures are
 // not stored.
 func (c *positionCache) read(words []string, parse func(*coordReader) (position, *ParseError)) (position, bool) {
-	text := strings.Join(words, " ")
+	// The key is built in a stack buffer: a map lookup by string(buf) does not
+	// allocate, so a hit costs none.
+	var buf [64]byte
+	key := buf[:0]
+	for i, w := range words {
+		if i > 0 {
+			key = append(key, ' ')
+		}
+		key = append(key, w...)
+	}
 	c.Lock()
-	p, ok := c.byText[text]
+	p, ok := c.byText[string(key)]
 	c.Unlock()
 	if ok {
 		return p, true
 	}
+	text := string(key)
 	p, err := parse(&coordReader{s: text})
 	if err != nil {
 		return p, false
