@@ -577,8 +577,15 @@ func resolveBlockPos(src Source, words []string) (x, y, z int32, ok bool) {
 	if !ok {
 		return 0, 0, 0, false
 	}
+	x, y, z = p.block(src)
+	return x, y, z, true
+}
+
+// block is the position resolved against a source and floored to the block
+// it lands in.
+func (p position) block(src Source) (x, y, z int32) {
 	fx, fy, fz := p.at(src)
-	return rules.BlockOf(fx), rules.BlockOf(fy), rules.BlockOf(fz), true
+	return rules.BlockOf(fx), rules.BlockOf(fy), rules.BlockOf(fz)
 }
 
 // resolveColumnPos is a minecraft:column_pos argument resolved against a
