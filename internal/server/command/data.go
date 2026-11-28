@@ -7,6 +7,8 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"unicode/utf16"
 
 	"github.com/golem-mc/golem/internal/protocol"
@@ -610,12 +612,43 @@ func tagResult(tag nbt.Tag) int32 {
 	return floorToInt32(value)
 }
 
+// parsedMerge is the verdict and value of a merge argument's text.
+type parsedMerge struct {
+	verdict nbtRead
+	value   nbt.Tag
+}
+
+// mergeCache holds parsedMerge by argument text, which a tick function
+// repeats every tick; it is cleared when it passes mergeCacheMax entries.
+// A cached value is shared, so runDataMerge must only read it.
+var (
+	mergeCache      sync.Map // string -> parsedMerge
+	mergeCacheCount atomic.Int32
+)
+
+const mergeCacheMax = 1024
+
+// cachedMergeValue parses a merge argument once per distinct text.
+func cachedMergeValue(text string) (nbtRead, nbt.Tag) {
+	if v, ok := mergeCache.Load(text); ok {
+		pm := v.(parsedMerge)
+		return pm.verdict, pm.value
+	}
+	verdict, value := readOrderedNBTValue(text)
+	if mergeCacheCount.Add(1) > mergeCacheMax {
+		mergeCache.Clear()
+		mergeCacheCount.Store(1)
+	}
+	mergeCache.Store(text, parsedMerge{verdict, value})
+	return verdict, value
+}
+
 // runDataMerge runs the merge form: the compound argument over the
 // target's own, every entry of it replacing the entry it names, itself
 // refused where nothing changed.
 // vanilla: DataCommands.mergeData
 func runDataMerge(src Source, target dataTarget, rest []string, tokens []Token) (int32, error) {
-	verdict, value := readOrderedNBTValue(wordsInTokens(tokens, rest, 0, len(rest)))
+	verdict, value := cachedMergeValue(wordsInTokens(tokens, rest, 0, len(rest)))
 	compound, isCompound := value.(nbt.CompoundTag)
 	if verdict == nbtIsCompound && !isCompound {
 		verdict = nbtNotCompound

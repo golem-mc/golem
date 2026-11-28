@@ -16,17 +16,18 @@ import (
 // datapack's tick function does every tick.
 func BenchmarkFunctionLines(b *testing.B) {
 	lines := map[string]string{
-		"score":                 "scoreboard players add #c x 1",
-		"execute_if_score":      "execute if score #c x matches 1.. run scoreboard players add #c x 1",
-		"execute_as_tp":         "execute as @e[type=marker,tag=t] at @s run tp @s ~ ~ ~",
-		"execute_as_score":      "execute as @e[type=marker,tag=t] at @s run scoreboard players add @s x 1",
-		"execute_if_block_tag":  "execute as @e[type=marker,tag=t] at @s if block ~ ~-1 ~ #minecraft:dirt run scoreboard players add @s x 1",
-		"execute_as_particle":   "execute as @e[type=marker,tag=t] at @s run particle minecraft:dust{color:[1.0,0.0,0.0],scale:1.0} ~ ~1 ~ 0 0 0 0 1",
-		"execute_as_store_data": "execute as @e[type=marker,tag=t] store result score @s x run data get entity @s Pos[0]",
-		"macro_call":            `execute as @e[type=marker,tag=t] run function zz:m {x:1,o:"x"}`,
-		"summon_kill":           "summon marker ~ ~ ~ {Tags:[\"z\"]}\nkill @e[type=marker,tag=z]",
+		"score":                    "scoreboard players add #c x 1",
+		"execute_if_score":         "execute if score #c x matches 1.. run scoreboard players add #c x 1",
+		"execute_as_tp":            "execute as @e[type=marker,tag=t] at @s run tp @s ~ ~ ~",
+		"execute_as_score":         "execute as @e[type=marker,tag=t] at @s run scoreboard players add @s x 1",
+		"execute_if_block_tag":     "execute as @e[type=marker,tag=t] at @s if block ~ ~-1 ~ #minecraft:dirt run scoreboard players add @s x 1",
+		"execute_as_particle":      "execute as @e[type=marker,tag=t] at @s run particle minecraft:dust{color:[1.0,0.0,0.0],scale:1.0} ~ ~1 ~ 0 0 0 0 1",
+		"execute_as_store_data":    "execute as @e[type=marker,tag=t] store result score @s x run data get entity @s Pos[0]",
+		"execute_as_merge_display": "execute as @e[type=item_display,tag=t] run data merge entity @s {transformation:{translation:[0f,1f,0f],left_rotation:[0f,0f,0f,1f],scale:[1f,1f,1f],right_rotation:[0f,0f,0f,1f]},start_interpolation:0,interpolation_duration:2}",
+		"macro_call":               `execute as @e[type=marker,tag=t] run function zz:m {x:1,o:"x"}`,
+		"summon_kill":              "summon marker ~ ~ ~ {Tags:[\"z\"]}\nkill @e[type=marker,tag=z]",
 	}
-	for _, name := range []string{"score", "execute_if_score", "execute_as_tp", "execute_as_score", "execute_as_particle", "execute_as_store_data", "execute_if_block_tag", "summon_kill", "macro_call"} {
+	for _, name := range []string{"score", "execute_if_score", "execute_as_tp", "execute_as_score", "execute_as_particle", "execute_as_store_data", "execute_as_merge_display", "execute_if_block_tag", "summon_kill", "macro_call"} {
 		b.Run(name, func(b *testing.B) {
 			s, _ := newTrackerBenchServer(b)
 			s.mu.Lock()
@@ -60,6 +61,11 @@ func BenchmarkFunctionLines(b *testing.B) {
 			if strings.HasPrefix(name, "execute_as") || name == "execute_if_block_tag" || name == "macro_call" {
 				for i := range 20 {
 					s.RunRconLine(fmt.Sprintf("summon marker %d -60 0 {Tags:[\"t\"]}", i))
+				}
+			}
+			if name == "execute_as_merge_display" {
+				for range 20 {
+					s.RunRconLine(`summon item_display ~ ~ ~ {Tags:["t"],item:{id:"minecraft:diamond",count:1}}`)
 				}
 			}
 			b.ReportAllocs()
