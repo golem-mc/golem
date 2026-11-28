@@ -1527,6 +1527,14 @@ func (w *World) TouchEntity(be *BlockEntity) bool {
 // nothing. A moving piston's entity must already exist from piston movement.
 // vanilla: BlockInput.place
 func (w *World) SetBlockEntityTag(x, y, z int32, entityType string, data nbt.CompoundTag) (BlockEntityKind, bool) {
+	kind, modelled := w.setBlockEntityTag(x, y, z, entityType, data)
+	if kind == KindLectern && w.bookResolver != nil {
+		w.ResolveLecternBook(x, y, z)
+	}
+	return kind, modelled
+}
+
+func (w *World) setBlockEntityTag(x, y, z int32, entityType string, data nbt.CompoundTag) (BlockEntityKind, bool) {
 	tag, _ := nbt.CompoundView(data)
 	if kind, ok := BlockEntityKindByName(entityType); ok && IsSignKind(kind) {
 		tag = w.ResolveSignTag(x, y, z, tag)
