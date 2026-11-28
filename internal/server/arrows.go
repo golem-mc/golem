@@ -71,6 +71,9 @@ type arrowEntity struct {
 // the metadata it was told. An arrow is never told on the ground, and its
 // Teleport Entity carries no velocity: the motion packets do.
 var arrowTracker = trackedKind[*arrowEntity, arrowMetadataState]{
+	admitsType: func(typ string) bool {
+		return typ == arrowEntityID || typ == spectralArrowEntityID || typ == tridentEntityID
+	},
 	invalidatePiston: func(dim *dimension) { dim.pistons.arrows.built = false },
 	pistonBit:        pistonArrows,
 

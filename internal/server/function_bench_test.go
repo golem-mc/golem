@@ -169,6 +169,7 @@ func BenchmarkEntityQueryLines(b *testing.B) {
 		{"tagged_data", "data merge entity @e[type=armor_stand,tag=one,limit=1] {CustomNameVisible:0b}"},
 		{"uuid", "execute as 00000001-0000-0002-0000-000300000004 run scoreboard players add #c x 1"},
 		{"summon", "execute summon marker run kill @s"},
+		{"other_kind", "execute if entity @e[type=marker,tag=b]"},
 		{"nearest", "execute as @e[type=marker,limit=1,sort=nearest] run scoreboard players add #c x 1"},
 	}
 	for _, line := range lines {
@@ -196,7 +197,14 @@ func BenchmarkEntityQueryLines(b *testing.B) {
 					s.RunRconLine(cmd)
 				}
 				for range n {
+					if line.name == "other_kind" {
+						s.RunRconLine(`summon item 0 -60 0 {Item:{id:"stone",count:1},PickupDelay:32767s,Age:-32768s}`)
+						continue
+					}
 					s.RunRconLine("summon marker 0 -60 0")
+				}
+				if line.name == "other_kind" {
+					s.RunRconLine(`summon marker 0 -60 0 {Tags:["b"]}`)
 				}
 				if line.name == "tagged_tp" || line.name == "tagged_data" {
 					s.RunRconLine(`summon armor_stand 0 -60 0 {Tags:["one"],CustomNameVisible:1b}`)

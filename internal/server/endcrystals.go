@@ -34,6 +34,7 @@ type endCrystalEntity struct {
 // endCrystalTracker tracks end crystals without periodic movement updates.
 // vanilla: EntityTypes.END_CRYSTAL
 var endCrystalTracker = trackedKind[*endCrystalEntity, struct{}]{
+	admitsType:       func(typ string) bool { return typ == endCrystalEntityID },
 	invalidatePiston: func(dim *dimension) { dim.pistons.endCrystals.built = false },
 	pistonBit:        pistonEndCrystals,
 

@@ -61,6 +61,7 @@ type armorStandEntity struct {
 // movement tick (every entity.ArmorStandInterval ticks; a teleport waits for
 // the next one), see standMove.
 var standTracker = trackedKind[*armorStandEntity, *armorStandMeta]{
+	admitsType:       func(typ string) bool { return typ == armorStandEntityID },
 	steppedPath:      true,
 	invalidatePiston: func(dim *dimension) { dim.pistons.armorStands.built = false },
 	pistonBit:        pistonArmorStands,

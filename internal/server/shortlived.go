@@ -15,6 +15,7 @@ import (
 )
 
 var fangsTracker = trackedKind[*fangsEntity, struct{}]{
+	admitsType:  func(typ string) bool { return typ == fangsEntityID },
 	rangeChunks: entity.FangsTracking,
 	lock:        func(s *Server) *sync.Mutex { return &s.fangs.mu },
 	list:        func(s *Server) *[]*fangsEntity { return &s.fangs.list },
@@ -34,6 +35,7 @@ var fangsTracker = trackedKind[*fangsEntity, struct{}]{
 }
 
 var boltTracker = trackedKind[*boltEntity, struct{}]{
+	admitsType:  func(typ string) bool { return typ == boltEntityID },
 	rangeChunks: entity.LightningTrackingRange,
 	lock:        func(s *Server) *sync.Mutex { return &s.boltMu },
 	list:        func(s *Server) *[]*boltEntity { return &s.bolts },

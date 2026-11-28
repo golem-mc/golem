@@ -63,6 +63,7 @@ type tntEntity struct {
 // tntTracker tracks the primed TNT; a watcher's own state is the fuse it was
 // last told.
 var tntTracker = trackedKind[*tntEntity, int]{
+	admitsType:       func(typ string) bool { return typ == tntEntityID },
 	invalidatePiston: func(dim *dimension) { dim.pistons.tnts.built = false },
 	pistonBit:        pistonTNTs,
 

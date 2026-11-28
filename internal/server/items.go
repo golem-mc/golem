@@ -73,6 +73,7 @@ type itemEntity struct {
 // itemTracker tracks the items. An item is told by the bottom of its box,
 // and its Teleport Entity carries no velocity: the motion packets do.
 var itemTracker = trackedKind[*itemEntity, struct{}]{
+	admitsType:       func(typ string) bool { return typ == itemEntityID },
 	invalidatePiston: func(dim *dimension) { dim.pistons.items.built = false },
 	pistonBit:        pistonItems,
 

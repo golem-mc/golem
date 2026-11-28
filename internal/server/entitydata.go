@@ -44,6 +44,8 @@ const (
 	eyeEntityID           = "minecraft:eye_of_ender"
 	bobberEntityID        = "minecraft:fishing_bobber"
 	knotEntityID          = "minecraft:leash_knot"
+	fangsEntityID         = "minecraft:evoker_fangs"
+	boltEntityID          = "minecraft:lightning_bolt"
 )
 
 // Defaults vanilla's readers use for absent fields, and fixed values for
