@@ -164,13 +164,8 @@ func fixOldBlockEntity(entry nbt.CompoundTag, version int32) bool {
 	if version >= tooltipDisplayVersion {
 		if version < dataVersion {
 			fixStoredComponents(entry, version)
-			if kind == KindDecoratedPot && version < potDecorationsVersion {
-				// vanilla: PotDecorationsBlockEntityUnflatteningFix
-				v, ok := tag["sherds"]
-				if !ok {
-					v = nbt.List{Elem: nbt.TypeString}
-				}
-				tag["sherds"] = templateUnpackPot(v)
+			if kind == KindDecoratedPot {
+				unflattenPotSherds(tag, version)
 			}
 		}
 		return true
@@ -209,6 +204,7 @@ func fixOldBlockEntity(entry nbt.CompoundTag, version int32) bool {
 		fixSignText(tag, version)
 	case kind == KindDecoratedPot:
 		fixPotSherds(tag, version)
+		unflattenPotSherds(tag, version)
 	case kind == KindBeacon && version < mobEffectIDVersion:
 		fixBeaconEffect(tag, "Primary", "primary_effect")
 		fixBeaconEffect(tag, "Secondary", "secondary_effect")
@@ -396,6 +392,18 @@ func dropRepeatedFilteredLines(text nbt.Compound) {
 // fixPotSherds renames a decorated pot's shards to sherds along with the item
 // names in them.
 // vanilla: DecoratedPotFieldRenameFix, ItemRenameFix (v3438, v3447)
+func unflattenPotSherds(tag nbt.Compound, version int32) {
+	if version >= potDecorationsVersion {
+		return
+	}
+	// vanilla: PotDecorationsBlockEntityUnflatteningFix
+	v, ok := tag["sherds"]
+	if !ok {
+		v = nbt.List{Elem: nbt.TypeString}
+	}
+	tag["sherds"] = templateUnpackPot(v)
+}
+
 func fixPotSherds(tag nbt.Compound, version int32) {
 	if version >= potSherdsVersion {
 		return
