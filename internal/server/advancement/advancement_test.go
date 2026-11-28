@@ -474,3 +474,47 @@ func TestParseRenamesWhatOlderVersionsCalledThings(t *testing.T) {
 		t.Error("a current file's nether/use_lodestone was renamed")
 	}
 }
+
+func TestParseRenamesBiomeAndEntityCriteria(t *testing.T) {
+	tree := Vanilla()
+	const when = "2026-10-31 12:34:56 +0100"
+	crit := func(names ...string) string {
+		out := ""
+		for i, n := range names {
+			if i > 0 {
+				out += ","
+			}
+			out += `"` + n + `": "` + when + `"`
+		}
+		return out
+	}
+	old, err := Parse(tree, []byte(`{"minecraft:adventure/adventuring_time": {"criteria": {`+
+		crit("minecraft:mountains", "minecraft:nether", "minecraft:giant_tree_taiga", "minecraft:deep_warm_ocean")+
+		`}, "done": false}, "minecraft:adventure/kill_all_mobs": {"criteria": {`+
+		crit("minecraft:zombie_pigman", "minecraft:zombie")+`}, "done": false}, "DataVersion": 2230}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	time := tree.Get("minecraft:adventure/adventuring_time")
+	for _, c := range []string{"minecraft:windswept_hills", "minecraft:old_growth_pine_taiga", "minecraft:warm_ocean"} {
+		if !old.Obtained(time, c) {
+			t.Errorf("adventuring_time lacks %s", c)
+		}
+	}
+	// nether_wastes is no criterion of adventuring_time (explore_nether has it),
+	// so the renamed criterion is dropped as an unknown one.
+	if got := RenameCriterion("minecraft:adventure/adventuring_time", "minecraft:nether", 2230); got != "minecraft:nether_wastes" {
+		t.Errorf("nether renamed to %s", got)
+	}
+	kill := tree.Get("minecraft:adventure/kill_all_mobs")
+	if !old.Obtained(kill, "minecraft:zombified_piglin") || !old.Obtained(kill, "minecraft:zombie") {
+		t.Error("kill_all_mobs lacks zombified_piglin or zombie")
+	}
+	cur, err := Parse(tree, []byte(`{"minecraft:adventure/kill_all_mobs": {"criteria": {`+crit("minecraft:zombie_pigman")+`}, "done": false}, "DataVersion": 5023}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cur.Obtained(kill, "minecraft:zombified_piglin") {
+		t.Error("a current file's zombie_pigman was renamed")
+	}
+}

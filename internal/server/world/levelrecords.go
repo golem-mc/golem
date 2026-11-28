@@ -31,7 +31,7 @@ func MigrateLevelRecords(root string) error {
 		slog.Warn("could not move the level.dat records to their files", "error", err)
 		return nil
 	}
-	version, _ := nbt.Get[nbt.Int](data, "DataVersion")
+	version, _ := nbt.IntField(data, "DataVersion")
 	if version == 0 || version >= gameRulesFileVersion {
 		return nil
 	}

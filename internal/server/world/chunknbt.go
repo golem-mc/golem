@@ -449,7 +449,7 @@ func renameSoulFire(name string) func(entry, props nbt.Compound, nameKey string,
 // wrapper, or a Status without namespace from a version that wrote one. A
 // chunk in the Level layout is rewritten in place to the current one.
 func checkChunkFormat(root nbt.Compound) error {
-	version, _ := nbt.Get[nbt.Int](root, "DataVersion")
+	version, _ := nbt.IntField(root, "DataVersion")
 	if _, ok := root["Level"]; ok {
 		// A Level wrapper with no DataVersion is from before 1.9.
 		if version < levelChunkFloor {
@@ -514,13 +514,13 @@ func decodeChunkNBT(root nbt.Compound) (*Chunk, error) {
 		return nil, err
 	}
 
-	x, _ := nbt.Get[nbt.Int](root, "xPos")
-	z, _ := nbt.Get[nbt.Int](root, "zPos")
+	x, _ := nbt.IntField(root, "xPos")
+	z, _ := nbt.IntField(root, "zPos")
 	c := newChunk(int32(x), int32(z))
 	c.pluginData, _ = nbt.Get[nbt.Compound](root, "plugins")
 	// Keep the file's claim for the save: data carried unread is still in that
 	// version's shape.
-	if version, ok := nbt.Get[nbt.Int](root, "DataVersion"); ok && version != 0 {
+	if version, ok := nbt.IntField(root, "DataVersion"); ok && version != 0 {
 		c.dataVersion = int32(version)
 	}
 	// LastUpdate as read; a save stamps the world's game time over it
@@ -539,7 +539,7 @@ func decodeChunkNBT(root nbt.Compound) (*Chunk, error) {
 		if !ok {
 			continue
 		}
-		y, _ := nbt.Get[nbt.Byte](sec, "Y")
+		y, _ := nbt.ByteField(sec, "Y")
 		idx := int32(y) - worldMinY/sectionSize
 		if idx < 0 || idx >= sectionCount {
 			continue
@@ -737,7 +737,7 @@ func decodeSectionBlocks(s *section, bs nbt.Compound) error {
 	s.sculk = nil
 	s.touches.Store(0)
 	s.shapes.Store(0)
-	s.colliding, s.comparators = 0, 0
+	s.colliding, s.comparators, s.crossings = 0, 0, 0
 	var sculkCounts [sculkCellKinds]int
 	var touches, shapes int32
 	// Invalid indices read as air, which contributes to none of these tallies.

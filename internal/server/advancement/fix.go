@@ -1,5 +1,7 @@
 package advancement
 
+import "github.com/golem-mc/golem/internal/server/world"
+
 // Renames the vanilla data fixers apply to a progress file or a recipe book
 // saved by an older version. Each step runs on a file whose DataVersion is
 // below its own.
@@ -77,6 +79,16 @@ var renameSteps = []renameStep{
 	}},
 }
 
+// criterionRenamers rename the criteria of the advancements whose criteria
+// are biome or entity names, by the advancement's current id.
+// vanilla: DataFixers (ADVANCEMENTS schema, V1460)
+var criterionRenamers = map[string]func(string, int32) string{
+	"minecraft:adventure/adventuring_time": world.RenameOldBiome,
+	"minecraft:adventure/kill_a_mob":       world.RenameOldEntity,
+	"minecraft:adventure/kill_all_mobs":    world.RenameOldEntity,
+	"minecraft:husbandry/bred_all_animals": world.RenameOldEntity,
+}
+
 // RenameAdvancementID returns id as the current version names it.
 func RenameAdvancementID(id string, fileVersion int) string {
 	for _, s := range renameSteps {
@@ -92,6 +104,9 @@ func RenameAdvancementID(id string, fileVersion int) string {
 // RenameCriterion returns an advancement's criterion as the current version
 // names it. id is the current name of the advancement.
 func RenameCriterion(id, name string, fileVersion int) string {
+	if rename := criterionRenamers[id]; rename != nil {
+		name = rename(name, int32(fileVersion))
+	}
 	for _, s := range renameSteps {
 		if s.version > fileVersion {
 			if to, ok := s.criteria[id][name]; ok {

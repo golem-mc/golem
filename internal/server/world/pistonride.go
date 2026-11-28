@@ -166,7 +166,6 @@ func (w *World) setPistonRide(r pistonRide) bool {
 	}
 	if old := loaded.chunk.removeBlockEntity(r.x, r.y, r.z); old != nil {
 		w.removeBlockEntityOrder(old)
-		old.removed.Store(true)
 		loaded.containerGen.Add(1)
 	}
 	delete(loaded.chunk.pistonHandles, entityKey(r.x, r.y, r.z))

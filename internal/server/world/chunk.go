@@ -270,6 +270,9 @@ type section struct {
 	shapes atomic.Int32
 	// comparators is guarded by the world lock once the chunk is shared.
 	comparators int32
+	// crossings counts nether portal, end portal and end gateway blocks; kept
+	// like comparators.
+	crossings int32
 }
 
 // newChunk returns an empty chunk at the chunk coordinates for a generator to
@@ -540,6 +543,12 @@ func (s *section) set(i int, state uint16, shared bool) {
 	case registry.BlockComparator:
 		s.comparators++
 	}
+	if isCrossingBlock[block] {
+		s.crossings++
+	}
+	if isCrossingBlock[oldBlock] {
+		s.crossings--
+	}
 	switch oldBlock {
 	case registry.BlockNetherPortal:
 		s.portals--
@@ -585,7 +594,7 @@ func (s *section) recalcCounts() {
 	s.sculk = nil
 	s.touches.Store(0)
 	s.shapes.Store(0)
-	s.colliding, s.comparators = 0, 0
+	s.colliding, s.comparators, s.crossings = 0, 0, 0
 	var touches, shapes int32
 	var sculk [sculkCellKinds]int
 	blocks := s.blocks.Load()
@@ -655,6 +664,9 @@ func (s *section) countState(state uint16, n int, touches, shapes *int32) sculkC
 		s.portals += n
 	case registry.BlockComparator:
 		s.comparators += int32(n)
+	}
+	if isCrossingBlock[block] {
+		s.crossings += int32(n)
 	}
 	if registry.IsPOI(state) {
 		s.pois += n

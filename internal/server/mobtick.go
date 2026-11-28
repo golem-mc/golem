@@ -696,11 +696,20 @@ func (t *mobDimTick) wakeLoadedChunks(fx *mobEffects, in *mobTickInputs) {
 // with their mob riders, to arrive after the mob lock is released.
 func (t *mobDimTick) crossPortals(fx *mobEffects) {
 	h, w := t.h, t.w
+	// With no portal block loaded and every body's cooldown and count at
+	// rest, a step changes nothing.
+	if h.portalAtRest && !w.HasPortalBlocks() {
+		return
+	}
 	// The portal pass runs before the advance, as for items.
 	portalHerd := h.herd[:0]
 	var crossing map[*entity.Mob]bool
+	atRest := true
 	for _, m := range h.herd {
 		ent := h.record(m)
+		if ent != nil && (ent.portal.Cooldown > 0 || ent.portal.Inside > 0) {
+			atRest = false
+		}
 		if ent == nil || m.Dormant || m.Type == entity.TypeEnderDragon || !m.CanUsePortal() {
 			portalHerd = append(portalHerd, m)
 			continue
@@ -716,6 +725,9 @@ func (t *mobDimTick) crossPortals(fx *mobEffects) {
 			// A mob's rider is not a body that can use a portal; it crosses
 			// with its mount. vanilla: Entity.canUsePortal
 			ent.portal.StepRider(state, portalCooldownTicks)
+			if ent.portal.Cooldown > 0 || ent.portal.Inside > 0 {
+				atRest = false
+			}
 			portalHerd = append(portalHerd, m)
 			continue
 		}
@@ -727,6 +739,9 @@ func (t *mobDimTick) crossPortals(fx *mobEffects) {
 		}
 		t.s.notePortalTouch(nil, ent.uuid, w, m.X, m.Y, m.Z, state)
 		kind, due := ent.portal.Step(state, rules.PortalTransitionTime, portalCooldownTicks)
+		if ent.portal.Cooldown > 0 || ent.portal.Inside > 0 || state == rules.EndGatewayState {
+			atRest = false
+		}
 		if !due {
 			if !m.RidesVehicle && !m.Dead {
 				if state == rules.EndGatewayState {
@@ -747,6 +762,7 @@ func (t *mobDimTick) crossPortals(fx *mobEffects) {
 		portalHerd = slices.DeleteFunc(portalHerd, func(m *entity.Mob) bool { return crossing[m] })
 	}
 	h.setHerd(portalHerd)
+	h.portalAtRest = atRest && len(fx.travels) == 0
 }
 
 // takeRiders forgets m's mob riders, and theirs, marking each in crossing
