@@ -454,6 +454,9 @@ func riderVehiclePoint(m *Mob, vehicleWidth float64) (x, y, z float64) {
 		return 0, 0.3125 * m.attrScale(), 0
 	}
 	if m.family() == TypeZombie && m.IsBaby() {
+		if m.Type == TypeZombieVillager {
+			return 0, 0.125, 0
+		}
 		return 0, 0.1875, 0
 	}
 	if uint32(m.Type) < uint32(len(riderVehiclePoints)) {
