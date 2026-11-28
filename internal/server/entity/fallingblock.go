@@ -440,10 +440,10 @@ func (f *FallingBlock) move(w World) bool {
 	return onGround
 }
 
-// BlastOrigin is where a blast measures this body from and pushes it away
-// along: the entity's position, the feet.
-func (f *FallingBlock) BlastOrigin() (x, y, z float64) {
-	return f.X, f.Y, f.Z
+// EyePosition is getEyePosition at the type's default eye height (0.98 * 0.85,
+// float32), where an explosion's knockback is directed from.
+func (f *FallingBlock) EyePosition() (x, y, z float64) {
+	return f.X, f.Y + float64(float32(FallingHeight)*float32(0.85)), f.Z
 }
 
 // BlastBox is the bounding box the exposure of a blast is measured over —

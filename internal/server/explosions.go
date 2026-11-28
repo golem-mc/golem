@@ -741,7 +741,7 @@ func (s *Server) blastPushed(b blast, in *blastInputs, fx *blastEffects) {
 			continue
 		}
 		if dist, ok := in.at.Reach(it.fb.X, it.fb.Y, it.fb.Z); ok {
-			hit := in.at.Hit(in.blocks, dist, it.fb.BlastBox, it.fb.BlastOrigin)
+			hit := in.at.Hit(in.blocks, dist, it.fb.BlastBox, it.fb.EyePosition)
 			it.fb.Push(hit.KX, hit.KY, hit.KZ)
 		}
 	}
