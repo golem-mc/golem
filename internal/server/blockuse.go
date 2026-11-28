@@ -105,7 +105,7 @@ func (c *client) useComposter(hand, x, y, z int32) bool {
 	w := c.theWorld()
 	state := w.BlockAt(x, y, z)
 	held := c.heldItem(hand)
-	if !held.Empty() {
+	if !held.Empty() && registry.BlockOf(state) == registry.BlockComposter {
 		ctx := c.srv.blockInteractLootContext(w, x, y, z, state, protocol.ItemStack{}, c.LootEntity())
 		if after, inserted, used := rules.ComposterInsert(state, held, &ctx, c.srv.levelRng); used {
 			if inserted {

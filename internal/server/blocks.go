@@ -926,7 +926,7 @@ func (c *client) destroyBlock(x, y, z int32, onTick bool) {
 	}
 	// Bodies spawn after the block change clearing their cell, so the queue
 	// goes out first.
-	if len(spawns) > 0 {
+	if slices.ContainsFunc(spawns, func(f func()) bool { return f != nil }) {
 		c.srv.flushBlockChanges(w)
 	}
 	for _, spawn := range spawns {

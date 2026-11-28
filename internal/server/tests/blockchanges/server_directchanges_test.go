@@ -82,3 +82,48 @@ func TestSetblockWithATagSendsTheBlockThenItsEntityData(t *testing.T) {
 		t.Fatalf("got packets %v, want a Block Update then Block Entity Data", ids)
 	}
 }
+
+// Update Light reaches a player whose view the relit chunk borders, not one
+// tracking all eight neighbours of that chunk.
+// vanilla: ChunkHolder.broadcastChanges, ChunkMap.isChunkOnTrackedBorder
+func TestUpdateLightGoesOnlyToBorderPlayers(t *testing.T) {
+	t.Parallel()
+	srv, builder, edge := edgeRig(t)
+	torch := servertest.BlockState(t, "minecraft:torch")
+	srv.SetBlockAndTell(1, 70, 2, torch)
+	srv.WaitRelights()
+
+	var edgeLight bool
+	edge.ReadTicks(srv, 1, func(id int32, data []byte) bool {
+		if id == protocol.IDPlayUpdateLight {
+			if x, z, _, _, _, _ := lightMasks(t, data); x == 0 && z == 0 {
+				edgeLight = true
+			}
+		}
+		return false
+	})
+	if !edgeLight {
+		t.Fatal("edge watcher did not receive Update Light for chunk (0, 0)")
+	}
+
+	var gotBlock, gotLight bool
+	builder.ReadTicks(srv, servertest.QuietTicks, func(id int32, data []byte) bool {
+		switch id {
+		case protocol.IDPlayBlockUpdate:
+			for _, cell := range servertest.BlockChangesIn(t, id, data) {
+				if cell.X == 1 && cell.Y == 70 && cell.Z == 2 && cell.State == torch {
+					gotBlock = true
+				}
+			}
+		case protocol.IDPlayUpdateLight:
+			gotLight = true
+		}
+		return false
+	})
+	if !gotBlock {
+		t.Fatal("middle player did not receive Block Update for the torch")
+	}
+	if gotLight {
+		t.Fatal("middle player received Update Light for an interior chunk")
+	}
+}
