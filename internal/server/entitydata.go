@@ -110,6 +110,21 @@ func orderedEntityBaseTag(id string, x, y, z, vx, vy, vz float64, yaw, pitch flo
 }
 
 // putEntityOptions finishes Entity.saveWithoutId before the kind's additional data.
+// putTicksFrozen writes TicksFrozen, left out at 0.
+// vanilla: Entity.saveWithoutId
+func putTicksFrozen(tag nbt.CompoundTag, ticks int) {
+	if ticks > 0 {
+		tag.Set("TicksFrozen", nbt.Int(ticks))
+	}
+}
+
+// ticksFrozenOfTag reads TicksFrozen, 0 when absent.
+// vanilla: Entity.load
+func ticksFrozenOfTag(compound nbt.Compound) int {
+	frozen, _ := nbt.IntField(compound, "TicksFrozen")
+	return int(frozen)
+}
+
 func putEntityOptions(tag nbt.CompoundTag, custom customName, silent, noGravity bool, look entityLook, tags nbt.StringSet) {
 	custom.put(tag)
 	if silent {
@@ -157,6 +172,7 @@ func itemTagAs(ent *itemEntity, id string) *nbt.OrderedCompound {
 		it.VX, it.VY, it.VZ,
 		ent.look.yaw, ent.look.pitch, ent.uuid, it.OnGround, ent.portal.Cooldown, restingFire, it.InvulnerableTime)
 	putEntityOptions(tag, ent.custom, ent.look.silent, it.NoGravity, ent.look, ent.tags)
+	putTicksFrozen(tag, it.TicksFrozen)
 	tag.Set("Invulnerable", boolTag(it.Invulnerable))
 	tag.Set("Health", nbt.Short(clampToShort(it.Health)))
 	tag.Set("Age", nbt.Short(clampToShort(it.Age)))
@@ -537,6 +553,7 @@ func boatTagAs(ent *boatEntity, id string) *nbt.OrderedCompound {
 		b.X, b.Y, b.Z, b.VX, b.VY, b.VZ,
 		b.Yaw, ent.look.pitch, ent.uuid, b.OnGround, ent.portal.Cooldown, b.FireTicks, 0)
 	putEntityOptions(tag, ent.custom, ent.look.silent, b.NoGravity, ent.look, ent.tags)
+	putTicksFrozen(tag, b.TicksFrozen)
 	tag.Set("Invulnerable", boolTag(b.Invulnerable))
 	putLeash(tag, ent.leash)
 	if ent.lootTable != "" {
@@ -613,6 +630,7 @@ func applyItemTag(it *itemEntity, compound nbt.Compound) {
 		it.item.OnGround = ground != 0
 	}
 	it.item.NoGravity = nbt.BoolField(compound, "NoGravity")
+	it.item.TicksFrozen = ticksFrozenOfTag(compound)
 	it.portal.Cooldown = portalCooldownOf(compound)
 	it.tags.Reset(tagsOfTag(compound))
 	it.custom = customNameOfTag(compound)
@@ -1488,6 +1506,7 @@ func applyBoatTag(it *boatEntity, compound nbt.Compound) {
 		b.OnGround = ground != 0
 	}
 	b.FireTicks = int(shortFieldOf(compound, "Fire"))
+	b.TicksFrozen = ticksFrozenOfTag(compound)
 	b.NoGravity = nbt.BoolField(compound, "NoGravity")
 	b.Invulnerable = nbt.BoolField(compound, "Invulnerable")
 	it.custom = customNameOfTag(compound)
@@ -1538,6 +1557,7 @@ func minecartTagAs(ent *minecartEntity, id string) *nbt.OrderedCompound {
 		m.X, m.Y, m.Z, m.VX, m.VY, m.VZ,
 		m.Yaw, ent.look.pitch, ent.uuid, m.OnGround, ent.portal.Cooldown, m.FireTicks, 0)
 	putEntityOptions(tag, ent.custom, ent.look.silent, m.NoGravity, ent.look, ent.tags)
+	putTicksFrozen(tag, m.TicksFrozen)
 	tag.Set("Invulnerable", boolTag(m.Invulnerable))
 	if _, _, ok := registry.BlockStateName(uint16(ent.displayState)); ok && ent.displayState != 0 {
 		tag.Set("DisplayState", registry.BlockStateCodecTag(uint16(ent.displayState)))
@@ -1617,6 +1637,7 @@ func applyMinecartTag(it *minecartEntity, compound nbt.Compound) {
 		m.OnGround = ground != 0
 	}
 	m.FireTicks = int(shortFieldOf(compound, "Fire"))
+	m.TicksFrozen = ticksFrozenOfTag(compound)
 	m.NoGravity = nbt.BoolField(compound, "NoGravity")
 	m.Invulnerable = nbt.BoolField(compound, "Invulnerable")
 	it.custom = customNameOfTag(compound)

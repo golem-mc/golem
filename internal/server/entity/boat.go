@@ -163,6 +163,10 @@ type Boat struct {
 	// vanilla: Entity.remainingFireTicks, Entity.setSharedFlagOnFire
 	FireTicks int
 	Burning   bool
+	// TicksFrozen is the powder snow count, up to rules.FullyFrozenTicks; only
+	// lava takes it down.
+	// vanilla: Entity.setTicksFrozen
+	TicksFrozen int
 }
 
 // NewBoat places a still, unhurt boat at the position facing yaw. The

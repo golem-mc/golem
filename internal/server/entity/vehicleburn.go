@@ -7,8 +7,10 @@ import (
 
 // vehicleBurnPass applies per-cell hurts in effect-step order, stopping when
 // a hurt removes the vehicle. Ignition is deduplicated per step; hurts are not.
+// Powder snow adds one frozen tick per step (once however many cells it meets),
+// lava clears the count. No non-living entity type is in freeze_immune_entity_types.
 // vanilla: InsideBlockEffectApplier.StepBasedCollector, Entity.applyEffectsFromBlocks
-func vehicleBurnPass(w World, move bodyMove, rel AABB, fire *int, dead *bool, hurt func(float64, registry.DamageType, bool) bool, visit insideVisitor) (burns, fizzles int) {
+func vehicleBurnPass(w World, move bodyMove, rel AABB, fire, frozen *int, dead *bool, hurt func(float64, registry.DamageType, bool) bool, visit insideVisitor) (burns, fizzles int) {
 	if *dead {
 		return
 	}
@@ -17,11 +19,14 @@ func vehicleBurnPass(w World, move bodyMove, rel AABB, fire *int, dead *bool, hu
 	var fireBuf [16]float32
 	fires := fireBuf[:0]
 	lava := 0
-	extinguish := false
+	extinguish, snow := false, false
 	lastStep := -1
 	flush := func() {
 		if *dead {
 			return
+		}
+		if snow {
+			*frozen = min(rules.FullyFrozenTicks, *frozen+1)
 		}
 		if len(fires) > 0 {
 			// vanilla: BaseFireBlock.fireIgnite (a vehicle is not a player)
@@ -39,6 +44,7 @@ func vehicleBurnPass(w World, move bodyMove, rel AABB, fire *int, dead *bool, hu
 			return
 		}
 		if lava > 0 {
+			*frozen = 0 // vanilla: InsideBlockEffectType.CLEAR_FREEZE
 			*fire = max(*fire, fireTicksLava)
 			for range lava {
 				if *dead {
@@ -54,7 +60,7 @@ func vehicleBurnPass(w World, move bodyMove, rel AABB, fire *int, dead *bool, hu
 		}
 		fires = fires[:0]
 		lava = 0
-		extinguish = false
+		extinguish, snow = false, false
 	}
 	walkInside(w, []bodyMove{move}, rel, func(x, y, z int32, state uint16, step int, from AABB, dx, dy, dz float64) bool {
 		if step != lastStep {
@@ -75,7 +81,7 @@ func vehicleBurnPass(w World, move bodyMove, rel AABB, fire *int, dead *bool, hu
 			}
 			fires = append(fires, damage)
 		case rules.IsPowderSnow(state):
-			extinguish = true
+			extinguish, snow = true, true
 		default:
 			switch sweptFluid(w, x, y, z, state, from, dx, dy, dz) {
 			case fluidLava:

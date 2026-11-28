@@ -136,6 +136,10 @@ type Minecart struct {
 	HorizontalCollision bool
 	// FireTicks is ignition state only: AbstractMinecart.tick skips Entity.baseTick.
 	FireTicks int
+	// TicksFrozen is the powder snow count, up to rules.FullyFrozenTicks; only
+	// lava takes it down.
+	// vanilla: Entity.setTicksFrozen
+	TicksFrozen int
 	// LavaHurts and Extinguishes count this tick's sounds.
 	LavaHurts, Extinguishes int
 	burnHurt                func(float64, registry.DamageType, bool) bool
@@ -402,7 +406,7 @@ func (m *Minecart) blockEffects(w World) {
 	sideways := m.VX != 0 || m.VZ != 0
 	move := bodyMove{fx: m.X, fy: m.Y, fz: m.Z, tx: m.X, ty: m.Y, tz: m.Z}
 	rel := AABB{-MinecartHalfWidth, 0, -MinecartHalfWidth, MinecartHalfWidth, MinecartHeight, MinecartHalfWidth}
-	burns, fizzles := vehicleBurnPass(w, move, rel, &m.FireTicks, &m.Dead, m.contactHurt, func(x, y, z int32, state uint16, _ int, _ AABB, _, _, _ float64) bool {
+	burns, fizzles := vehicleBurnPass(w, move, rel, &m.FireTicks, &m.TicksFrozen, &m.Dead, m.contactHurt, func(x, y, z int32, state uint16, _ int, _ AABB, _, _, _ float64) bool {
 		if insideNonLiving(state, sideways, &m.stuck) {
 			m.Snowflakes = append(m.Snowflakes, y)
 		}

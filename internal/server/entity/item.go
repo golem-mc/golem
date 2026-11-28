@@ -172,6 +172,10 @@ type Item struct {
 	// fireTicks is remainingFireTicks: lit by lava and fire, biting one damage
 	// every 20th tick while it lasts.
 	fireTicks int
+	// TicksFrozen is the powder snow count, up to rules.FullyFrozenTicks; only
+	// lava takes it down.
+	// vanilla: Entity.setTicksFrozen
+	TicksFrozen int
 	// fireFlag is shared flag bit 0 as the base tick last set it: burning
 	// after the run-down, before the move can light or douse the item.
 	// vanilla: Entity.baseTick, setSharedFlagOnFire
@@ -688,6 +692,7 @@ func (it *Item) insideEffects(w World, events *[]ItemEvent) {
 		*events = append(*events, ItemEvent{Kind: ItemBubbleSurface, X: p.x, Y: p.y, Z: p.z})
 	}
 	var cauldrons [][3]int32
+	inSnow, inLava := false, false
 	var moves []bodyMove
 	if it.hasLastMove {
 		moves = []bodyMove{it.lastMove}
@@ -701,6 +706,7 @@ func (it *Item) insideEffects(w World, events *[]ItemEvent) {
 		case fluid == fluidWater:
 			it.fireTicks = 0
 		case fluid == fluidLava:
+			inLava = true
 			// The lava's two effects in vanilla's order: the burn lit
 			// for fifteen seconds, then the hurt and its sound.
 			if !it.fireImmune() && it.fireTicks < fireTicksLava {
@@ -732,6 +738,7 @@ func (it *Item) insideEffects(w World, events *[]ItemEvent) {
 			// vanilla: CactusBlock.entityInside
 			it.hurt(cactusDamage, rules.DamageTypeCactus, events)
 		case rules.IsPowderSnow(state):
+			inSnow = true
 			// The movement read is after the move, which spends it when
 			// the snow held the item from the tick before: only the tick
 			// the item comes in kicks up flakes.
@@ -741,6 +748,15 @@ func (it *Item) insideEffects(w World, events *[]ItemEvent) {
 		}
 		return !it.Dead // vanilla: the walk stops for a body no longer alive
 	})
+	// Once per pass however many cells it met; no item type is in
+	// freeze_immune_entity_types.
+	// vanilla: InsideBlockEffectType.FREEZE, CLEAR_FREEZE
+	if inSnow {
+		it.TicksFrozen = min(rules.FullyFrozenTicks, it.TicksFrozen+1)
+	}
+	if inLava {
+		it.TicksFrozen = 0
+	}
 	// Every cauldron in the box drops a level while the item is still on
 	// fire as the pass ends, before the rain.
 	// vanilla: LayeredCauldronBlock.entityInside

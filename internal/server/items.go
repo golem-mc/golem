@@ -64,6 +64,8 @@ type itemEntity struct {
 
 	// sentFire is the on-fire bit the watchers were last told.
 	sentFire bool
+	// sentFrozen is the frozen count the watchers were last told.
+	sentFrozen int
 	// order is the monotonic registration sequence, guarded by itemsMu.
 	order uint64
 }
@@ -1444,13 +1446,14 @@ func itemFields(it *itemEntity) metaFields { return itemMetaOf(it).fields() }
 // itemMeta is an item entity's synched values.
 type itemMeta struct {
 	fire, noGravity bool
+	frozen          int32
 	custom          customName
 	look            entityLook
 	stack           *protocol.ItemStack
 }
 
 func itemMetaOf(it *itemEntity) itemMeta {
-	return itemMeta{fire: it.item.FireFlag(), noGravity: it.item.NoGravity, custom: it.custom, look: it.look, stack: &it.item.Stack}
+	return itemMeta{fire: it.item.FireFlag(), noGravity: it.item.NoGravity, frozen: int32(it.item.TicksFrozen), custom: it.custom, look: it.look, stack: &it.item.Stack}
 }
 
 // itemMetaWalk is which walk of itemMetadataTable runs.
@@ -1482,6 +1485,10 @@ func itemMetadataTable(id int32, walk itemMetaWalk, now, was itemMeta) []byte {
 		b.PutMetadata(protocol.MetadataIndexNoGravity, protocol.MetadataBoolean)
 		b.PutBool(now.noGravity)
 	}
+	if now.frozen != was.frozen {
+		b.PutMetadata(protocol.MetadataIndexTicksFrozen, protocol.MetadataVarInt)
+		b.PutVarInt(now.frozen)
+	}
 	if walk == itemMetaSpawn {
 		b.PutMetadata(protocol.MetadataIndexItemSlot, protocol.MetadataSlot)
 		b.PutSlot(*now.stack)
@@ -1501,21 +1508,22 @@ func (m itemMeta) fields() metaFields {
 	m.look.addSilentField(&f)
 	m.custom.addFields(&f)
 	f.add(protocol.MetadataIndexNoGravity, protocol.MetadataBoolean, func(b *protocol.Buffer) { b.PutBool(m.noGravity) })
+	f.add(protocol.MetadataIndexTicksFrozen, protocol.MetadataVarInt, func(b *protocol.Buffer) { b.PutVarInt(m.frozen) })
 	f.add(protocol.MetadataIndexItemSlot, protocol.MetadataSlot, func(b *protocol.Buffer) { b.PutSlot(*m.stack) })
 	return f
 }
 
 // itemFireDelta builds the Set Entity Metadata packet of an item whose
-// on-fire bit turned since its watchers were last told, and records the
-// turn; nil if it has not. Called under the item lock.
+// on-fire bit or frozen count turned since its watchers were last told, and
+// records the turn; nil if neither has. Called under the item lock.
 func itemFireDelta(it *itemEntity) []byte {
-	if it.item.FireFlag() == it.sentFire {
+	now := itemMetaOf(it)
+	if now.fire == it.sentFire && it.item.TicksFrozen == it.sentFrozen {
 		return nil
 	}
-	now := itemMetaOf(it)
 	was := now
-	was.fire = it.sentFire
-	it.sentFire = now.fire
+	was.fire, was.frozen = it.sentFire, int32(it.sentFrozen)
+	it.sentFire, it.sentFrozen = now.fire, it.item.TicksFrozen
 	return itemMetadataTable(it.item.ID, itemMetaTick, now, was)
 }
 
