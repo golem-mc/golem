@@ -35,7 +35,7 @@ func BenchmarkOverworldGenerateViews(b *testing.B) {
 	}
 	warm := NewOverworldGenerator(8675309)
 	warm.Generate(newChunk(1000, 1000)) // warm shared structure data
-	var shapes, cold int64
+	var shapes, cold, fills int64
 	chunks := regions * 441
 	b.ReportAllocs()
 	b.ResetTimer()
@@ -58,12 +58,14 @@ func BenchmarkOverworldGenerateViews(b *testing.B) {
 		}
 		wg.Wait()
 		shapes += g.shapes.Load()
+		fills += g.biomeFills.Load()
 		g.cache.mu.Lock()
 		cold += int64(g.cache.coldBytes)
 		g.cache.mu.Unlock()
 	}
 	b.ReportMetric(float64(shapes)/float64(b.N*chunks), "shapes/chunk")
 	b.ReportMetric(float64(cold)/float64(b.N), "coldbytes")
+	b.ReportMetric(float64(fills)/float64(b.N*chunks), "fills/chunk")
 }
 
 func benchmarkGenerateSpread(b *testing.B, regions int, spill bool) {
