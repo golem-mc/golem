@@ -225,6 +225,7 @@ func arrowTagAs(ent *arrowEntity, id string) *nbt.OrderedCompound {
 		a.X, a.Y, a.Z, a.VX, a.VY, a.VZ,
 		a.Yaw, a.Pitch, ent.uuid, false, ent.portal.Cooldown, a.FireTicks, 0)
 	putEntityOptions(tag, ent.custom, ent.look.silent, a.NoGravity, ent.look, ent.tags)
+	putTicksFrozen(tag, a.TicksFrozen)
 	tag.Set("Invulnerable", boolTag(ent.look.invulnerable))
 	putProjectileFields(tag, ent.ownerUUID, a.LeftOwner(), ent.shot)
 	tag.Set("life", nbt.Short(clampToShort(a.Life)))
@@ -363,6 +364,7 @@ func thrownTagAs(ent *thrownEntity, id string) *nbt.OrderedCompound {
 		t.X, t.Y, t.Z, t.VX, t.VY, t.VZ,
 		t.Yaw, t.Pitch, ent.uuid, false, ent.portal.Cooldown, restingFire, 0)
 	putEntityOptions(tag, ent.custom, t.Silent, t.NoGravity, ent.look, ent.tags)
+	putTicksFrozen(tag, t.TicksFrozen)
 	tag.Set("Invulnerable", boolTag(ent.invulnerable))
 	putProjectileFields(tag, ent.ownerUUID, t.LeftOwner(), ent.shot)
 	if t.Kind.IsFireball() || t.Kind.IsWindCharge() {
@@ -407,6 +409,7 @@ func applyThrownRest(it *thrownEntity, compound nbt.Compound) {
 	}
 	t.NoGravity = nbt.BoolField(compound, "NoGravity")
 	t.Silent = nbt.BoolField(compound, "Silent")
+	t.TicksFrozen = ticksFrozenOfTag(compound)
 	it.invulnerable = nbt.BoolField(compound, "Invulnerable")
 	readFireballFields(t, compound)
 	it.tags.Reset(tagsOfTag(compound))
@@ -499,6 +502,7 @@ func fireworkTagAs(ent *fireworkEntity, id string) *nbt.OrderedCompound {
 		f.X, f.Y, f.Z, f.VX, f.VY, f.VZ,
 		f.Yaw, f.Pitch, ent.uuid, false, ent.portal.Cooldown, f.FireTicks, 0)
 	putEntityOptions(tag, ent.custom, false, false, entityLook{}, ent.tags)
+	putTicksFrozen(tag, f.TicksFrozen)
 	putProjectileFields(tag, ent.ownerUUID, f.LeftOwner(), ent.shot)
 	tag.Set("Life", nbt.Int(f.Life))
 	tag.Set("LifeTime", nbt.Int(f.Lifetime))
@@ -761,6 +765,7 @@ func applyArrowTag(it *arrowEntity, compound nbt.Compound) {
 	a.ShakeTicks = max(int(byteFieldOf(compound, "shake")), 0)
 	a.FireTicks = fireOfTag(compound)
 	a.NoGravity = nbt.BoolField(compound, "NoGravity")
+	a.TicksFrozen = ticksFrozenOfTag(compound)
 	a.Crit = nbt.BoolField(compound, "crit")
 	a.PierceLevel = int32(byteFieldOf(compound, "PierceLevel"))
 	// vanilla: AbstractArrow.readAdditionalSaveData (registry byNameCodec)

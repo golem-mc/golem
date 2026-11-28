@@ -121,6 +121,7 @@ type boatShown struct {
 	// flags is the shared flags byte: glowing and on fire.
 	flags  uint8
 	silent bool
+	frozen int32
 }
 
 func boatShownOf(it *boatEntity) boatShown {
@@ -134,6 +135,7 @@ func boatShownOf(it *boatEntity) boatShown {
 		bubbleTime:  int32(b.BubbleTime),
 		flags:       it.look.flags(b.Burning),
 		silent:      it.look.silent,
+		frozen:      int32(b.TicksFrozen),
 	}
 }
 
@@ -1265,12 +1267,12 @@ func (it *boatEntity) entityTypeID() int32 { return int32(it.kind) }
 func boatSpawnMetadataPayload(it *boatEntity) []byte {
 	b := it.boat
 	if b.HurtTime == 0 && b.HurtDir == protocol.BoatHurtDirDefault && b.HurtDamage == 0 &&
-		!b.LeftPaddle && !b.RightPaddle && !b.NoGravity && b.BubbleTime == 0 && !b.Burning &&
+		!b.LeftPaddle && !b.RightPaddle && !b.NoGravity && b.BubbleTime == 0 && b.TicksFrozen == 0 && !b.Burning &&
 		it.custom == (customName{}) && it.look.flags(false) == 0 && !it.look.silent {
 		return nil
 	}
 	return boatMetadataFields(b, it.look.flags(b.Burning), it.look.flags(b.Burning) != 0, it.custom, it.look.silent, false, b.NoGravity, b.HurtTime != 0, b.HurtDir != protocol.BoatHurtDirDefault,
-		b.HurtDamage != 0, b.LeftPaddle, b.RightPaddle, b.BubbleTime != 0)
+		b.HurtDamage != 0, b.LeftPaddle, b.RightPaddle, b.BubbleTime != 0, b.TicksFrozen != 0)
 }
 
 // boatFields is the synched value of a boat a /data write can change,
@@ -1279,6 +1281,7 @@ func boatFields(it *boatEntity) metaFields {
 	var m metaFields
 	m.add(protocol.MetadataIndexEntityFlags, protocol.MetadataByte, func(b *protocol.Buffer) { b.PutU8(it.look.flags(it.boat.Burning)) })
 	m.add(protocol.MetadataIndexNoGravity, protocol.MetadataBoolean, func(b *protocol.Buffer) { b.PutBool(it.boat.NoGravity) })
+	m.add(protocol.MetadataIndexTicksFrozen, protocol.MetadataVarInt, func(b *protocol.Buffer) { b.PutVarInt(int32(it.boat.TicksFrozen)) })
 	it.look.addSilentField(&m)
 	it.custom.addFields(&m)
 	return m
@@ -1297,17 +1300,17 @@ func boatDeltaMetadata(id int32, was, now boatShown) []byte {
 		HurtDir:    now.hurtDir,
 		HurtDamage: now.hurtDamage,
 		LeftPaddle: now.leftPaddle, RightPaddle: now.rightPaddle,
-		BubbleTime: int(now.bubbleTime),
+		BubbleTime: int(now.bubbleTime), TicksFrozen: int(now.frozen),
 	}, now.flags, was.flags != now.flags, customName{}, now.silent, was.silent, false, was.hurtTime != now.hurtTime, was.hurtDir != now.hurtDir,
 		was.hurtDamage != now.hurtDamage, was.leftPaddle != now.leftPaddle,
-		was.rightPaddle != now.rightPaddle, was.bubbleTime != now.bubbleTime)
+		was.rightPaddle != now.rightPaddle, was.bubbleTime != now.bubbleTime, was.frozen != now.frozen)
 }
 
 // boatMetadataFields lays the boat's metadata fields whose sends are asked
 // for: the shared flags byte where asked for, a non-default custom name, the no-gravity flag a held-up hull
 // carries, the vehicle's rocking — the ticks left, the direction count, the damage the blow laid, the
 // multiplier the rocking runs at — the two paddles and the splash timer.
-func boatMetadataFields(b *entity.Boat, flags uint8, tellFlags bool, custom customName, silent, wasSilent, noGravity, time, dir, damage, left, right, splash bool) []byte {
+func boatMetadataFields(b *entity.Boat, flags uint8, tellFlags bool, custom customName, silent, wasSilent, noGravity, time, dir, damage, left, right, splash, frozen bool) []byte {
 	var buf protocol.Buffer
 	buf.PutVarInt(b.ID)
 	if tellFlags {
@@ -1319,6 +1322,10 @@ func boatMetadataFields(b *entity.Boat, flags uint8, tellFlags bool, custom cust
 	if noGravity {
 		buf.PutMetadata(protocol.MetadataIndexNoGravity, protocol.MetadataBoolean)
 		buf.PutBool(true)
+	}
+	if frozen {
+		buf.PutMetadata(protocol.MetadataIndexTicksFrozen, protocol.MetadataVarInt)
+		buf.PutVarInt(int32(b.TicksFrozen))
 	}
 	if time {
 		buf.PutMetadata(protocol.MetadataIndexVehicleShake, protocol.MetadataVarInt)
@@ -2262,7 +2269,7 @@ func (s *Server) pushBoat(it *boatEntity, vx, vy, vz float64) {
 // body's own state carries: whatever they now hold, the values the
 // clients' records were just brought to.
 func boatShakeMetadata(b *entity.Boat) []byte {
-	return boatMetadataFields(b, 0, false, customName{}, false, false, false, true, true, b.HurtDamage != 0, false, false, false)
+	return boatMetadataFields(b, 0, false, customName{}, false, false, false, true, true, b.HurtDamage != 0, false, false, false, false)
 }
 
 // boatProjectileBlow is one boat a projectile's flight met: the world the

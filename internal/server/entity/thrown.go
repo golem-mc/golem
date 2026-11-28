@@ -278,6 +278,10 @@ type Thrown struct {
 	Place
 	VX, VY, VZ float64
 	Yaw, Pitch float32
+	// TicksFrozen is the powder snow count, up to rules.FullyFrozenTicks; only
+	// lava takes it down.
+	// vanilla: Entity.setTicksFrozen
+	TicksFrozen int
 
 	// TickCount is vanilla's tickCount, counted before the tick runs; the hit
 	// margin and the tracker's send rhythm read it.
@@ -498,14 +502,21 @@ func (t *Thrown) StepGather(w World, gather func(*Thrown) (*ArrowTarget, []Arrow
 	t.Yaw = lerpRotation(t.Yaw, arrowTargetYaw(t.VX, t.VZ))
 	t.Pitch = lerpRotation(t.Pitch, arrowTargetPitch(t.VY, t.VX, t.VZ))
 
-	// The block effects of the move, after the turn; a column is the only
-	// block a thrown body reacts to.
+	// The block effects of the move, after the turn; a column and the
+	// freezing of powder snow are all a thrown body reacts to.
 	// vanilla: ThrowableProjectile.tick, AbstractHurtingProjectile.tick
 	moves := [1]bodyMove{{fx: fromX, fy: fromY, fz: fromZ, tx: t.X, ty: t.Y, tz: t.Z}}
+	snow, lava := false, false
 	walkInside(w, moves[:], t.blockBox(0, 0, 0), func(x, y, z int32, state uint16, _ int, from AABB, dx, dy, dz float64) bool {
 		t.VY, _ = projectileBubblePush(w, x, y, z, state, from, dx, dy, dz, t.VY, pearl, &bubbles)
+		if rules.IsPowderSnow(state) {
+			snow = true
+		} else if sweptFluid(w, x, y, z, state, from, dx, dy, dz) == fluidLava {
+			lava = true
+		}
 		return true
 	})
+	applyFreeze(&t.TicksFrozen, snow, lava)
 	events := splash
 	for _, p := range bubbles {
 		events = append(events, ThrownEvent{Kind: ThrownBubbleSurface, X: float64(p.x), Y: float64(p.y), Z: float64(p.z)})

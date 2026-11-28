@@ -62,7 +62,6 @@ var orbTracker = trackedKind[*orbEntity, struct{}]{
 	dead:        func(it *orbEntity) bool { return it.orb.Dead },
 	pose:        func(it *orbEntity) bodyPose { return bodyPose{x: it.orb.X, y: it.orb.Y, z: it.orb.Z} },
 	pairing:     orbPairing,
-	delta:       func(it *orbEntity) []byte { return it.frozenDelta(it.orb.ID, it.orb.TicksFrozen) },
 }
 
 // orbWatcher is one player as the orb passes read them: the client and its
@@ -263,12 +262,16 @@ func (s *Server) tickOrbs() {
 		if mt.gate && it.motionDue(it.orb.VX, it.orb.VY, it.orb.VZ, true) {
 			motion = entityVelocityPayload(it.orb.ID, it.orb.VX, it.orb.VY, it.orb.VZ)
 		}
+		frozen := it.frozenDelta(it.orb.ID, it.orb.TicksFrozen)
 		for _, i := range body.watchers(near[it.w]) {
 			w := watchers[it.w][i]
 			if w.c.theWorld() != it.w {
 				continue // crossed to another dimension since the snapshot
 			}
 			was, seen := body.settle(w.c, w.view.X, w.view.Z, w.c.chunkRadius(), &out)
+			if seen && frozen != nil {
+				out.moves.add(w.c, outbound{id: protocol.IDPlayEntityMetadata, data: frozen})
+			}
 			if !seen || !mt.gate {
 				continue
 			}

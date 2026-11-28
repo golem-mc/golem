@@ -90,6 +90,10 @@ type Firework struct {
 
 	// FireTicks is remainingFireTicks; a rocket burns visibly while it is positive.
 	FireTicks int
+	// TicksFrozen is the powder snow count, up to rules.FullyFrozenTicks; only
+	// lava takes it down.
+	// vanilla: Entity.setTicksFrozen
+	TicksFrozen int
 
 	OwnerID    int32
 	AttachedTo int32
@@ -224,6 +228,8 @@ func (f *Firework) step(w World, owner *ArrowTarget, carrier *FireworkCarrier, t
 		}
 		if f.AttachedTo == 0 {
 			f.move(w)
+			freezeInside(w, bodyMove{fx: fromX, fy: fromY, fz: fromZ, tx: f.X, ty: f.Y, tz: f.Z},
+				AABB{-FireworkHalfWidth, 0, -FireworkHalfWidth, FireworkHalfWidth, FireworkHeight, FireworkHalfWidth}, &f.TicksFrozen)
 		}
 		if hit, ok := sweepFireworkTargets(f, targets, owner, thrownHitMargin(f.Life+1), fromX, fromY, fromZ, toX, toY, toZ); ok {
 			if deflectsProjectile(&hit.Target, false) {

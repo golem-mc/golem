@@ -71,7 +71,6 @@ var fallingTracker = trackedKind[*fallingEntity, struct{}]{
 		return bodyPose{x: fb.X, y: fb.Y, z: fb.Z, vx: fb.VX, vy: fb.VY, vz: fb.VZ, onGround: fb.OnGround}
 	},
 	pairing: fallingPairing,
-	delta:   func(it *fallingEntity) []byte { return it.frozenDelta(it.fb.ID, it.fb.TicksFrozen) },
 }
 
 // fallingHurt is one landing's harm waiting for the bodies it covers: the
@@ -296,13 +295,18 @@ func (s *Server) tickFallingBlocks() {
 		body := fallingTracker.body(it)
 		mt := body.schedule(false)
 		still, prevTick := body.stillSince(tick)
+		frozen := it.frozenDelta(it.fb.ID, it.fb.TicksFrozen)
 		for _, i := range body.watchers(near[it.w]) {
 			wh := watchers[it.w][i]
 			c := wh.c
 			if c.theWorld() != it.w {
 				continue // crossed to another dimension since the snapshot
 			}
-			if was, seen := body.settleOrTold(wh, still, prevTick, &out); seen && mt.gate {
+			was, seen := body.settleOrTold(wh, still, prevTick, &out)
+			if seen && frozen != nil {
+				out.moves.add(c, outbound{id: protocol.IDPlayEntityMetadata, data: frozen})
+			}
+			if seen && mt.gate {
 				body.moveTold(was, c, mt, &out)
 			}
 		}
