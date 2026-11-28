@@ -46,7 +46,6 @@ func (p nbtPath) isKeyChain() bool {
 	return len(p.nodes) > 0
 }
 
-// rootKey is the only root entry this path can edit, if it names one.
 // setScalarInKeyChain is set for an isKeyChain path and a scalar value, which
 // the stored tag needs no copy of: it creates the missing parents as
 // compounds and reports whether the entry changed.
@@ -74,6 +73,7 @@ func (p nbtPath) setScalarInKeyChain(root nbt.CompoundTag, value nbt.Tag) bool {
 	return true
 }
 
+// rootKey is the only root entry this path can edit, if it names one.
 func (p nbtPath) rootKey() (string, bool) {
 	nodes := p.nodes
 	if len(nodes) > 0 {
