@@ -365,7 +365,7 @@ func (p *Physics) ScheduleCrafter(x, y, z int32) {
 func (p *Physics) setCrafterTriggered(x, y, z int32, triggered bool) {
 	if be := p.w.BlockEntity(x, y, z); be != nil && be.Kind == KindCrafter {
 		be.Use(func(b *BlockEntity) {
-			b.Triggered = triggered
+			b.Triggered = int(boolByte(triggered))
 			p.w.TouchEntity(b)
 		})
 	}

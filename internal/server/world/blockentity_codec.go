@@ -102,16 +102,6 @@ var (
 	}
 	// beTrueFlag is beFlag, left out while false.
 	beTrueFlag = beValue[bool]{read: beFlag.read, write: func(v bool) (nbt.Tag, bool) { return nbt.Byte(1), v }}
-	// beIntFlag reads any number as an int (getIntOr), true only at 1, and
-	// writes 1 or 0 as an int.
-	// vanilla: CrafterBlockEntity.loadAdditional, CrafterBlockEntity.isTriggered
-	beIntFlag = beValue[bool]{
-		read: func(c nbt.Compound, key string) (bool, bool) {
-			v, ok := nbt.IntField(c, key)
-			return v == 1, ok
-		},
-		write: func(v bool) (nbt.Tag, bool) { return nbt.Int(boolByte(v)), true },
-	}
 	// beOptString is beString, left out while empty.
 	beOptString = beValue[string]{read: readString, write: func(v string) (nbt.Tag, bool) { return nbt.String(v), v != "" }}
 	// beLootTable reads a loot table's key as an Identifier, a bare name being
@@ -391,7 +381,7 @@ func (b *BlockEntity) codec(c *beCodec) {
 		}
 		b.disabledSlots(c)
 		// An in-place load without the key keeps the flag.
-		field(c, "triggered", &b.Triggered, beIntFlag, b.Triggered)
+		field(c, "triggered", &b.Triggered, beInt, b.Triggered)
 	case KindCampfire:
 		// vanilla: CampfireBlockEntity.saveAdditional
 		field(c, "CookingTimes", &b.CampfireProgress, beCampfireTimes, [CampfireSlots]int32{})
