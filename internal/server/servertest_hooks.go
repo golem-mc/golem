@@ -5780,6 +5780,19 @@ func (s *Server) MobFire(id int32) int {
 	return 0
 }
 
+// MobHurtTime is the hit-flash countdown of a mob of the first dimension, 0
+// when it is not there.
+func (s *Server) MobHurtTime(id int32) int {
+	s.mobsMu.Lock()
+	defer s.mobsMu.Unlock()
+	for m := range s.herdOf(s.world).book {
+		if m.ID == id {
+			return int(m.HurtTime)
+		}
+	}
+	return 0
+}
+
 // MobHeadItem is the registry ID of the item on an overworld mob's head slot,
 // 0 for a bare head.
 func (s *Server) MobHeadItem(id int32) int32 {

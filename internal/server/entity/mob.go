@@ -5287,9 +5287,6 @@ func (m *Mob) tickInto(out []MobEvent, tick *tickView, w World, players []Player
 		}
 	}
 	out = m.ageLockStep(out)
-	if m.InvulnTicks > 0 {
-		m.InvulnTicks--
-	}
 	if m.playerMemoryTicks > 0 {
 		m.playerMemoryTicks--
 	}
