@@ -331,7 +331,7 @@ func (b *Board) JoinTeam(team string, players []string, instance ...InstanceID) 
 	b.membersChanged()
 	for _, player := range players {
 		if b.teamOf[player] == t {
-			// A member keeps its place, as in vanilla's set; clients still get
+			// A member keeps its place in the list; clients still get
 			// the remove and add.
 			b.emit(&TeamMemberEvent{Team: team, Player: player})
 			b.emit(&TeamMemberEvent{Team: team, Player: player, Joined: true})
