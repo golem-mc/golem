@@ -87,6 +87,47 @@ func TestMigrateLayoutMovesTheOldFolders(t *testing.T) {
 	}
 }
 
+// TestMigrateLayoutMovesGeneratedAndCustomDimensions checks that pre-26.1
+// generated structure templates and custom dimensions' data files are moved
+// into their current places, and that a second run is a no-op.
+func TestMigrateLayoutMovesGeneratedAndCustomDimensions(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	writeFiles(t, root, map[string]string{
+		"generated/minecraft/structures/a.nbt":     "template a",
+		"generated/foo/structures/b/c.nbt":         "template c",
+		"generated/loose.txt":                      "ignored",
+		"dimensions/foo/bar/data/chunks.dat":       "custom tickets",
+		"dimensions/foo/bar/data/raids.dat":        "custom raids",
+		"dimensions/foo/bar/data/world_border.dat": "custom border",
+		"dimensions/foo/bar/data/other.dat":        "kept",
+		"dimensions/loose.txt":                     "ignored",
+	})
+	want := map[string]string{
+		"generated/minecraft/structure/a.nbt":                 "template a",
+		"generated/foo/structure/b/c.nbt":                     "template c",
+		"generated/loose.txt":                                 "ignored",
+		"dimensions/foo/bar/data/minecraft/chunk_tickets.dat": "custom tickets",
+		"dimensions/foo/bar/data/minecraft/raids.dat":         "custom raids",
+		"dimensions/foo/bar/data/minecraft/world_border.dat":  "custom border",
+		"dimensions/foo/bar/data/other.dat":                   "kept",
+		"dimensions/loose.txt":                                "ignored",
+	}
+	for range 2 {
+		if err := MigrateLayout(root); err != nil {
+			t.Fatal(err)
+		}
+		expectFiles(t, root, want)
+		expectGone(t, root,
+			"generated/minecraft/structures",
+			"generated/foo/structures",
+			"dimensions/foo/bar/data/chunks.dat",
+			"dimensions/foo/bar/data/raids.dat",
+			"dimensions/foo/bar/data/world_border.dat",
+		)
+	}
+}
+
 // TestWorldKeepsEachDimensionInItsOwnFolder checks where each dimension's
 // world saves its chunks: dimensions/minecraft/<name>/region.
 func TestWorldKeepsEachDimensionInItsOwnFolder(t *testing.T) {

@@ -123,24 +123,90 @@ func mapNumber(name string) bool {
 	return true
 }
 
+// legacyDimensionDataMoves moves chunks.dat, raids.dat and world_border.dat
+// inside existing dimensions/<ns>/<path>/data/ folders (custom dimensions)
+// before the fixed vanilla-dimension moves run.
+// vanilla: DimensionStorageFileFix, FileRelation.discoverDimensions
+func legacyDimensionDataMoves(root string) ([][2]string, error) {
+	namespaces, err := os.ReadDir(filepath.Join(root, "dimensions"))
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil, nil
+	} else if err != nil {
+		return nil, err
+	}
+	var moves [][2]string
+	for _, ns := range namespaces {
+		if !ns.IsDir() {
+			continue
+		}
+		dims, err := os.ReadDir(filepath.Join(root, "dimensions", ns.Name()))
+		if err != nil {
+			return nil, err
+		}
+		for _, dim := range dims {
+			if !dim.IsDir() {
+				continue
+			}
+			dataDir := filepath.Join("dimensions", ns.Name(), dim.Name(), "data")
+			for _, file := range [][2]string{
+				{"chunks.dat", "chunk_tickets.dat"},
+				{"raids.dat", "raids.dat"},
+				{"world_border.dat", "world_border.dat"},
+			} {
+				moves = append(moves, [2]string{
+					filepath.Join(dataDir, file[0]),
+					filepath.Join(dataDir, "minecraft", file[1]),
+				})
+			}
+		}
+	}
+	return moves, nil
+}
+
+// legacyGeneratedMoves renames generated/<ns>/structures to structure for
+// every namespace folder under generated/.
+// vanilla: GeneratedStructuresRenameFileFix
+func legacyGeneratedMoves(root string) ([][2]string, error) {
+	entries, err := os.ReadDir(filepath.Join(root, "generated"))
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil, nil
+	} else if err != nil {
+		return nil, err
+	}
+	var moves [][2]string
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		moves = append(moves, [2]string{
+			filepath.Join("generated", entry.Name(), "structures"),
+			filepath.Join("generated", entry.Name(), "structure"),
+		})
+	}
+	return moves, nil
+}
+
 // MigrateLayout moves a pre-26.1 world under root into the current places. Each move
 // is a rename skipped when its source is gone, so a cut-short migration
 // finishes on the next start; a move whose target exists is left with a
 // warning. The emptied DIM-1 and DIM1 folders are removed.
-// vanilla: FileFixUtil.moveFile
+// vanilla: FileFixUtil.moveFile, DimensionStorageFileFix, GeneratedStructuresRenameFileFix
 func MigrateLayout(root string) error {
-	for _, move := range legacyMoves {
-		if err := moveLegacy(root, move[0], move[1]); err != nil {
-			return err
+	// Custom dimensions' data/ moves run before the vanilla-dimension moves.
+	for _, scan := range []func(string) ([][2]string, error){
+		legacyDimensionDataMoves,
+		func(string) ([][2]string, error) { return legacyMoves, nil },
+		legacyDataMoves,
+		legacyGeneratedMoves,
+	} {
+		moves, err := scan(root)
+		if err != nil {
+			return fmt.Errorf("migrate the world layout: %w", err)
 		}
-	}
-	scanned, err := legacyDataMoves(root)
-	if err != nil {
-		return fmt.Errorf("migrate the world layout: %w", err)
-	}
-	for _, move := range scanned {
-		if err := moveLegacy(root, move[0], move[1]); err != nil {
-			return err
+		for _, move := range moves {
+			if err := moveLegacy(root, move[0], move[1]); err != nil {
+				return err
+			}
 		}
 	}
 	for _, dir := range []string{"DIM-1/data", "DIM1/data", "DIM-1", "DIM1"} {
