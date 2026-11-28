@@ -1514,11 +1514,9 @@ func (s *Server) writeBlockWithUpdates(w *world.World, x, y, z int32, state uint
 		s.replaceBlockEntity(w, x, y, z, old, w.BlockAt(x, y, z))
 	}
 	if policy&(writeLight|writeLightAfter) == writeLight {
-		if updates == nil {
-			s.relightAsync(w, x, z)
-		} else if !registry.SameLight(old, state) {
+		if !registry.SameLight(old, state) {
 			// SwapBlock already marked this column. Book the whole chunk so
-			// the lane can coalesce its writes without rescanning light marks.
+			// the lane can coalesce a burst of writes without rescanning light marks.
 			s.bookRelight(w, changeBox{x &^ 15, z &^ 15, x | 15, z | 15})
 		}
 	}

@@ -16,18 +16,19 @@ import (
 // datapack's tick function does every tick.
 func BenchmarkFunctionLines(b *testing.B) {
 	lines := map[string]string{
-		"score":                    "scoreboard players add #c x 1",
-		"execute_if_score":         "execute if score #c x matches 1.. run scoreboard players add #c x 1",
-		"execute_as_tp":            "execute as @e[type=marker,tag=t] at @s run tp @s ~ ~ ~",
-		"execute_as_score":         "execute as @e[type=marker,tag=t] at @s run scoreboard players add @s x 1",
-		"execute_if_block_tag":     "execute as @e[type=marker,tag=t] at @s if block ~ ~-1 ~ #minecraft:dirt run scoreboard players add @s x 1",
-		"execute_as_particle":      "execute as @e[type=marker,tag=t] at @s run particle minecraft:dust{color:[1.0,0.0,0.0],scale:1.0} ~ ~1 ~ 0 0 0 0 1",
-		"execute_as_store_data":    "execute as @e[type=marker,tag=t] store result score @s x run data get entity @s Pos[0]",
-		"execute_as_merge_display": "execute as @e[type=item_display,tag=t] run data merge entity @s {transformation:{translation:[0f,1f,0f],left_rotation:[0f,0f,0f,1f],scale:[1f,1f,1f],right_rotation:[0f,0f,0f,1f]},start_interpolation:0,interpolation_duration:2}",
-		"macro_call":               `execute as @e[type=marker,tag=t] run function zz:m {x:1,o:"x"}`,
-		"summon_kill":              "summon marker ~ ~ ~ {Tags:[\"z\"]}\nkill @e[type=marker,tag=z]",
+		"score":                      "scoreboard players add #c x 1",
+		"execute_if_score":           "execute if score #c x matches 1.. run scoreboard players add #c x 1",
+		"execute_as_tp":              "execute as @e[type=marker,tag=t] at @s run tp @s ~ ~ ~",
+		"execute_as_score":           "execute as @e[type=marker,tag=t] at @s run scoreboard players add @s x 1",
+		"execute_if_block_tag":       "execute as @e[type=marker,tag=t] at @s if block ~ ~-1 ~ #minecraft:dirt run scoreboard players add @s x 1",
+		"execute_as_particle":        "execute as @e[type=marker,tag=t] at @s run particle minecraft:dust{color:[1.0,0.0,0.0],scale:1.0} ~ ~1 ~ 0 0 0 0 1",
+		"execute_as_store_data":      "execute as @e[type=marker,tag=t] store result score @s x run data get entity @s Pos[0]",
+		"execute_as_merge_display":   "execute as @e[type=item_display,tag=t] run data merge entity @s {transformation:{translation:[0f,1f,0f],left_rotation:[0f,0f,0f,1f],scale:[1f,1f,1f],right_rotation:[0f,0f,0f,1f]},start_interpolation:0,interpolation_duration:2}",
+		"macro_call":                 `execute as @e[type=marker,tag=t] run function zz:m {x:1,o:"x"}`,
+		"execute_as_setblock_toggle": "execute as @e[type=marker,tag=t] at @s run setblock ~ ~3 ~ stone\nexecute as @e[type=marker,tag=t] at @s run setblock ~ ~3 ~ air",
+		"summon_kill":                "summon marker ~ ~ ~ {Tags:[\"z\"]}\nkill @e[type=marker,tag=z]",
 	}
-	for _, name := range []string{"score", "execute_if_score", "execute_as_tp", "execute_as_score", "execute_as_particle", "execute_as_store_data", "execute_as_merge_display", "execute_if_block_tag", "summon_kill", "macro_call"} {
+	for _, name := range []string{"score", "execute_if_score", "execute_as_tp", "execute_as_score", "execute_as_particle", "execute_as_store_data", "execute_as_merge_display", "execute_if_block_tag", "execute_as_setblock_toggle", "summon_kill", "macro_call"} {
 		b.Run(name, func(b *testing.B) {
 			s, _ := newTrackerBenchServer(b)
 			s.mu.Lock()
@@ -46,6 +47,18 @@ func BenchmarkFunctionLines(b *testing.B) {
 				b.Fatal(err)
 			}
 			body := strings.Repeat(lines[name]+"\n", 1000)
+			if name == "execute_as_setblock_toggle" {
+				// Two lines per copy: 500 copies keep the function at 1000 lines.
+				body = strings.Repeat(lines[name]+"\n", 500)
+				s.backstopMu.Lock()
+				s.tickRunning = true
+				s.backstopMu.Unlock()
+				b.Cleanup(func() {
+					s.backstopMu.Lock()
+					s.tickRunning = false
+					s.backstopMu.Unlock()
+				})
+			}
 			if err := os.WriteFile(filepath.Join(fnDir, "t.mcfunction"), []byte(body), 0o644); err != nil {
 				b.Fatal(err)
 			}
@@ -73,6 +86,7 @@ func BenchmarkFunctionLines(b *testing.B) {
 			start := time.Now()
 			for range b.N {
 				s.RunRconLine("function zz:t")
+				s.relightWG.Wait()
 			}
 			b.ReportMetric(float64(time.Since(start).Nanoseconds())/float64(b.N)/1000, "ns/line")
 		})
@@ -141,6 +155,7 @@ func BenchmarkEntityQueryLines(b *testing.B) {
 		{"tagged_data", "data merge entity @e[type=armor_stand,tag=one,limit=1] {CustomNameVisible:0b}"},
 		{"uuid", "execute as 00000001-0000-0002-0000-000300000004 run scoreboard players add #c x 1"},
 		{"summon", "execute summon marker run kill @s"},
+		{"nearest", "execute as @e[type=marker,limit=1,sort=nearest] run scoreboard players add #c x 1"},
 	}
 	for _, line := range lines {
 		for _, n := range []int{1, 2000} {

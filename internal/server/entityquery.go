@@ -1,9 +1,11 @@
 package server
 
 import (
+	"cmp"
 	"math"
 	"sync"
 
+	"github.com/golem-mc/golem/internal/commandsyntax"
 	"github.com/golem-mc/golem/internal/server/command"
 	"github.com/golem-mc/golem/internal/server/entity"
 	"github.com/golem-mc/golem/internal/server/world"
@@ -144,6 +146,7 @@ func (q *entityQuery) filters() *command.EntityQuery {
 
 type entityCandidate struct {
 	id   int32
+	d    float64 // squared distance to the query's Anchor
 	ref  any
 	kind *entityQueryKind // nil for a player, which is already a command.Entity
 }
@@ -154,6 +157,27 @@ type entityQueryKind struct {
 }
 
 var entityCandidates = sync.Pool{New: func() any { return new([]entityCandidate) }}
+
+// byDistance reports whether candidates are taken nearest or furthest first.
+func (q *entityQuery) byDistance() bool {
+	return q.Limit > 0 && (q.Order == commandsyntax.OrderNearest || q.Order == commandsyntax.OrderFurthest)
+}
+
+// compareCandidates orders by the query's sort, ties by entity ID.
+func (q *entityQuery) compareCandidates(a, b entityCandidate) int {
+	if q.byDistance() && a.d != b.d {
+		if (a.d < b.d) == (q.Order == commandsyntax.OrderNearest) {
+			return -1
+		}
+		return 1
+	}
+	return cmp.Compare(a.id, b.id)
+}
+
+func (q *entityQuery) distance(x, y, z float64) float64 {
+	a := q.Anchor
+	return entity.Dist2(x, y, z, a.X, a.Y, a.Z)
+}
 
 func (q *entityQuery) skipCandidate(id int32) bool {
 	if int64(id) <= q.after {

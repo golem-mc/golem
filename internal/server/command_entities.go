@@ -1461,7 +1461,7 @@ func (ws worldScope) query(q entityQuery) []command.Entity {
 		}
 	}
 	// Bound maintenance is linear in the batch size; larger limits collect once.
-	if q.Limit > 0 && q.Limit <= 16 {
+	if q.Limit > 0 && q.Limit <= 16 && !q.byDistance() {
 		q.batch = q.Limit
 	}
 	if q.Limit > 0 {
@@ -1487,7 +1487,8 @@ func (ws worldScope) query(q entityQuery) []command.Entity {
 		}
 		if q.Limit > 0 {
 			if !q.skipCandidate(c.EntityID()) {
-				q.collect(entityCandidate{id: c.EntityID(), ref: c})
+				p := c.Position()
+				q.collect(entityCandidate{id: c.EntityID(), d: q.distance(p.X, p.Y, p.Z), ref: c})
 			}
 			continue
 		}
@@ -1535,7 +1536,7 @@ func (ws worldScope) query(q entityQuery) []command.Entity {
 		}
 		if q.Limit > 0 {
 			candidates := *q.candidates
-			slices.SortFunc(candidates, func(a, b entityCandidate) int { return cmp.Compare(a.id, b.id) })
+			slices.SortFunc(candidates, q.compareCandidates)
 			// Disable collection while taking each accepted body's full snapshot.
 			q.candidates = nil
 			for _, candidate := range candidates {
@@ -1572,6 +1573,10 @@ func (ws worldScope) query(q entityQuery) []command.Entity {
 		} else {
 			break
 		}
+	}
+	// A nearest or furthest limit already left the picks in that order.
+	if q.byDistance() {
+		return entities
 	}
 	// IDs are handed out in spawn order, the order vanilla's level lookup
 	// keeps; the herd's map and the per-kind lists above are not.
@@ -1750,7 +1755,7 @@ func (s *Server) snapshot(q *entityQuery, tags nbt.StringSet, ref any, id int32,
 		return nil
 	}
 	if q != nil && q.candidates != nil {
-		q.collect(entityCandidate{id: id, ref: ref, kind: q.kind})
+		q.collect(entityCandidate{id: id, d: q.distance(pos.X, pos.Y, pos.Z), ref: ref, kind: q.kind})
 		return nil
 	}
 	return &entitySnapshot{

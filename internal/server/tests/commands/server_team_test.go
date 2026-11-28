@@ -347,3 +347,58 @@ func TestTeamDeathMessageVisibility(t *testing.T) {
 		})
 	}
 }
+
+// TestTeamRejoinKeepsMembersInPlace checks that joining the team a target is
+// already on tells clients to remove and re-add it, and leaves the member order.
+func TestTeamRejoinKeepsMembersInPlace(t *testing.T) {
+	t.Parallel()
+	_, c := servertest.StartExecuteWorld(t, "Testificate")
+	c.ChatCommand("team add a")
+	expectTeamPacket(t, c, "a", 0)
+	expectTeamPacket(t, c, "a", 2)
+	expectScoreboardFeedback(t, c, "commands.team.add.success")
+	c.ChatCommand("team add b")
+	expectTeamPacket(t, c, "b", 0)
+	expectTeamPacket(t, c, "b", 2)
+	expectScoreboardFeedback(t, c, "commands.team.add.success")
+
+	var ids []string
+	for _, tag := range []string{"first", "second"} {
+		c.ChatCommand("summon marker ~ ~ ~ {Tags:[\"" + tag + "\"]}")
+		servertest.FeedbackComponent(t, c)
+		c.ChatCommand("team join a @e[type=marker,tag=" + tag + "]")
+		p := expectTeamPacket(t, c, "a", 3)
+		ids = append(ids, p.players...)
+		expectScoreboardFeedback(t, c, "commands.team.join.success.single")
+	}
+	if len(ids) != 2 {
+		t.Fatalf("joined %v, want two markers", ids)
+	}
+
+	c.ChatCommand("team join a @e[type=marker]")
+	for range ids {
+		if p := expectTeamPacket(t, c, "a", 4); len(p.players) != 1 {
+			t.Fatalf("remove packet players %v, want one", p.players)
+		}
+		if p := expectTeamPacket(t, c, "a", 3); len(p.players) != 1 {
+			t.Fatalf("add packet players %v, want one", p.players)
+		}
+	}
+	expectScoreboardFeedback(t, c, "commands.team.join.success.multiple")
+
+	c.ChatCommand("team list a")
+	with := expectScoreboardFeedback(t, c, "commands.team.list.members.success")
+	if len(with) != 3 || number(with[1]) != 2 {
+		t.Fatalf("members %+v, want both markers", with)
+	}
+
+	c.ChatCommand("team join b @e[type=marker,tag=first]")
+	expectTeamPacket(t, c, "a", 4)
+	expectTeamPacket(t, c, "b", 3)
+	expectScoreboardFeedback(t, c, "commands.team.join.success.single")
+	c.ChatCommand("team list a")
+	with = expectScoreboardFeedback(t, c, "commands.team.list.members.success")
+	if number(with[1]) != 1 {
+		t.Errorf("team a members %+v, want only the second marker", with)
+	}
+}
