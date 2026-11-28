@@ -87,6 +87,7 @@ func (c *Chunk) setPistonRide(r pistonRide) {
 		c.pistonRides = make(map[int64]pistonRide)
 	}
 	c.pistonRides[entityKey(r.x, r.y, r.z)] = r
+	c.entityGen++
 }
 
 func (c *Chunk) pistonRide(x, y, z int32) (pistonRide, bool) {
@@ -101,6 +102,7 @@ func (c *Chunk) removePistonRide(x, y, z int32) bool {
 	}
 	delete(c.pistonRides, key)
 	delete(c.pistonHandles, key)
+	c.entityGen++
 	return true
 }
 

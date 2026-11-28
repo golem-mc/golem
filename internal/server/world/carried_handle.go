@@ -117,6 +117,7 @@ func (b *CarriedBlockEntity) Edit(edit func(nbt.Compound)) bool {
 		edit(entry)
 		// Replace in place: private data must not reorder carried tickers.
 		b.chunk.carriedBlockEntities.Items[i] = entry
+		b.chunk.entityGen++
 		l.markDirty()
 		return true
 	}

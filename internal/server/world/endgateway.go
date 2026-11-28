@@ -39,6 +39,7 @@ func (w *World) TickEndGatewaysIn(beamInterval int64, ticks func(ChunkPos) bool)
 		entry := maps.Clone(at.Tag)
 		entry["Age"] = nbt.Long(age)
 		loaded.chunk.carriedBlockEntities.Items[i] = entry
+		loaded.chunk.entityGen++
 		loaded.markDirty()
 		if age%beamInterval == 0 {
 			beams = append(beams, at.Pos)

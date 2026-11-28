@@ -136,6 +136,9 @@ type Chunk struct {
 	lastUpdate  int64
 	entities    map[int64]*BlockEntity
 	entityOrder []int64
+	// entityGen counts changes to entities, entityOrder, pistonRides,
+	// carriedBlockEntities and hiveTicks, guarded by World.mu.
+	entityGen uint64
 
 	// pendingGenerated holds the blocks (fluid sources, eyeblossoms) a generator scheduled a tick for, in
 	// placement order, including aquifer and waterlogged post-processing visits.
