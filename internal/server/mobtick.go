@@ -123,6 +123,10 @@ type mobTickInputs struct {
 	// holderSpans is every leash holder with its world, before the per-world
 	// copies in holders.
 	holderSpans []holderSpan
+	// heldIDs is addVehicleHolders' herd walk for addMobHolders; nil when
+	// it made none.
+	heldIDs    map[int32]bool
+	heldWalked bool
 	// stands is each world's visible armor stands, a goat's ram targets.
 	stands map[*world.World][]entity.StandTarget
 }
@@ -272,6 +276,7 @@ func (s *Server) readMobTickInputs(in *mobTickInputs) (known map[uuid.UUID]bool)
 		in.holderSpans = append(in.holderSpans, holderSpan{holder: knotHolderSnapshot(k), w: k.w})
 	}
 	s.unlockTick(&s.knotsMu)
+	s.addVehicleHolders(in)
 	holders := in.holders
 	for _, dim := range s.allDims() {
 		for _, hs := range in.holderSpans {
@@ -1092,13 +1097,48 @@ func (t *mobDimTick) countCorpses(fx *mobEffects, dyingCount int) {
 	h.dying = append(stillDying, t.corpses...)
 }
 
-// addMobHolders offers every wandering trader and every mob that holds a
-// lead to every herd as a leash holder. Called under the mob lock.
-func (s *Server) addMobHolders(in *mobTickInputs) {
-	// held is the IDs of the bodies some mob's lead is tied to.
+// addVehicleHolders offers the boats and minecarts some mob's lead is tied
+// to as leash holders. Read before the mob lock is taken for the tick; the
+// herds are walked only while a boat or cart exists.
+func (s *Server) addVehicleHolders(in *mobTickInputs) {
+	s.boatsMu.Lock()
+	nb := len(s.boats)
+	s.boatsMu.Unlock()
+	s.minecartsMu.Lock()
+	nc := len(s.minecarts)
+	s.minecartsMu.Unlock()
+	if nb+nc == 0 {
+		return
+	}
+	s.lockTick(&s.mobsMu)
+	held := s.heldHolderIDs()
+	s.unlockTick(&s.mobsMu)
+	in.heldIDs, in.heldWalked = held, true
+	if len(held) == 0 {
+		return
+	}
+	s.boatsMu.Lock()
+	for _, it := range s.boats {
+		if held[it.boat.ID] {
+			in.holderSpans = append(in.holderSpans, holderSpan{holder: boatLeashHolder(it), w: it.w})
+		}
+	}
+	s.boatsMu.Unlock()
+	s.minecartsMu.Lock()
+	for _, it := range s.minecarts {
+		if held[it.cart.ID] {
+			in.holderSpans = append(in.holderSpans, holderSpan{holder: minecartLeashHolder(it), w: it.w})
+		}
+	}
+	s.minecartsMu.Unlock()
+}
+
+// heldHolderIDs is the IDs of the bodies some mob's lead is tied to, nil if
+// none. Called under the mob lock.
+func (s *Server) heldHolderIDs() map[int32]bool {
 	var held map[int32]bool
-	for _, src := range s.allDims() {
-		for _, m := range src.mobs.herd {
+	for _, dim := range s.allDims() {
+		for _, m := range dim.mobs.herd {
 			if m.LeashHolderID != 0 {
 				if held == nil {
 					held = map[int32]bool{}
@@ -1107,23 +1147,57 @@ func (s *Server) addMobHolders(in *mobTickInputs) {
 			}
 		}
 	}
+	return held
+}
+
+// addMobHolders offers every wandering trader and every mob that holds a
+// lead to every herd as a leash holder. Called under the mob lock.
+func (s *Server) addMobHolders(in *mobTickInputs) {
+	// held is the IDs of the bodies some mob's lead is tied to. The walk
+	// addVehicleHolders made is reused, but a player may tie a lead after it,
+	// so the loop below also collects the holders that walk missed.
+	held := in.heldIDs
+	fresh := !in.heldWalked
+	if fresh {
+		held = s.heldHolderIDs()
+	}
+	in.heldIDs, in.heldWalked = nil, false
+	var late map[int32]bool
+	offer := func(m *entity.Mob, src *dimension) {
+		trader := m.Type == entity.TypeWanderingTrader
+		h := entity.LeashHolder{
+			EntityID: m.ID, X: m.X, Y: m.Y, Z: m.Z,
+			Width: m.BbWidth(), Height: m.BbHeight(),
+			Present: m.Alive(),
+		}
+		if trader {
+			h.Trader, h.DespawnDelay = true, m.DespawnDelay
+		}
+		for _, dst := range s.allDims() {
+			h.SameLevel = dst == src
+			in.holders[dst.w] = append(in.holders[dst.w], h)
+		}
+	}
 	for _, src := range s.allDims() {
 		for _, m := range src.mobs.herd {
-			trader := m.Type == entity.TypeWanderingTrader
-			if !trader && !held[m.ID] {
-				continue
+			if !fresh && m.LeashHolderID != 0 && !held[m.LeashHolderID] {
+				if late == nil {
+					late = map[int32]bool{}
+				}
+				late[m.LeashHolderID] = true
 			}
-			h := entity.LeashHolder{
-				EntityID: m.ID, X: m.X, Y: m.Y, Z: m.Z,
-				Width: m.BbWidth(), Height: m.BbHeight(),
-				Present: m.Alive(),
+			if m.Type == entity.TypeWanderingTrader || held[m.ID] {
+				offer(m, src)
 			}
-			if trader {
-				h.Trader, h.DespawnDelay = true, m.DespawnDelay
-			}
-			for _, dst := range s.allDims() {
-				h.SameLevel = dst == src
-				in.holders[dst.w] = append(in.holders[dst.w], h)
+		}
+	}
+	if len(late) == 0 {
+		return
+	}
+	for _, src := range s.allDims() {
+		for _, m := range src.mobs.herd {
+			if late[m.ID] && m.Type != entity.TypeWanderingTrader {
+				offer(m, src)
 			}
 		}
 	}
