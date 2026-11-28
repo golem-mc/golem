@@ -22,7 +22,7 @@ func TestAWitherSkeletonIsBornWithAStoneSwordAndHitsHard(t *testing.T) {
 			t.Errorf("armour slot %d = %+v, want none", slot, piece)
 		}
 	}
-	if got := m.kind().attackDamage; got != 4 {
+	if got := m.attrs.Base(registry.AttributeAttackDamage); got != 4 {
 		t.Errorf("attack damage = %v, want 4", got)
 	}
 }
