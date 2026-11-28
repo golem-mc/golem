@@ -26,13 +26,26 @@ func LookupSource(src Source, name string) (Command, bool) {
 // one a plugin's root took the word from, and for a vanilla root that
 // moved to minecraft:<name> the command it moved from.
 func dispatchCommand(tree *Node, word string) (Command, bool) {
-	if root := FindLiteralChild(tree, word); root != nil {
-		if root.Plugin {
+	root := FindLiteralChild(tree, word)
+	if root == nil {
+		return Lookup(CanonicalName(word))
+	}
+	if root.dispatched {
+		if root.dispatch == nil {
 			return Command{}, false
 		}
-		if root.Dispatch != "" {
-			return Lookup(root.Dispatch)
-		}
+		return *root.dispatch, true
+	}
+	return dispatchRegistry(root, word)
+}
+
+// dispatchRegistry is dispatchCommand for a root already found.
+func dispatchRegistry(root *Node, word string) (Command, bool) {
+	if root.Plugin {
+		return Command{}, false
+	}
+	if root.Dispatch != "" {
+		return Lookup(root.Dispatch)
 	}
 	return Lookup(CanonicalName(word))
 }

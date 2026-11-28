@@ -189,6 +189,11 @@ type Node struct {
 	// literals indexes the literal children by name for FindLiteralChild;
 	// nil on a node whose children are still being built.
 	literals map[string]*Node
+	// dispatch is the registry command a root literal runs, resolved by
+	// indexLiterals; dispatched says it was (nil: a plugin root, or a
+	// word no command has).
+	dispatch   *Command
+	dispatched bool
 
 	// Required is the permission level a player needs for this node, and
 	// flagRestricted announces it on the wire. A command at one level gates
@@ -295,6 +300,12 @@ func indexLiterals(root *Node) {
 		}
 		if _, dup := root.literals[child.Name]; !dup {
 			root.literals[child.Name] = child
+			child.dispatch, child.dispatched = nil, true
+			if !child.Plugin {
+				if cmd, ok := dispatchRegistry(child, child.Name); ok {
+					child.dispatch = &cmd
+				}
+			}
 		}
 	}
 }
