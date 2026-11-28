@@ -718,6 +718,9 @@ func (r *scoreboardRun) listPlayers() (int32, error) {
 
 // changeScores runs players set, add and remove.
 func (r *scoreboardRun) changeScores(verb string) (int32, error) {
+	if !wantsFeedback(r.src) {
+		return r.changeScoresQuietly(verb)
+	}
 	hs, span, err := r.holders(2, true)
 	if err != nil {
 		return 0, err
@@ -764,6 +767,47 @@ func (r *scoreboardRun) changeScores(verb string) (int32, error) {
 		return total, r.feedback(true, "players."+verb+".success.single", number, formatted(o), who, entityCount(int(int32(sum))))
 	}
 	return total, r.feedback(true, "players."+verb+".success.multiple", number, formatted(o), who)
+}
+
+// changeScoresQuietly is changeScores for a run nobody reads the feedback
+// of: the board's holders are built straight from the selector's entities.
+func (r *scoreboardRun) changeScoresQuietly(verb string) (int32, error) {
+	word, span := selectorWordIn(r.input, r.args, 2)
+	var hs []scoreboard.Holder
+	if strings.HasPrefix(word, "@") {
+		entities, err := resolveEntities(r.src, word)
+		if err != nil {
+			return 0, err
+		}
+		hs = make([]scoreboard.Holder, len(entities))
+		for j, e := range entities {
+			hs[j] = entityHolder(e).Holder
+		}
+	} else {
+		named, key := scoreHolders(r.src, r.board, word, true)
+		if key != "" {
+			return 0, refuse(r.src, key)
+		}
+		hs = boardHolders(named)
+	}
+	o, err := r.objective(r.arg(2+span), true)
+	if err != nil {
+		return 0, err
+	}
+	value, err := strconv.ParseInt(r.arg(3+span), 10, 32)
+	if err != nil {
+		r.src.Debug("scoreboard score is no integer", "word", r.arg(3+span))
+		return 0, nil
+	}
+	v := int32(value)
+	switch verb {
+	case "set":
+		r.board.Update(hs, o.Name, func(int32) int32 { return v })
+		return v * int32(len(hs)), nil
+	case "add":
+		return int32(r.board.Update(hs, o.Name, func(old int32) int32 { return old + v })), nil
+	}
+	return int32(r.board.Update(hs, o.Name, func(old int32) int32 { return old - v })), nil
 }
 
 func (r *scoreboardRun) getScore() (int32, error) {

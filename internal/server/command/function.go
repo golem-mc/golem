@@ -872,10 +872,10 @@ func callFunction(src Source, fn *Function, f *frame, ret storeFn, returnParent 
 	if !f.run.spend() {
 		return
 	}
-	callee := &frame{run: f.run, ret: ret, discarded: new(bool), depth: f.depth + 1}
+	callee := &frame{run: f.run, ret: ret, discarded: f.discarded, depth: f.depth + 1}
 	f.run.tracer.onCall(f.depth, fn.ID, len(fn.lines))
-	if returnParent {
-		callee.discarded = f.discarded
+	if !returnParent {
+		callee.discarded = new(bool)
 	}
 	f.run.later(functionStep(src, fn, callee, 0))
 }
