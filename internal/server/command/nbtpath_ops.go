@@ -35,6 +35,44 @@ func (p nbtPath) hasRootMatch() bool {
 	return ok
 }
 
+// isKeyChain reports whether every node names a compound child, the paths
+// whose set changes nothing when it refuses.
+func (p nbtPath) isKeyChain() bool {
+	for _, n := range p.nodes {
+		if _, ok := n.(compoundChildNode); !ok {
+			return false
+		}
+	}
+	return len(p.nodes) > 0
+}
+
+// setScalarInKeyChain is set for an isKeyChain path and a scalar value, which
+// the stored tag needs no copy of: it creates the missing parents as
+// compounds and reports whether the entry changed.
+func (p nbtPath) setScalarInKeyChain(root nbt.CompoundTag, value nbt.Tag) bool {
+	if nbtTooDeep(value, len(p.nodes)) {
+		return false
+	}
+	c := root
+	for _, node := range p.nodes[:len(p.nodes)-1] {
+		name := node.(compoundChildNode).name
+		child, ok := c.Entries()[name]
+		if !ok {
+			child = &nbt.OrderedCompound{}
+			c.Set(name, child)
+		}
+		if c, ok = child.(nbt.CompoundTag); !ok {
+			return false
+		}
+	}
+	name := p.nodes[len(p.nodes)-1].(compoundChildNode).name
+	if existing, ok := c.Entries()[name]; ok && nbt.Equal(existing, value) {
+		return false
+	}
+	c.Set(name, value)
+	return true
+}
+
 // rootKey is the only root entry this path can edit, if it names one.
 func (p nbtPath) rootKey() (string, bool) {
 	nodes := p.nodes

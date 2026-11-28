@@ -1,7 +1,6 @@
 package server
 
 import (
-	"fmt"
 	"math"
 	"time"
 
@@ -625,10 +624,19 @@ type advancementRewards struct {
 // vanilla: AdvancementRewards.grant
 func (c *client) runAdvancementFunction(id string) {
 	s := c.srv
-	if _, ok := s.funcs.Load().lib.Get(id); !ok {
+	fn, ok := s.funcs.Load().lib.Get(id)
+	if !ok {
 		return
 	}
-	s.runEnchantLine(c.theWorld(), fmt.Sprintf("execute as %s at %s run function %s", c.player.UUID, c.player.UUID, id))
+	d := c.dimension()
+	src := s.gameLoopSource()
+	src.in = func() *dimension { return d }
+	at, ok := src.InContext(command.Context{Silent: true, Executor: c, Pos: c.player.Position(), HasPos: true,
+		Dim: d.name, HasDim: true})
+	if !ok {
+		return
+	}
+	command.RunFunction(at, fn)
 }
 
 // giveAdvancementLoot rolls each reward table for the player and adds the
