@@ -8,8 +8,8 @@ import (
 	"github.com/golem-mc/golem/internal/server/servertest"
 )
 
-// TestBodiesMovingSidewaysAreMovedByEachBubbleColumnLeg: an item and a
-// primed TNT carried along an upward column gain the push of the cells their
+// TestBodiesMovingSidewaysAreMovedByEachBubbleColumnLeg: an item, orb,
+// minecart, armor stand and primed TNT carried along an upward column gain the push of the cells their
 // move's legs crossed, not only of the cells their box ends in.
 // vanilla: Entity.checkInsideBlocks, BubbleColumnBlock.entityInside
 func TestBodiesMovingSidewaysAreMovedByEachBubbleColumnLeg(t *testing.T) {
@@ -35,6 +35,8 @@ func TestBodiesMovingSidewaysAreMovedByEachBubbleColumnLeg(t *testing.T) {
 	srv.RunLine(`summon minecraft:item 8.5 60 4.5 {Item:{id:"minecraft:stone",count:1},Motion:[0d,0.1d,0.6d]}`)
 	srv.RunLine("summon minecraft:tnt 8.5 60 4.5 {fuse:400s,Motion:[0d,0.1d,0.6d]}")
 	srv.RunLine("summon minecraft:armor_stand 8.5 60 4.5 {Motion:[0d,0.1d,0.6d]}")
+	srv.RunLine("summon minecraft:experience_orb 8.5 60 4.5 {Motion:[0d,0.1d,0.6d]}")
+	srv.RunLine("summon minecraft:minecart 8.5 60 4.5 {Motion:[0d,0.1d,0.6d]}")
 	srv.RunLine(`summon minecraft:item 8.5 60 8.5 {Item:{id:"minecraft:stone",count:1},Motion:[0d,0.1d,0d]}`)
 	servertest.RunTicks(t, srv, 2)
 
@@ -50,10 +52,20 @@ func TestBodiesMovingSidewaysAreMovedByEachBubbleColumnLeg(t *testing.T) {
 		t.Errorf("item Motion[1] after 2 ticks = %v, want 0.32889", sideways)
 	}
 	if math.Abs(still-0.212464) > 1e-4 {
-		t.Errorf("item without sideways travel Motion[1] after 2 ticks = %v, want 0.212464 (unchanged by the leg walk)", still)
+		t.Errorf("item without sideways travel Motion[1] after 2 ticks = %v, want 0.212464 (vanilla 26.3 reads the same; unchanged by the leg walk)", still)
 	}
 	if stands := srv.ArmorStandsInDimension("minecraft:overworld"); len(stands) != 1 || math.Abs(stands[0].VY-0.7) > 1e-4 {
 		t.Errorf("armor stand after 2 ticks = %+v, want Motion[1] 0.7", stands)
+	}
+	if orbs := srv.OrbsInWorld(); len(orbs) != 1 || math.Abs(orbs[0].VY-0.1764) > 1e-4 {
+		t.Errorf("orb after 2 ticks = %+v, want Motion[1] 0.1764", orbs)
+	}
+	carts := srv.MinecartsInDimension("minecraft:overworld")
+	if len(carts) != 1 {
+		t.Fatalf("minecarts = %+v, want one", carts)
+	}
+	if vy, _ := srv.MinecartVelocityY(carts[0].ID); math.Abs(vy-0.7) > 1e-4 {
+		t.Errorf("derailed minecart after 2 ticks Motion[1] = %v, want 0.7 (cap)", vy)
 	}
 	tnts := srv.TNTsInDimension("minecraft:overworld")
 	if len(tnts) != 1 || math.Abs(tnts[0].VY-0.60172) > 1e-4 {
