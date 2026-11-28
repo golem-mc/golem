@@ -5487,6 +5487,7 @@ func (m *Mob) tickInto(out []MobEvent, tick *tickView, w World, players []Player
 		m.cube.wasOnGround = m.OnGround
 	}
 	events = m.berryBushContact(w, &scan, seated, m.X-startX, m.Z-startZ, events)
+	events = m.bubbleColumnContact(w, &scan, startX, startY, startZ, events)
 	// vanilla: LivingEntity.pushEntities
 	events = m.pushStep(w, players, others, events)
 	m.bodyRotationStep(startX, startZ)
