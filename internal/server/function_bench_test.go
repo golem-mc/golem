@@ -97,13 +97,14 @@ func BenchmarkFunctionLines(b *testing.B) {
 // read or write a command storage beside a list of N compounds.
 func BenchmarkFunctionStorageLines(b *testing.B) {
 	lines := map[string]string{
-		"if_data":       "execute if data storage zz:s v run scoreboard players add #c x 1",
-		"store":         "execute store result storage zz:s v int 1 run scoreboard players get #c x",
-		"modify_set":    "data modify storage zz:s w set value 1",
-		"get":           "data get storage zz:s v",
-		"function_with": "function zz:m with storage zz:s args",
+		"if_data":          "execute if data storage zz:s v run scoreboard players add #c x 1",
+		"store":            "execute store result storage zz:s v int 1 run scoreboard players get #c x",
+		"modify_set":       "data modify storage zz:s w set value 1",
+		"get":              "data get storage zz:s v",
+		"function_with":    "function zz:m with storage zz:s args",
+		"store_storage_as": "execute as @e[type=marker,tag=t] store result storage zz:s v int 1 run scoreboard players get @s x",
 	}
-	for _, name := range []string{"if_data", "store", "modify_set", "get", "function_with"} {
+	for _, name := range []string{"if_data", "store", "modify_set", "get", "function_with", "store_storage_as"} {
 		for _, n := range []int{0, 100, 1000} {
 			b.Run(fmt.Sprintf("%s/N=%d", name, n), func(b *testing.B) {
 				s, _ := newTrackerBenchServer(b)
@@ -131,6 +132,12 @@ func BenchmarkFunctionStorageLines(b *testing.B) {
 				}
 				for _, c := range []string{"scoreboard objectives add x dummy", "scoreboard players set #c x 1", "reload", `data merge storage zz:s {v:1,args:{v:1}}`} {
 					s.RunRconLine(c)
+				}
+				if name == "store_storage_as" {
+					for i := range 20 {
+						s.RunRconLine(fmt.Sprintf("summon marker %d -60 0 {Tags:[\"t\"]}", i))
+					}
+					s.RunRconLine("scoreboard players set @e[type=marker,tag=t] x 1")
 				}
 				for i := range n {
 					s.RunRconLine(fmt.Sprintf(`data modify storage zz:s big append value {id:"entry_%d",score:%d,pos:[1.0d,2.0d,3.0d],tags:["a","b","c"]}`, i, i))
