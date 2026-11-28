@@ -165,12 +165,25 @@ func init() {
 // whether it is one this package runs. The aliases resolve CanonicalName
 // first, so what is not found here is a word the server does not know.
 func Lookup(name string) (Command, bool) {
-	for _, cmd := range registered {
-		if cmd.Name == name {
-			return cmd, true
+	byName.once.Do(func() {
+		byName.index = make(map[string]int, len(registered))
+		for i, cmd := range registered {
+			if _, dup := byName.index[cmd.Name]; !dup {
+				byName.index[cmd.Name] = i
+			}
 		}
+	})
+	if i, ok := byName.index[name]; ok {
+		return registered[i], true
 	}
 	return Command{}, false
+}
+
+// byName indexes registered by command name, built on first use because
+// registered is filled in an init and never changes afterwards.
+var byName struct {
+	once  sync.Once
+	index map[string]int
 }
 
 // ForLevel returns the tree offered at a permission level: every node whose
