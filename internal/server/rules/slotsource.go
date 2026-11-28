@@ -612,6 +612,39 @@ func slotSourceCollection(source registry.SlotSource, ctx *LootContext, depth in
 	return emptySlotCollection{}
 }
 
+// SlotSourceReadsEntity reports whether resolving the source can read a
+// context entity (any range other than "container" and "block_entity"), so a
+// caller can skip building the entities it would otherwise fill.
+func SlotSourceReadsEntity(source registry.SlotSource) bool {
+	return slotSourceReadsEntity(source, 0)
+}
+
+func slotSourceReadsEntity(source registry.SlotSource, depth int) bool {
+	if depth > maxSlotSourceDepth {
+		return false
+	}
+	switch k := source.(type) {
+	case registry.SlotSourceReference:
+		named, ok := registry.FindSlotSource(k.Name)
+		return ok && slotSourceReadsEntity(named, depth+1)
+	case registry.SlotRangeSource:
+		return k.Source != "container" && k.Source != "block_entity"
+	case registry.SlotFilteredSource:
+		return slotSourceReadsEntity(k.From, depth+1)
+	case registry.SlotLimitSource:
+		return slotSourceReadsEntity(k.From, depth+1)
+	case registry.SlotContentsSource:
+		return slotSourceReadsEntity(k.From, depth+1)
+	case registry.SlotGroupSource:
+		for _, term := range k.Terms {
+			if slotSourceReadsEntity(term, depth+1) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 // slotRangeAccess reads a range off the context argument the source names.
 // vanilla: RangeSlotSource.provide, SlotProvider.getSlotsFromRange
 func slotRangeAccess(r registry.SlotRangeSource, ctx *LootContext) []SlotAccess {

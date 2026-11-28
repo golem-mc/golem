@@ -60,7 +60,7 @@ func checkSlotSourceArgument(text string) *ParseError {
 // vanilla: ItemCommands.getSlotsFromProvider
 func slotSourceCollection(src Source, source registry.SlotSource, container func(name string) []rules.SlotAccess) rules.SlotCollection {
 	ctx := rules.LootContext{ContainerSlots: container}
-	if self := src.SelfEntity(); self != nil {
+	if self := src.SelfEntity(); self != nil && rules.SlotSourceReadsEntity(source) {
 		ctx.This = lootEntityOf(self)
 	}
 	return rules.SlotSourceCollection(source, &ctx)
