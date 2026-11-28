@@ -9,7 +9,7 @@ import (
 	"testing"
 )
 
-func newBlockBenchServer(b *testing.B, chunks int32) (*Server, *world.World) {
+func newBlockBenchServer(b testing.TB, chunks int32) (*Server, *world.World) {
 	logger := slog.Default()
 	slog.SetDefault(slog.New(slog.DiscardHandler))
 	b.Cleanup(func() { slog.SetDefault(logger) })
