@@ -1153,31 +1153,51 @@ func (s *Server) heldHolderIDs() map[int32]bool {
 // addMobHolders offers every wandering trader and every mob that holds a
 // lead to every herd as a leash holder. Called under the mob lock.
 func (s *Server) addMobHolders(in *mobTickInputs) {
-	// held is the IDs of the bodies some mob's lead is tied to; the walk
-	// addVehicleHolders made this tick is reused, since the tick is the only
-	// writer of a lead.
+	// held is the IDs of the bodies some mob's lead is tied to. The walk
+	// addVehicleHolders made is reused, but a player may tie a lead after it,
+	// so the loop below also collects the holders that walk missed.
 	held := in.heldIDs
-	if !in.heldWalked {
+	fresh := !in.heldWalked
+	if fresh {
 		held = s.heldHolderIDs()
 	}
 	in.heldIDs, in.heldWalked = nil, false
+	var late map[int32]bool
+	offer := func(m *entity.Mob, src *dimension) {
+		trader := m.Type == entity.TypeWanderingTrader
+		h := entity.LeashHolder{
+			EntityID: m.ID, X: m.X, Y: m.Y, Z: m.Z,
+			Width: m.BbWidth(), Height: m.BbHeight(),
+			Present: m.Alive(),
+		}
+		if trader {
+			h.Trader, h.DespawnDelay = true, m.DespawnDelay
+		}
+		for _, dst := range s.allDims() {
+			h.SameLevel = dst == src
+			in.holders[dst.w] = append(in.holders[dst.w], h)
+		}
+	}
 	for _, src := range s.allDims() {
 		for _, m := range src.mobs.herd {
-			trader := m.Type == entity.TypeWanderingTrader
-			if !trader && !held[m.ID] {
-				continue
+			if !fresh && m.LeashHolderID != 0 && !held[m.LeashHolderID] {
+				if late == nil {
+					late = map[int32]bool{}
+				}
+				late[m.LeashHolderID] = true
 			}
-			h := entity.LeashHolder{
-				EntityID: m.ID, X: m.X, Y: m.Y, Z: m.Z,
-				Width: m.BbWidth(), Height: m.BbHeight(),
-				Present: m.Alive(),
+			if m.Type == entity.TypeWanderingTrader || held[m.ID] {
+				offer(m, src)
 			}
-			if trader {
-				h.Trader, h.DespawnDelay = true, m.DespawnDelay
-			}
-			for _, dst := range s.allDims() {
-				h.SameLevel = dst == src
-				in.holders[dst.w] = append(in.holders[dst.w], h)
+		}
+	}
+	if len(late) == 0 {
+		return
+	}
+	for _, src := range s.allDims() {
+		for _, m := range src.mobs.herd {
+			if late[m.ID] && m.Type != entity.TypeWanderingTrader {
+				offer(m, src)
 			}
 		}
 	}
