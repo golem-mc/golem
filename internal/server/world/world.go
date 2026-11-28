@@ -2503,13 +2503,13 @@ func relocateChunkRoot(root nbt.Compound, pos ChunkPos) {
 	if level, ok := nbt.Get[nbt.Compound](root, "Level"); ok {
 		holder = level
 	}
-	x, _ := nbt.Get[nbt.Int](holder, "xPos")
-	z, _ := nbt.Get[nbt.Int](holder, "zPos")
-	if int32(x) == pos.X && int32(z) == pos.Z {
+	x, _ := nbt.IntField(holder, "xPos")
+	z, _ := nbt.IntField(holder, "zPos")
+	if x == pos.X && z == pos.Z {
 		return
 	}
 	slog.Error("chunk file is in the wrong location; relocating",
-		"expected", pos, "got", ChunkPos{int32(x), int32(z)})
+		"expected", pos, "got", ChunkPos{x, z})
 	holder["xPos"] = nbt.Int(pos.X)
 	holder["zPos"] = nbt.Int(pos.Z)
 }

@@ -1069,4 +1069,15 @@ func TestChunkNBTReadsSectionYFromAnyNumericTag(t *testing.T) {
 	if loaded.BlockAt(5, 5, 5) != stoneState {
 		t.Error("the stone at y 5 is lost")
 	}
+	saved, err := encodeChunkNBT(loaded)
+	if err != nil {
+		t.Fatalf("encodeChunkNBT(loaded): %v", err)
+	}
+	again, err := decodeChunkNBT(saved)
+	if err != nil {
+		t.Fatalf("decodeChunkNBT(saved): %v", err)
+	}
+	if again.BlockAt(5, 5, 5) != stoneState {
+		t.Error("the stone at y 5 is lost on save")
+	}
 }

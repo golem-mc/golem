@@ -126,7 +126,7 @@ func legacyGenerator(name string, level nbt.Compound) (string, *FlatGenerator) {
 // level.dat this server wrote.
 // vanilla: WorldGenSettingsHeightAndBiomeFix, AddFlagIfNotPresentFix (2693, 2707, 2825)
 func flatBelowOldGround(level, settings nbt.Compound) bool {
-	v, _ := nbt.Get[nbt.Int](level, "DataVersion")
+	v, _ := nbt.IntField(level, "DataVersion")
 	if v == 0 || v >= 2832 {
 		return false
 	}
