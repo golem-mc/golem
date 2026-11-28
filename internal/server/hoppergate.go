@@ -67,11 +67,11 @@ func (s *Server) askHopper(w *world.World, be *world.BlockEntity) *hopperGate {
 			if b.Cooldown > 1 {
 				return
 			}
-			state := w.BlockAt(b.X, b.Y, b.Z)
+			state, stamp := hopperSelf(w, b)
 			if !registry.StateEnabled(state) {
 				return
 			}
-			s.hopperStep(w, b, state, g, &hopperTurn{})
+			s.hopperStep(w, b, state, stamp, g, &hopperTurn{})
 		})
 		g.probing, g.push.probing, g.pull.probing = false, false, false
 		if !g.push.seen && !g.pull.seen && g.pending == nil {
