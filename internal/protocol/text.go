@@ -1131,6 +1131,9 @@ func textOfCompound(fields nbt.Compound) (Text, bool) {
 	return t, true
 }
 
+// parseClickEvent reads a click_event compound into t, returning false when
+// the action or its fields are unreadable or not represented on Text.
+// vanilla: ClickEvent.CODEC
 func parseClickEvent(value nbt.Tag, t *Text) bool {
 	event, ok := nbt.CompoundView(value)
 	if !ok {
@@ -1176,6 +1179,33 @@ func parseClickEvent(value nbt.Tag, t *Text) bool {
 	return true
 }
 
+// validClickEvent reports whether value is a click_event compound the client
+// decodes, including unmodelled show_dialog and custom actions.
+// vanilla: ClickEvent.CODEC
+func validClickEvent(value nbt.Tag, validDialog func(nbt.Tag) bool) bool {
+	var scratch Text
+	if parseClickEvent(value, &scratch) {
+		return true
+	}
+	event, ok := nbt.CompoundView(value)
+	if !ok {
+		return false
+	}
+	switch action, _ := nbt.Get[nbt.String](event, "action"); string(action) {
+	case "show_dialog":
+		// vanilla: ClickEvent.ShowDialog.CODEC
+		return RawTextFits(event) && validDialog != nil && validDialog(event["dialog"])
+	case "custom":
+		// vanilla: ClickEvent.Custom.CODEC
+		id, ok := nbt.Get[nbt.String](event, "id")
+		return ok && ValidIdentifier(string(id))
+	}
+	return false
+}
+
+// parseHoverEvent reads a hover_event compound into t, returning false when
+// the action or its fields are unreadable.
+// vanilla: HoverEvent.CODEC
 func parseHoverEvent(value nbt.Tag, t *Text) bool {
 	event, ok := nbt.CompoundView(value)
 	if !ok {

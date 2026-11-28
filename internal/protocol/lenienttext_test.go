@@ -113,6 +113,25 @@ func TestLenientTextOfDropsUnreadableStyleFields(t *testing.T) {
 			},
 			want: nbt.Compound{"selector": nbt.String("@p")},
 		},
+		{
+			name: "valid custom click_event kept, invalid custom click_event dropped",
+			tag: nbt.Compound{
+				"text":        nbt.String("Act"),
+				"click_event": nbt.Compound{"action": nbt.String("custom"), "id": nbt.String("demo:run")},
+			},
+			want: nbt.Compound{
+				"text":        nbt.String("Act"),
+				"click_event": nbt.Compound{"action": nbt.String("custom"), "id": nbt.String("demo:run")},
+			},
+		},
+		{
+			name: "invalid custom click_event dropped",
+			tag: nbt.Compound{
+				"text":        nbt.String("Act"),
+				"click_event": nbt.Compound{"action": nbt.String("custom"), "id": nbt.String("BAD ID")},
+			},
+			want: nbt.String("Act"),
+		},
 	}
 
 	for _, tc := range cases {
