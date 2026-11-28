@@ -48,6 +48,7 @@ type boatEffects struct {
 	burns     []burnSpot
 	fizzles   []burnSpot
 	cauldrons []cellSpot
+	snows     []cellSpot
 	slides    []honeySlide
 	paddles   []boatPaddle
 	steps     []groundStep
@@ -77,6 +78,7 @@ func (fx *boatEffects) apply(s *Server) {
 	applyEach(s, fx.burns, (*Server).burnVehicle)
 	applyEach(s, fx.fizzles, (*Server).fizzleVehicle)
 	applyEach(s, fx.cauldrons, (*Server).douseCellCauldron)
+	applyEach(s, fx.snows, (*Server).meltCellSnow)
 	applyEach(s, fx.slides, (*Server).slideHoney)
 	applyEach(s, fx.paddles, (*Server).playPaddle)
 	s.runGroundSteps(fx.steps)
@@ -307,4 +309,11 @@ func (s *Server) playPaddle(p boatPaddle) {
 		sound = registry.SoundEntityBoatPaddleWater
 	}
 	s.broadcastSoundID(p.w, sound, protocol.SoundCategoryNeutral, p.sound.X, p.sound.Y, p.sound.Z, 1, p.sound.Pitch)
+}
+
+// addPutOut queues the cauldrons a burning boat lowered and the powder snow
+// it broke.
+func (fx *boatEffects) addPutOut(w *world.World, b *entity.Boat) {
+	fx.cauldrons = appendCells(fx.cauldrons, w, b.DousedCauldrons)
+	fx.snows = appendCells(fx.snows, w, b.MeltedSnow)
 }

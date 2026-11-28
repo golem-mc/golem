@@ -471,7 +471,7 @@ func (s *Server) tickBoats() {
 		for range it.boat.Extinguishes {
 			fx.fizzles = append(fx.fizzles, burnSpot{it.w, it.boat.X, it.boat.Y, it.boat.Z})
 		}
-		fx.cauldrons = appendCells(fx.cauldrons, it.w, it.boat.DousedCauldrons)
+		fx.addPutOut(it.w, it.boat)
 		for _, c := range padBuf {
 			fx.padCells = append(fx.padCells, boatPad{w: it.w, x: c.X, y: c.Y, z: c.Z})
 		}

@@ -321,6 +321,7 @@ func (s *Server) tickMinecarts() {
 		burns        []burnSpot
 		fizzles      []burnSpot
 		cauldrons    []cellSpot
+		snows        []cellSpot
 		slides       []honeySlide
 		breaks       []minecartBreak
 		seats        []seat
@@ -435,6 +436,7 @@ func (s *Server) tickMinecarts() {
 			fizzles = append(fizzles, burnSpot{it.w, it.cart.X, it.cart.Y, it.cart.Z})
 		}
 		cauldrons = appendCells(cauldrons, it.w, it.cart.DousedCauldrons)
+		snows = appendCells(snows, it.w, it.cart.MeltedSnow)
 		if sp := it.cart.Splash; sp != nil {
 			splashes = append(splashes, projectileSplash{w: it.w, x: sp.X, y: sp.Y, z: sp.Z, volume: sp.Volume, pitch: sp.Pitch})
 		}
@@ -531,6 +533,7 @@ func (s *Server) tickMinecarts() {
 	applyEach(s, burns, (*Server).burnVehicle)
 	applyEach(s, fizzles, (*Server).fizzleVehicle)
 	applyEach(s, cauldrons, (*Server).douseCellCauldron)
+	applyEach(s, snows, (*Server).meltCellSnow)
 	applyEach(s, slides, (*Server).slideHoney)
 	s.rollSnowflakes(flakes)
 	for _, st := range seats {

@@ -90,6 +90,9 @@ const (
 	// OrbDousedCauldron: a burning orb was put out in the layered cauldron
 	// at X, Y, Z, which drops a level.
 	OrbDousedCauldron
+	// OrbMeltedSnow: a burning orb was put out in the powder snow at X, Y, Z,
+	// which breaks.
+	OrbMeltedSnow
 )
 
 // OrbEvent is one event out of an orb's tick. The Collector rides only an
@@ -426,7 +429,7 @@ func (o *Orb) insideEffects(w World, move bodyMove, events *[]OrbEvent) {
 	// held the orb from the tick before.
 	sideways := o.VX != 0 || o.VZ != 0
 	rel := AABB{-orbHalfSize, 0, -orbHalfSize, orbHalfSize, orbHeight, orbHalfSize}
-	var cauldrons [][3]int32
+	var cauldrons, snows [][3]int32
 	walkInside(w, []bodyMove{move}, rel, func(x, y, z int32, state uint16, _ int, from AABB, dx, dy, dz float64) bool {
 		if insideNonLiving(state, sideways, &o.stuck) {
 			*events = append(*events, OrbEvent{Kind: OrbSnowflake, Y: y})
@@ -436,7 +439,7 @@ func (o *Orb) insideEffects(w World, move bodyMove, events *[]OrbEvent) {
 		case rules.IsLayeredCauldron(state):
 			cauldrons = append(cauldrons, [3]int32{x, y, z})
 		case rules.IsPowderSnow(state):
-			o.fireTicks = 0 // vanilla: PowderSnowBlock.entityInside
+			snows = append(snows, [3]int32{x, y, z})
 		case fluid == fluidWater:
 			o.fireTicks = 0
 		case fluid == fluidLava || sweptLavaCauldron(x, y, z, state, from, dx, dy, dz):
@@ -459,11 +462,18 @@ func (o *Orb) insideEffects(w World, move bodyMove, events *[]OrbEvent) {
 		}
 		return !o.Dead // vanilla: the walk stops for a body no longer alive
 	})
-	// vanilla: LayeredCauldronBlock.entityInside
+	// Both run before the extinguish, so a burning orb in each lowers the
+	// cauldron and breaks the snow.
+	// vanilla: LayeredCauldronBlock.entityInside, PowderSnowBlock.entityInside
 	if o.fireTicks > 0 {
 		for _, c := range cauldrons {
-			o.fireTicks = 0
 			*events = append(*events, OrbEvent{Kind: OrbDousedCauldron, X: c[0], Y: c[1], Z: c[2]})
+		}
+		for _, c := range snows {
+			*events = append(*events, OrbEvent{Kind: OrbMeltedSnow, X: c[0], Y: c[1], Z: c[2]})
+		}
+		if len(cauldrons)+len(snows) > 0 {
+			o.fireTicks = 0
 		}
 	}
 	if rainLandsOn(w, o.X, o.Y, o.Z, orbHeight) {

@@ -140,7 +140,9 @@ type Minecart struct {
 	LavaHurts, Extinguishes int
 	// DousedCauldrons are the layered cauldrons a burning cart was put out in.
 	DousedCauldrons [][3]int32
-	burnHurt        func(float64, registry.DamageType, bool) bool
+	// MeltedSnow are the powder snow cells it was put out in, which break.
+	MeltedSnow [][3]int32
+	burnHurt   func(float64, registry.DamageType, bool) bool
 	// Slides counts this tick's honey block slides, each owed the slide effects.
 	Slides int
 
@@ -317,7 +319,7 @@ func (m *Minecart) contactHurt(amount float64, damageType registry.DamageType, c
 // vanilla: AbstractMinecart.tick, OldMinecartBehavior.tick
 func (m *Minecart) Step(w World, ridden bool) {
 	m.LavaHurts, m.Extinguishes, m.Slides = 0, 0, 0
-	m.DousedCauldrons = m.DousedCauldrons[:0]
+	m.DousedCauldrons, m.MeltedSnow = m.DousedCauldrons[:0], m.MeltedSnow[:0]
 	m.Snowflakes = m.Snowflakes[:0]
 	m.Splash = nil
 	m.Movement = MovementEvent{}
@@ -419,7 +421,7 @@ func (m *Minecart) blockEffects(w World) {
 			m.Snowflakes = append(m.Snowflakes, y)
 		}
 		return true
-	}, &m.DousedCauldrons)
+	}, &m.DousedCauldrons, &m.MeltedSnow)
 	m.LavaHurts += burns
 	m.Extinguishes += fizzles
 }

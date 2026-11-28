@@ -45,6 +45,11 @@ func TestBurningBodyPutOutInCauldron(t *testing.T) {
 				if got := awaitEntityDataCompound(t, srv, c, target, "Fire"); got != "0s" {
 					t.Errorf("Fire = %s, want 0s", got)
 				}
+				if !b.cauldron {
+					if got := srv.BlockAt(4, 64, 4); got != registry.BlockAir.DefaultState() {
+						t.Errorf("powder snow state = %d, want air", got)
+					}
+				}
 				if b.cauldron {
 					if lvl, _ := registry.StateInt(srv.BlockAt(4, 64, 4), registry.PropLevel); lvl != 2 {
 						t.Errorf("cauldron level = %d, want 2", lvl)
