@@ -1006,6 +1006,7 @@ func (s *Server) tickBlockEntities() {
 	age, _ := s.world.Time()
 	gate := s.newEntityGate()
 	for _, dim := range s.allDims() {
+		dim.w.ResolvePendingLecternBooks()
 		ticks := gate.blockFilter(dim.w)
 		host := &spawnerHost{s: s, dim: dim}
 		s.tickTrialSpawners(dim, host, age, ticks)

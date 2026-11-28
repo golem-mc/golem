@@ -99,6 +99,10 @@ type World struct {
 	signResolver SignResolver
 	// bookResolver resolves a lectern's book when its data is loaded.
 	bookResolver BookResolver
+	// pendingBooks is the lecterns that loaded with an unresolved book, under
+	// mu; pendingBookCount lets the tick skip the lock when it is empty.
+	pendingBooks     []posKey
+	pendingBookCount atomic.Int32
 	// sittingCats is the mob query behind ChestBlockedAt; set once at start-up.
 	sittingCats SittingCats
 	// storage is the dimension's folder, holding its region and entities
@@ -847,6 +851,7 @@ func (w *World) putChunk(pos ChunkPos, c *Chunk, motion *[16][16]int32, fresh bo
 	c.shared = true
 	w.near[nearIndex(pos)].Store(loaded)
 	w.appendBlockEntityOrder(c.blockEntities()...)
+	w.queueLecternBooks(c)
 	if h := w.chunkHooks.Load(); h != nil && h.Load != nil {
 		h.Load(pos, c, fresh)
 	}

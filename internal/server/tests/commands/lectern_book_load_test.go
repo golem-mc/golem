@@ -5,8 +5,11 @@ import (
 	"testing"
 
 	"github.com/golem-mc/golem/internal/config"
+	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/internal/server"
 	"github.com/golem-mc/golem/internal/server/servertest"
+	"github.com/golem-mc/golem/internal/server/world"
+	"github.com/golem-mc/golem/nbt"
 )
 
 // vanilla: LecternBlockEntity.loadAdditional, WrittenBookContent.resolveForItem
@@ -24,5 +27,39 @@ func TestSetblockLecternResolvesItsBook(t *testing.T) {
 	got := plainQuery(t, srv, `data get block 2 63 1 Book.components."minecraft:written_book_content"`, "commands.data.block.query")
 	if !strings.Contains(got, "resolved: 1b") || !strings.Contains(got, "Reader") || strings.Contains(got, "@p") {
 		t.Errorf("lectern book = %s, want resolved with the player's name", got)
+	}
+}
+
+// vanilla: LecternBlockEntity.loadAdditional
+func TestSavedLecternResolvesItsBookOnLoad(t *testing.T) {
+	t.Parallel()
+	cfg := servertest.BlockTestConfig()
+	cfg.LevelName = t.TempDir()
+	cfg.ViewDistance, cfg.SimulationDistance = config.MinDistance, config.MinDistance
+	freeze := func(s *server.Server) { servertest.FreezeUntilHeld(t, s) }
+	ops := servertest.OpsListing(t, "Reader")
+	srv, c := servertest.Join(t, cfg, "Reader", ops, freeze)
+	servertest.HoldTicks(t, srv)
+
+	c.ChatCommand("setblock 2 63 1 minecraft:lectern")
+	c.ExpectCommandFeedback("commands.setblock.success", "2", "63", "1")
+	book := servertest.ItemStack(t, "minecraft:written_book", 1)
+	if !book.SetWrittenBook(protocol.WrittenBook{
+		Title: "t", Author: "a",
+		Pages: []protocol.WrittenPage{{Raw: protocol.Text{Raw: nbt.Compound{"selector": nbt.String("@p")}}}},
+	}) {
+		t.Fatal("SetWrittenBook refused")
+	}
+	srv.PutBlockEntityStack(world.KindLectern, 2, 63, 1, 0, book)
+	c.Conn.Close()
+	srv.Shutdown()
+
+	restarted := *cfg
+	back, _ := servertest.Join(t, &restarted, "Reader", ops, freeze)
+	servertest.HoldTicks(t, back)
+	servertest.RunTicks(t, back, 1)
+	got := plainQuery(t, back, `data get block 2 63 1 Book.components."minecraft:written_book_content"`, "commands.data.block.query")
+	if !strings.Contains(got, "resolved: 1b") || strings.Contains(got, "@p") {
+		t.Errorf("reloaded lectern book = %s, want resolved", got)
 	}
 }

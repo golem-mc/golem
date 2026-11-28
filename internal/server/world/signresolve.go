@@ -68,3 +68,37 @@ func (w *World) resolveLecternBook(x, y, z int32) {
 	be.Use(func(b *BlockEntity) { b.Slots[0] = resolved })
 	w.TouchEntity(be)
 }
+
+// queueLecternBooks notes each lectern of a chunk entering memory whose book
+// is unresolved, for ResolvePendingLecternBooks. The caller holds mu.
+func (w *World) queueLecternBooks(c *Chunk) {
+	if w.bookResolver == nil {
+		return
+	}
+	for _, be := range c.blockEntities() {
+		if be.Kind != KindLectern {
+			continue
+		}
+		if book, ok := be.Slots[0].WrittenBookOf(); ok && !book.Resolved {
+			w.pendingBooks = append(w.pendingBooks, posKey{be.X, be.Y, be.Z})
+			w.pendingBookCount.Add(1)
+		}
+	}
+}
+
+// ResolvePendingLecternBooks resolves the books of lecterns loaded from saved
+// chunks. It runs on the tick, where commands may read the world.
+// vanilla: LecternBlockEntity.loadAdditional
+func (w *World) ResolvePendingLecternBooks() {
+	if w.pendingBookCount.Load() == 0 {
+		return
+	}
+	w.mu.Lock()
+	pending := w.pendingBooks
+	w.pendingBooks = nil
+	w.pendingBookCount.Store(0)
+	w.mu.Unlock()
+	for _, p := range pending {
+		w.resolveLecternBook(p[0], p[1], p[2])
+	}
+}
