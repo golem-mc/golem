@@ -591,6 +591,28 @@ func (r *scoreboardRun) holders(i int, multiple bool) ([]holder, int, error) {
 	return out, span, nil
 }
 
+// boardHolders is holders for a caller that only hands the board its
+// holders, so a selector's entities skip the feedback holder.
+func (r *scoreboardRun) boardHolders(i int, multiple bool) ([]scoreboard.Holder, int, error) {
+	word, span := selectorWordIn(r.input, r.args, i)
+	if strings.HasPrefix(word, "@") {
+		entities, err := resolveEntities(r.src, word)
+		if err != nil {
+			return nil, span, err
+		}
+		out := make([]scoreboard.Holder, len(entities))
+		for j, e := range entities {
+			out[j] = entityHolder(e).Holder
+		}
+		return out, span, nil
+	}
+	named, key := scoreHolders(r.src, r.board, word, multiple)
+	if key != "" {
+		return nil, span, refuse(r.src, key)
+	}
+	return boardHolders(named), span, nil
+}
+
 // scoreHolders resolves a score-holder word, answering the key of the
 // refusal it throws instead of sending it, for an execute step to gate.
 func scoreHolders(src Source, board Scoreboard, word string, multiple bool) ([]holder, string) {
@@ -718,7 +740,17 @@ func (r *scoreboardRun) listPlayers() (int32, error) {
 
 // changeScores runs players set, add and remove.
 func (r *scoreboardRun) changeScores(verb string) (int32, error) {
-	hs, span, err := r.holders(2, true)
+	quiet := !wantsFeedback(r.src)
+	var hs []holder
+	var bh []scoreboard.Holder
+	var span int
+	var err error
+	if quiet {
+		bh, span, err = r.boardHolders(2, true)
+	} else {
+		hs, span, err = r.holders(2, true)
+		bh = boardHolders(hs)
+	}
 	if err != nil {
 		return 0, err
 	}
@@ -736,17 +768,17 @@ func (r *scoreboardRun) changeScores(verb string) (int32, error) {
 	total := int32(0)
 	switch verb {
 	case "set":
-		sum = r.board.Update(boardHolders(hs), o.Name, func(int32) int32 { return v })
-		total = v * int32(len(hs))
+		sum = r.board.Update(bh, o.Name, func(int32) int32 { return v })
+		total = v * int32(len(bh))
 	case "add":
-		sum = r.board.Update(boardHolders(hs), o.Name, func(old int32) int32 { return old + v })
+		sum = r.board.Update(bh, o.Name, func(old int32) int32 { return old + v })
 	case "remove":
-		sum = r.board.Update(boardHolders(hs), o.Name, func(old int32) int32 { return old - v })
+		sum = r.board.Update(bh, o.Name, func(old int32) int32 { return old - v })
 	}
 	if verb != "set" {
 		total = int32(sum) // Java's int sum wraps
 	}
-	if !wantsFeedback(r.src) {
+	if quiet {
 		return total, nil
 	}
 	number := entityCount(int(v))

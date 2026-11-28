@@ -342,14 +342,15 @@ func (fn *Function) instantiate(arguments nbt.Compound) (*Function, *protocol.Te
 		return nil, &protocol.Text{Translate: functionMissingArgumentsKey,
 			With: []protocol.Text{{Text: m.id}}}
 	}
-	values := make([]string, len(m.args))
-	for i, name := range m.args {
+	var buf [8]string
+	values := buf[:0]
+	for _, name := range m.args {
 		tag, ok := arguments[name]
 		if !ok {
 			return nil, &protocol.Text{Translate: functionMissingArgumentKey,
 				With: []protocol.Text{{Text: m.id}, {Text: name}}}
 		}
-		values[i] = stringifyTag(tag)
+		values = append(values, stringifyTag(tag))
 	}
 	// The last calls' answers stand; a hit becomes the most recent.
 	for i, hit := range m.cache {
@@ -364,6 +365,7 @@ func (fn *Function) instantiate(arguments nbt.Compound) (*Function, *protocol.Te
 	if len(m.cache) >= maxMacroCache {
 		m.cache = m.cache[1:]
 	}
+	values = slices.Clone(values)
 	out := &Function{ID: m.id}
 	for _, entry := range m.entries {
 		if entry.plain {
@@ -375,6 +377,7 @@ func (fn *Function) instantiate(arguments nbt.Compound) (*Function, *protocol.Te
 			// vanilla: CommandFunction.checkCommandLineLength
 			return nil, &protocol.Text{Text: fmt.Sprintf("command too long: %d characters", len(text))}
 		}
+		CacheLineTokens(text)
 		tokens := Tokenize(text)
 		if node, failure := Match(ForLevel(fn.level), text, tokens, true); node == nil {
 			return nil, &protocol.Text{Translate: functionParseKey, With: []protocol.Text{

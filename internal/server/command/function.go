@@ -8,6 +8,8 @@ import (
 	"runtime/debug"
 	"slices"
 	"strings"
+	"sync"
+	"sync/atomic"
 
 	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/internal/server/datapack"
@@ -205,6 +207,8 @@ func (l *Functions) IDs() []string {
 // vanilla: ServerFunctionLibrary.reload
 func CompileFunctions(files map[string][]string, level int, layers *registry.PackLayers, fail func(id string, err error)) *Functions {
 	lineTokens.Clear()
+	argCompounds.Clear()
+	argCompoundCount.Store(0)
 	lib := &Functions{byID: make(map[string]*Function, len(files))}
 	if len(files) == 0 {
 		return lib
@@ -604,12 +608,15 @@ func runFunctionIn(src Source, input string, args []string, f *frame, cb storeFn
 	if err != nil {
 		return err
 	}
-	if len(fns) == 1 {
-		if err := feedbackToAdmins(src, functionScheduledKey, protocol.Text{Text: fns[0].ID}); err != nil {
+	// A silent run builds no announcement. vanilla: CommandSourceStack.sendSuccess
+	if wantsFeedback(src) {
+		if len(fns) == 1 {
+			if err := feedbackToAdmins(src, functionScheduledKey, protocol.Text{Text: fns[0].ID}); err != nil {
+				return err
+			}
+		} else if err := feedbackToAdmins(src, functionScheduledManyKey, functionList(fns)); err != nil {
 			return err
 		}
-	} else if err := feedbackToAdmins(src, functionScheduledManyKey, functionList(fns)); err != nil {
-		return err
 	}
 	fsrc, ok := src.InContext(Context{Silent: true})
 	if !ok {
@@ -619,14 +626,9 @@ func runFunctionIn(src Source, input string, args []string, f *frame, cb storeFn
 	// sum, once all have run.
 	// vanilla: FunctionCommand.queueFunctionsNoReturn
 	inner := cb
-	var sum int32
-	var anyResult bool
+	var flush func(r *execRun)
 	if !ret && len(fns) > 1 && cb != nil {
-		inner = func(success bool, result int32) error {
-			anyResult = true
-			sum += result
-			return nil
-		}
+		inner, flush = sumResults(cb)
 	}
 	if ret {
 		inner = chainStores(cb, f.returnValue)
@@ -659,15 +661,8 @@ func runFunctionIn(src Source, input string, args []string, f *frame, cb storeFn
 		// vanilla: CallFunction, FallthroughTask
 		f.run.later(func(r *execRun) { callFunction(fsrc, inst, f, callback, ret) })
 	}
-	if !ret && len(fns) > 1 && cb != nil {
-		f.run.later(func(r *execRun) {
-			if !anyResult {
-				return
-			}
-			if err := cb(true, sum); err != nil {
-				r.fail(err)
-			}
-		})
+	if flush != nil {
+		f.run.later(flush)
 	}
 	if ret {
 		f.run.later(func(r *execRun) {
@@ -772,6 +767,17 @@ func functionList(fns []*Function) protocol.Text {
 	return list
 }
 
+// maxArgCompounds bounds argCompounds.
+const maxArgCompounds = 4096
+
+// argCompounds holds the compound each literal-argument /function line read,
+// which a tick function reads again every tick. Shared, so read-only; cleared
+// on reload and whenever it passes its bound.
+var (
+	argCompounds     sync.Map // input -> nbt.Compound
+	argCompoundCount atomic.Int32
+)
+
 // functionArguments reads the macro arguments a /function hands the
 // functions it runs: the compound written after their name, or the with
 // clause's source — its whole compound, or the one compound its path
@@ -786,7 +792,18 @@ func functionArguments(src Source, input string, args []string) (nbt.Compound, e
 	}
 	tokens := Tokenize(input)
 	if rest[0] != "with" {
+		if c, ok := argCompounds.Load(input); ok {
+			return c.(nbt.Compound), nil
+		}
 		compound, perr := nbt.ParseSNBT(wordsInTokens(tokens, args, 1, len(rest)))
+		if perr == nil {
+			if argCompoundCount.Load() > maxArgCompounds {
+				argCompounds.Clear()
+				argCompoundCount.Store(0)
+			}
+			argCompounds.Store(input, compound)
+			argCompoundCount.Add(1)
+		}
 		if perr != nil {
 			// A compound the dispatcher read cannot fail here; the token
 			// joins were the things that changed.
@@ -825,6 +842,28 @@ func functionArguments(src Source, input string, args []string) (nbt.Compound, e
 	return nbt.PlainCopy(arguments).(nbt.Compound), nil
 }
 
+// sumResults returns the callback each of several functions reports to and
+// the step, queued behind them, that hands cb their sum if any reported.
+// Kept apart so a single function allocates none of its state.
+func sumResults(cb storeFn) (each storeFn, flush func(*execRun)) {
+	var sum int32
+	var anyResult bool
+	each = func(success bool, result int32) error {
+		anyResult = true
+		sum += result
+		return nil
+	}
+	flush = func(r *execRun) {
+		if !anyResult {
+			return
+		}
+		if err := cb(true, sum); err != nil {
+			r.fail(err)
+		}
+	}
+	return each, flush
+}
+
 // callFunction starts fn's commands in a new frame under f, ret receiving
 // what a /return in it hands back. returnParent says a return in fn also
 // ends f.
@@ -833,10 +872,10 @@ func callFunction(src Source, fn *Function, f *frame, ret storeFn, returnParent 
 	if !f.run.spend() {
 		return
 	}
-	callee := &frame{run: f.run, ret: ret, discarded: new(bool), depth: f.depth + 1}
+	callee := &frame{run: f.run, ret: ret, discarded: f.discarded, depth: f.depth + 1}
 	f.run.tracer.onCall(f.depth, fn.ID, len(fn.lines))
-	if returnParent {
-		callee.discarded = f.discarded
+	if !returnParent {
+		callee.discarded = new(bool)
 	}
 	f.run.later(functionStep(src, fn, callee, 0))
 }
