@@ -244,7 +244,7 @@ func (m *Mob) PassengerIDs() []int32 {
 // vanilla: Entity.positionRider, getPassengerAttachmentPoint,
 // getVehicleAttachmentPoint
 func riderSeat(vehicle, passenger *Mob) (x, y, z float64) {
-	ax, ay, az := riderVehiclePoint(passenger)
+	ax, ay, az := riderVehiclePoint(passenger, vehicle.width())
 	return seatAt(vehicle, 0, ax, ay, az)
 }
 
@@ -252,7 +252,7 @@ func riderSeat(vehicle, passenger *Mob) (x, y, z float64) {
 // the cart's passenger point less the mob's vehicle attachment.
 // vanilla: Entity.positionRider, EntityType.MINECART passengerAttachments
 func MinecartMobSeat(m *Mob, x, y, z float64) (float64, float64, float64) {
-	ax, ay, az := riderVehiclePoint(m)
+	ax, ay, az := riderVehiclePoint(m, 2*MinecartHalfWidth)
 	return x - ax, y + MinecartSeatY - ay, z - az
 }
 
@@ -305,31 +305,87 @@ func seatAt(vehicle *Mob, index int, ax, ay, az float64) (x, y, z float64) {
 // body.
 // vanilla: EntityTypes passengerAttachments
 var passengerPoints = [registry.EntityTypeCount][3]float64{
-	TypeZombieNautilus: {0, float64(float32(1.1375)), 0},
-	TypeNautilus:       {0, float64(float32(1.1375)), 0},
-	TypeCow:            {0, 1.36875, 0},
-	TypeMooshroom:      {0, 1.36875, 0},
-	TypePig:            {0, 0.86875, 0},
-	TypeSheep:          {0, 1.2375, 0},
-	TypeChicken:        {0, 0.7, -0.1},
-	TypeTurtle:         {0, 0.55625, -0.25},
-	TypeHorse:          {0, 1.44375, 0},
-	TypeDonkey:         {0, 1.1125, 0},
-	TypeMule:           {0, 1.2125, 0},
-	TypeLlama:          {0, 1.37, -0.3},
-	TypeTraderLlama:    {0, 1.37, -0.3},
-	TypeSkeletonHorse:  {0, 1.31875, 0},
-	TypeZombieHorse:    {0, 1.31875, 0},
-	TypeZombie:         {0, 2.0125, 0},
-	TypeSpider:         {0, 0.765, 0},
-	TypeEnderman:       {0, 2.80625, 0},
-	TypeHusk:           {0, 2.075, 0},
-	TypeDrowned:        {0, 2.0125, 0},
-	TypeZombieVillager: {0, 2.125, 0},
-	TypePhantom:        {0, 0.3375, 0},
-	TypeWolf:           {0, 0.81875, -0.0625},
-	TypeFox:            {0, 0.6375, -0.25},
-	TypeEndermite:      {0, 0.2375, 0},
+	TypeZombieNautilus:  {0, float64(float32(1.1375)), 0},
+	TypeNautilus:        {0, float64(float32(1.1375)), 0},
+	TypeCow:             {0, 1.36875, 0},
+	TypeMooshroom:       {0, 1.36875, 0},
+	TypePig:             {0, 0.86875, 0},
+	TypeSheep:           {0, 1.2375, 0},
+	TypeChicken:         {0, 0.7, -0.1},
+	TypeTurtle:          {0, 0.55625, -0.25},
+	TypeHorse:           {0, 1.44375, 0},
+	TypeDonkey:          {0, 1.1125, 0},
+	TypeMule:            {0, 1.2125, 0},
+	TypeLlama:           {0, 1.37, -0.3},
+	TypeTraderLlama:     {0, 1.37, -0.3},
+	TypeSkeletonHorse:   {0, 1.31875, 0},
+	TypeZombieHorse:     {0, 1.31875, 0},
+	TypeZombie:          {0, 2.0125, 0},
+	TypeSpider:          {0, 0.765, 0},
+	TypeEnderman:        {0, 2.80625, 0},
+	TypeHusk:            {0, 2.075, 0},
+	TypeDrowned:         {0, 2.0125, 0},
+	TypeZombieVillager:  {0, 2.125, 0},
+	TypePhantom:         {0, 0.3375, 0},
+	TypeWolf:            {0, 0.81875, -0.0625},
+	TypeFox:             {0, 0.6375, -0.25},
+	TypeEndermite:       {0, 0.2375, 0},
+	TypeCat:             {0, f32(0.5125), 0},
+	TypeOcelot:          {0, f32(0.6375), 0},
+	TypeParrot:          {0, f32(0.4625), 0},
+	TypeFrog:            {0, 0.375, -0.25},
+	TypeGoat:            {0, f32(1.1125), 0},
+	TypeGuardian:        {0, f32(0.975), 0},
+	TypeElderGuardian:   {0, f32(2.350625), 0},
+	TypeGhast:           {0, f32(4.0625), 0},
+	TypeHoglin:          {0, f32(1.49375), 0},
+	TypeZoglin:          {0, f32(1.49375), 0},
+	TypeSilverfish:      {0, f32(0.2375), 0},
+	TypeSniffer:         {0, f32(2.09375), 0},
+	TypeVex:             {0, f32(0.7375), 0},
+	TypeWarden:          {0, f32(3.15), 0},
+	TypeWitch:           {0, f32(2.2625), 0},
+	TypeRavager:         {0, 2.2625, -0.0625},
+	TypeEvoker:          {0, 2, 0},
+	TypeIllusioner:      {0, 2, 0},
+	TypePillager:        {0, 2, 0},
+	TypeVindicator:      {0, 2, 0},
+	TypePiglin:          {0, f32(2.0125), 0},
+	TypePiglinBrute:     {0, f32(2.0125), 0},
+	TypeZombifiedPiglin: {0, 2, 0},
+	TypeEnderDragon:     {0, 3, 0},
+}
+
+// f32 is a vanilla float literal as the double its Vec3 holds.
+func f32(v float32) float64 { return float64(v) }
+
+// riderVehiclePoints are the types' ridingOffset, the rider's vehicle
+// attachment (0, -offset, 0) in its own frame at adult scale. Unlisted kinds
+// anchor at their feet.
+// vanilla: EntityTypes ridingOffset
+var riderVehiclePoints = [registry.EntityTypeCount]float64{
+	TypeZombie:          f32(0.7),
+	TypeHusk:            f32(0.7),
+	TypeDrowned:         f32(0.7),
+	TypeZombieVillager:  f32(0.7),
+	TypeZombifiedPiglin: f32(0.7),
+	TypePiglin:          f32(0.7),
+	TypePiglinBrute:     f32(0.7),
+	TypeSkeleton:        f32(0.7),
+	TypeStray:           f32(0.7),
+	TypeBogged:          f32(0.7),
+	TypeParched:         f32(0.7),
+	TypeWitherSkeleton:  f32(0.875),
+	TypePillager:        f32(0.6),
+	TypeVindicator:      f32(0.6),
+	TypeEvoker:          f32(0.6),
+	TypeIllusioner:      f32(0.6),
+	TypeGhast:           f32(-0.5),
+	TypeHappyGhast:      f32(-0.5),
+	TypeGiant:           f32(3.75),
+	TypePhantom:         f32(0.125),
+	TypeAllay:           f32(-0.04),
+	TypeVex:             f32(-0.04),
 }
 
 // happyGhastSeats are the happy ghast's four passenger attachments: front,
@@ -371,6 +427,10 @@ func vehiclePassengerPoint(m *Mob, index int) (x, y, z float64) {
 		p, ok = happyGhastSeats[min(max(index, 0), len(happyGhastSeats)-1)], true
 	}
 	if !ok {
+		if m.isCube() {
+			// vanilla: AbstractCubeMob.getPassengerAttachmentPoint
+			return 0, m.height() - 0.015625*float64(m.Size)*m.attrScale(), 0
+		}
 		return 0, m.height(), 0
 	}
 	f := 1.0
@@ -380,19 +440,22 @@ func vehiclePassengerPoint(m *Mob, index int) (x, y, z float64) {
 	return p[0] * f, p[1] * f, p[2] * f
 }
 
-// riderVehiclePoint is the rider's vehicle attachment in its own frame; a
-// kind without one anchors at its feet, which the jockey riders here
-// override.
-// vanilla: Entity.getVehicleAttachmentPoint
-func riderVehiclePoint(m *Mob) (x, y, z float64) {
-	switch m.family() {
-	case TypeSkeleton:
-		return 0, 0.7, 0
-	case TypeZombie:
-		if m.IsBaby() {
-			return 0, 0.1875, 0
+// riderVehiclePoint is the rider's vehicle attachment in its own frame when
+// it sits on a vehicle of vehicleWidth; a kind without one anchors at its
+// feet.
+// vanilla: Entity.getVehicleAttachmentPoint, Spider.getVehicleAttachmentPoint
+func riderVehiclePoint(m *Mob, vehicleWidth float64) (x, y, z float64) {
+	if m.family() == TypeSpider && vehicleWidth <= m.width() {
+		if m.Type == TypeCaveSpider {
+			return 0, 0.21875 * m.attrScale(), 0
 		}
-		return 0, 0.7, 0
+		return 0, 0.3125 * m.attrScale(), 0
+	}
+	if m.family() == TypeZombie && m.IsBaby() {
+		return 0, 0.1875, 0
+	}
+	if uint32(m.Type) < uint32(len(riderVehiclePoints)) {
+		return 0, riderVehiclePoints[m.Type], 0
 	}
 	return 0, 0, 0
 }
