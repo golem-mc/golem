@@ -518,6 +518,7 @@ func (s *Server) tickMinecarts() {
 	s.minecarts = alive
 	s.unlockTick(&s.minecartsMu)
 	s.applyMobShares(pushes.mobs)
+	s.applyStandShares(pushes.stands)
 	for _, f := range falls {
 		s.fallOntoCartRiders(f)
 	}

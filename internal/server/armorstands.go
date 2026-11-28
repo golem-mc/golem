@@ -960,6 +960,7 @@ func (s *Server) tickArmorStands() {
 	var groundSteps []groundStep
 	var slides []honeySlide
 
+	colliders := s.collidersByWorld(armorStandCollisions)
 	s.lockTick(&s.armorStandsMu)
 	alive := s.armorStands[:0]
 	for _, ent := range s.armorStands {
@@ -986,7 +987,7 @@ func (s *Server) tickArmorStands() {
 			continue
 		}
 		from := ent.stand.Box()
-		if ev := ent.stand.Step(ent.w); len(ev) > 0 {
+		if ev := ent.stand.Step(colliders[ent.w]); len(ev) > 0 {
 			var torn, fell, broke bool
 			for _, item := range ev {
 				switch item.Kind {
