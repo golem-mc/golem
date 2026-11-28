@@ -658,7 +658,8 @@ func (mobs *Mobs) tickBuf(w World, players []Player, holders []LeashHolder, gath
 	grid.crowd = crowd
 	defer grid.release()
 	grid.build(others)
-	var prey, villagers []*Mob
+	var prey []*Mob
+	villagers := grid.villagers[:0]
 	for _, o := range others {
 		if isPrey(o.Type) {
 			prey = append(prey, o)
@@ -667,6 +668,7 @@ func (mobs *Mobs) tickBuf(w World, players []Player, holders []LeashHolder, gath
 			villagers = append(villagers, o)
 		}
 	}
+	grid.villagers = villagers
 	t := herdTick{w: w, players: players, holders: holders, others: others, grid: grid, prey: prey, villagers: villagers, stands: stands, corpses: corpses, paths: paths, events: events}
 	for _, m := range others {
 		if m.Vehicle == nil {
