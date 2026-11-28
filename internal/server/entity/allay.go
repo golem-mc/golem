@@ -276,8 +276,17 @@ func (m *Mob) allayGive(t *tickView, p allayTarget) {
 	}
 }
 
-// allayStep is the allay's part of the tick: the cooldowns, the one-in-ten
-// heal and the dance's end.
+// allayCooldownStep counts down DuplicationCooldown each tick, including with
+// NoAI.
+// vanilla: Allay.aiStep, Allay.updateDuplicationCooldown
+func (m *Mob) allayCooldownStep() {
+	if m.allay.cooldown > 0 {
+		m.SetMetadataAllayCooldown(m.allay.cooldown - 1)
+	}
+}
+
+// allayStep is the AI-gated part of the allay's tick: brain cooldowns,
+// regeneration and the dance's end.
 // vanilla: Allay.aiStep, tick, CountDownCooldownTicks
 func (m *Mob) allayStep(t *tickView) {
 	if !m.Alive() {
@@ -301,9 +310,6 @@ func (m *Mob) allayStep(t *tickView) {
 	if a.dancing && m.Age%20 == 0 && m.allayDanceOver(t.w) {
 		m.SetMetadataAllayDancing(false)
 		a.jukeboxSet = false
-	}
-	if a.cooldown > 0 {
-		m.SetMetadataAllayCooldown(a.cooldown - 1)
 	}
 	if a.dancing && m.panicking() {
 		m.SetMetadataAllayDancing(false)

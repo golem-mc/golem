@@ -27,9 +27,8 @@ const (
 // walk physics: Squid registers only its two goals, uses no navigation, and
 // replaces travel with a plain move. The goals set the swim vector, travel
 // carries the last pump's velocity (super.aiStep), and the tentacle cycle
-// sets the next; its wrap broadcasts the client's animation restart, and the
-// glow squid's dark ticks count down.
-// vanilla: Squid.aiStep, Squid.travel, GlowSquid.aiStep
+// sets the next; its wrap broadcasts the client's animation restart.
+// vanilla: Squid.aiStep, Squid.travel
 func (m *Mob) squidMoveStep(t *tickView) []MobEvent {
 	// The random goal turns the vector every other tick; the flee overrides
 	// it while a fresh hurt by someone stands and the body is in water within
@@ -54,9 +53,6 @@ func (m *Mob) squidMoveStep(t *tickView) []MobEvent {
 		}
 		events = append(events, MobEvent{Mob: m, Kind: MobTentacleReset})
 	}
-	if m.DarkTicks > 0 {
-		m.SetMetadataDarkTicks(m.DarkTicks - 1)
-	}
 
 	if m.InWater() {
 		if m.squid.tentacle < math.Pi {
@@ -71,6 +67,14 @@ func (m *Mob) squidMoveStep(t *tickView) []MobEvent {
 		m.Yaw = easeYaw(m.Yaw, float32(yawToward(m.VX, m.VZ)))
 	}
 	return events
+}
+
+// glowSquidStep counts down DarkTicksRemaining each tick, including with NoAI.
+// vanilla: GlowSquid.aiStep
+func (m *Mob) glowSquidStep() {
+	if m.DarkTicks > 0 {
+		m.SetMetadataDarkTicks(m.DarkTicks - 1)
+	}
 }
 
 // squidTravel is Squid.travel on the last pump's velocity: in water a plain
