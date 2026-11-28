@@ -722,24 +722,70 @@ func readComponent(stack *protocol.ItemStack, name string, value nbt.Tag) bool {
 
 // ReadComponent decodes a component against this tag snapshot.
 func (lookup *TagLookup) ReadComponent(stack *protocol.ItemStack, name string, value nbt.Tag) bool {
-	return lookup.readComponentMode(stack, name, value, false)
-}
-
-// readStoredComponent decodes a component from saved or summoned NBT, reading
-// text components leniently the way TagValueInput.read takes partial results.
-// vanilla: TagValueInput.read, ComponentSerialization.CODEC
-func (lookup *TagLookup) readStoredComponent(stack *protocol.ItemStack, name string, value nbt.Tag) bool {
-	return lookup.readComponentMode(stack, name, value, true)
-}
-
-func (lookup *TagLookup) readComponentMode(stack *protocol.ItemStack, name string, value nbt.Tag, lenientText bool) bool {
 	// Noted first so a reader that leaves the component at its default can
 	// take it back out with ResetComponent.
 	if id, named := ComponentID(Qualify(strings.TrimPrefix(name, "!"))); named {
 		stack.NotePatch(id)
 	}
-	ok, _ := lookup.readComponentKnown(stack, name, value, lenientText)
+	ok, _ := lookup.readComponentKnown(stack, name, value)
 	return ok
+}
+
+// storedTextComponentReaders overrides the text-carrying item components on
+// the stored-stack path so unreadable style fields are dropped leniently.
+// vanilla: TagValueInput.read, ComponentSerialization.CODEC
+var storedTextComponentReaders = map[string]func(*protocol.ItemStack, nbt.Tag, func(nbt.Tag) (protocol.Text, bool)) bool{
+	"minecraft:item_name":   readItemName,
+	"minecraft:custom_name": readCustomName,
+	"minecraft:lore":        readLore,
+}
+
+func (lookup *TagLookup) readStoredComponent(stack *protocol.ItemStack, name string, value nbt.Tag) bool {
+	if !strings.HasPrefix(name, "!") {
+		qualified := Qualify(name)
+		if read, ok := storedTextComponentReaders[qualified]; ok {
+			if id, named := ComponentID(qualified); named {
+				stack.NotePatch(id)
+			}
+			return read(stack, value, lookup.lenientTextOf)
+		}
+	}
+	return lookup.ReadComponent(stack, name, value)
+}
+
+func readItemName(stack *protocol.ItemStack, value nbt.Tag, textOf func(nbt.Tag) (protocol.Text, bool)) bool {
+	text, ok := textOf(value)
+	if !ok {
+		return false
+	}
+	stack.SetItemName(text)
+	return true
+}
+
+func readCustomName(stack *protocol.ItemStack, value nbt.Tag, textOf func(nbt.Tag) (protocol.Text, bool)) bool {
+	text, ok := textOf(value)
+	if !ok {
+		return false
+	}
+	stack.CustomName = &text
+	return true
+}
+
+func readLore(stack *protocol.ItemStack, value nbt.Tag, textOf func(nbt.Tag) (protocol.Text, bool)) bool {
+	list, ok := value.(nbt.List)
+	if !ok || len(list.Items) > 256 {
+		return false
+	}
+	lines := make([]protocol.Text, 0, len(list.Items))
+	for _, item := range list.Items {
+		line, ok := textOf(nbt.ListElement(item))
+		if !ok {
+			return false
+		}
+		lines = append(lines, line)
+	}
+	stack.SetLore(lines)
+	return true
 }
 
 // ComponentRefused reports whether the stored-stack reader models the named
@@ -751,7 +797,7 @@ func ComponentRefused(name string, value nbt.Tag) bool {
 
 func (lookup *TagLookup) componentRefused(name string, value nbt.Tag) bool {
 	var scratch protocol.ItemStack
-	ok, modeled := lookup.readComponentKnown(&scratch, name, value, false)
+	ok, modeled := lookup.readComponentKnown(&scratch, name, value)
 	return modeled && !ok
 }
 
@@ -759,10 +805,10 @@ func (lookup *TagLookup) componentRefused(name string, value nbt.Tag) bool {
 // component has a reader at all (modeled). A shape with no reading refuses
 // the whole stack, so a half-read stack is never saved back half-written.
 func readComponentKnown(stack *protocol.ItemStack, name string, value nbt.Tag) (ok, modeled bool) {
-	return CurrentTagLookup().readComponentKnown(stack, name, value, false)
+	return CurrentTagLookup().readComponentKnown(stack, name, value)
 }
 
-func (lookup *TagLookup) readComponentKnown(stack *protocol.ItemStack, name string, value nbt.Tag, lenientText bool) (ok, modeled bool) {
+func (lookup *TagLookup) readComponentKnown(stack *protocol.ItemStack, name string, value nbt.Tag) (ok, modeled bool) {
 	if removed, isRemoval := strings.CutPrefix(name, "!"); isRemoval {
 		if component, kept := protocol.RemovableType(Qualify(removed)); kept {
 			if entry, isMap := nbt.CompoundView(value); !isMap || len(entry) != 0 {
@@ -771,10 +817,6 @@ func (lookup *TagLookup) readComponentKnown(stack *protocol.ItemStack, name stri
 			stack.Remove(component)
 			return true, true
 		}
-	}
-	textOf := lookup.styledTextOf
-	if lenientText {
-		textOf = lookup.lenientTextOf
 	}
 	name = Qualify(name) // an Identifier: namespace defaults to minecraft
 	switch name {
@@ -792,17 +834,9 @@ func (lookup *TagLookup) readComponentKnown(stack *protocol.ItemStack, name stri
 		stack.Unbreakable = stack.Unbreakable || name == "minecraft:unbreakable"
 		stack.Intangible = stack.Intangible || name == "minecraft:intangible_projectile"
 	case "minecraft:item_name":
-		text, ok := textOf(value)
-		if !ok {
-			return false, true
-		}
-		stack.SetItemName(text)
+		return readItemName(stack, value, lookup.styledTextOf), true
 	case "minecraft:custom_name":
-		text, ok := textOf(value)
-		if !ok {
-			return false, true
-		}
-		stack.CustomName = &text
+		return readCustomName(stack, value, lookup.styledTextOf), true
 	case "minecraft:lock":
 		lock, ok := value.(nbt.CompoundTag)
 		if !ok {
@@ -867,19 +901,7 @@ func (lookup *TagLookup) readComponentKnown(stack *protocol.ItemStack, name stri
 	case "minecraft:bundle_contents":
 		return lookup.readBundleContentsComponent(stack, value), true
 	case "minecraft:lore":
-		list, ok := value.(nbt.List)
-		if !ok || len(list.Items) > 256 {
-			return false, true
-		}
-		lines := make([]protocol.Text, 0, len(list.Items))
-		for _, item := range list.Items {
-			line, ok := textOf(nbt.ListElement(item))
-			if !ok {
-				return false, true
-			}
-			lines = append(lines, line)
-		}
-		stack.SetLore(lines)
+		return readLore(stack, value, lookup.styledTextOf), true
 	case "minecraft:attribute_modifiers":
 		entries, ok := attributeModifiersOf(value)
 		if !ok {

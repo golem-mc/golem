@@ -79,7 +79,28 @@ func StyledTextOf(tag nbt.Tag) (Text, bool) {
 
 // StyledTextWithDialog reads styled text with the caller's dialog validator.
 func StyledTextWithDialog(tag nbt.Tag, validDialog func(nbt.Tag) bool) (Text, bool) {
-	modelled, styled, ok := stripStyle(tag, validDialog)
+	return styledText(tag, validDialog, false)
+}
+
+// LenientTextOf reads a text component the way TagValueInput.read takes
+// ComponentSerialization.CODEC's partial result: each unreadable style field
+// is dropped while the rest of the component is kept, recursing into extra,
+// with and hover components. Unreadable content still refuses the component.
+// vanilla: ComponentSerialization.CODEC, Style.Serializer.MAP_CODEC, TagValueInput.read
+func LenientTextOf(tag nbt.Tag) (Text, bool) {
+	return LenientTextWithDialog(tag, DialogRefValid)
+}
+
+// LenientTextWithDialog is LenientTextOf with the caller's dialog validator.
+func LenientTextWithDialog(tag nbt.Tag, validDialog func(nbt.Tag) bool) (Text, bool) {
+	return styledText(tag, validDialog, true)
+}
+
+func styledText(tag nbt.Tag, validDialog func(nbt.Tag) bool, lenient bool) (Text, bool) {
+	if tag == nil || (lenient && !RawTextFits(tag)) {
+		return Text{}, false
+	}
+	modelled, cleaned, styled, _, ok := stripStyle(tag, validDialog, lenient)
 	if !ok {
 		return Text{}, false
 	}
@@ -87,142 +108,393 @@ func StyledTextWithDialog(tag nbt.Tag, validDialog func(nbt.Tag) bool) (Text, bo
 	if !ok || !styled {
 		return text, ok
 	}
-	if !RawTextFits(tag) {
+	if !RawTextFits(cleaned) {
 		return Text{}, false
 	}
-	return Text{Raw: tag}, true
+	return Text{Raw: cleaned}, true
 }
 
-// stripStyle returns tag without the style keys the model has no field for,
-// whether it held any, and false where one of them is a value the codec
-// refuses. It walks the components a component nests: siblings, arguments
-// and hover texts. It has no depth cap of its own: the NBT reader and
-// RawTextFits bound the tree at the client's depth.
-func stripStyle(tag nbt.Tag, validDialog func(nbt.Tag) bool) (nbt.Tag, bool, bool) {
+// stripStyle walks a component tree (siblings, arguments and hover texts),
+// stripping unmodelled-but-valid style keys from modelled so TextOf can check
+// the rest. In lenient mode it also drops unreadable style fields from both
+// modelled and cleaned, and accepts unmodelled content types (selector, score,
+// nbt, object, translate fallback). It has no depth cap of its own: the NBT
+// reader and RawTextFits bound the tree at the client's depth.
+func stripStyle(tag nbt.Tag, validDialog func(nbt.Tag) bool, lenient bool) (modelled, cleaned nbt.Tag, styled, changed, ok bool) {
 	switch v := tag.(type) {
 	case *nbt.OrderedCompound:
-		return stripStyle(v.Entries(), validDialog)
+		return stripStyle(v.Entries(), validDialog, lenient)
 	case nbt.List:
-		// items is allocated only once an element turns out styled.
-		var items []nbt.Tag
+		// mItems / cItems are allocated only once an element changes.
+		var mItems, cItems []nbt.Tag
 		for i, item := range v.Items {
 			inner := listElementOf(item)
-			out, s, ok := stripStyle(inner, validDialog)
+			m, c, s, ch, ok := stripStyle(inner, validDialog, lenient)
 			if !ok {
-				return nil, false, false
+				return nil, nil, false, false, false
 			}
-			if !s {
-				if items != nil {
-					items[i] = item
+			wrap := func(t nbt.Tag) nbt.Tag {
+				if wrapper, ok := nbt.CompoundView(item); ok && len(wrapper) == 1 && wrapper[""] != nil {
+					return nbt.Compound{"": t}
 				}
-				continue
+				return t
 			}
-			if items == nil {
-				items = make([]nbt.Tag, len(v.Items))
-				copy(items, v.Items[:i])
+			if s || ch {
+				if mItems == nil {
+					mItems = make([]nbt.Tag, len(v.Items))
+					copy(mItems, v.Items[:i])
+				}
+				mItems[i] = wrap(m)
+				styled = styled || s
+			} else if mItems != nil {
+				mItems[i] = item
 			}
-			if wrapper, ok := nbt.CompoundView(item); ok && len(wrapper) == 1 && wrapper[""] != nil {
-				out = nbt.Compound{"": out}
+			if ch {
+				if cItems == nil {
+					cItems = make([]nbt.Tag, len(v.Items))
+					copy(cItems, v.Items[:i])
+				}
+				cItems[i] = wrap(c)
+				changed = true
+			} else if cItems != nil {
+				cItems[i] = item
 			}
-			items[i] = out
 		}
-		if items == nil {
-			return tag, false, true
+		modelled, cleaned = tag, tag
+		if mItems != nil {
+			modelled = nbt.List{Elem: v.Elem, Items: mItems}
 		}
-		return nbt.List{Elem: v.Elem, Items: items}, true, true
+		if cItems != nil {
+			cleaned = nbt.List{Elem: v.Elem, Items: cItems}
+		}
+		return modelled, cleaned, styled, changed, true
 	case nbt.CompoundTag:
 		compoundFields := v.Entries()
-		var out nbt.Compound
-		styled := false
-		set := func(key string, value nbt.Tag, drop bool) {
-			if out == nil {
-				out = maps.Clone(compoundFields)
+		var modelledOut, cleanedOut nbt.Compound
+		ensureModelled := func() {
+			if modelledOut == nil {
+				modelledOut = maps.Clone(compoundFields)
 			}
-			if drop {
-				delete(out, key)
-			} else {
-				out[key] = value
+		}
+		ensureCleaned := func() {
+			if cleanedOut == nil {
+				cleanedOut = maps.Clone(compoundFields)
 			}
+		}
+		strip := func(key string) {
+			ensureModelled()
+			delete(modelledOut, key)
 			styled = true
+		}
+		setModelled := func(key string, value nbt.Tag) {
+			ensureModelled()
+			modelledOut[key] = value
+			styled = true
+		}
+		drop := func(key string) {
+			ensureModelled()
+			delete(modelledOut, key)
+			ensureCleaned()
+			delete(cleanedOut, key)
+			changed = true
+		}
+		update := func(key string, mVal, cVal nbt.Tag, s, ch bool) {
+			if s || ch {
+				ensureModelled()
+				modelledOut[key] = mVal
+				styled = styled || s
+			}
+			if ch {
+				ensureCleaned()
+				cleanedOut[key] = cVal
+				changed = true
+			}
 		}
 		for key, value := range compoundFields {
 			switch key {
 			case "click_event":
-				event, ok := nbt.CompoundView(value)
-				if !ok || event["action"] != nbt.String("show_dialog") {
+				event, isMap := nbt.CompoundView(value)
+				if isMap && event["action"] == nbt.String("show_dialog") {
+					// vanilla: ClickEvent.ShowDialog.CODEC
+					if !RawTextFits(event) || validDialog == nil || !validDialog(event["dialog"]) {
+						if lenient {
+							drop(key)
+							continue
+						}
+						return nil, nil, false, false, false
+					}
+					strip(key)
 					continue
 				}
-				// vanilla: ClickEvent.ShowDialog.CODEC
-				if !RawTextFits(event) || validDialog == nil || !validDialog(event["dialog"]) {
-					return nil, false, false
+				if lenient {
+					if isMap && event["action"] == nbt.String("custom") {
+						if id, ok := nbt.Get[nbt.String](event, "id"); ok && ValidIdentifier(string(id)) {
+							strip(key)
+							continue
+						}
+						drop(key)
+						continue
+					}
+					var scratch Text
+					if !parseClickEvent(value, &scratch) {
+						drop(key)
+					}
 				}
-				set(key, nil, true)
 			case "bold", "italic", "underlined", "strikethrough", "obfuscated":
 				var flag bool
 				if !booleanTag(value, &flag) {
-					return nil, false, false
+					if lenient {
+						drop(key)
+						continue
+					}
+					return nil, nil, false, false, false
 				}
 				if (key != "italic" && key != "underlined") || !flag {
-					set(key, nil, true)
+					strip(key)
 				}
 			case "keybind":
 				// The model has no keybind content; the tag is kept and the
 				// rest validated as empty text.
 				if _, ok := value.(nbt.String); !ok {
-					return nil, false, false
+					return nil, nil, false, false, false
 				}
 				if _, has := compoundFields["text"]; has {
 					continue
 				}
-				set(key, nil, true)
-				set("text", nbt.String(""), false)
+				strip(key)
+				setModelled("text", nbt.String(""))
 			case "font":
 				font, ok := value.(nbt.String)
 				if !ok || !ValidIdentifier(string(font)) {
-					return nil, false, false
+					if lenient {
+						drop(key)
+						continue
+					}
+					return nil, nil, false, false, false
 				}
-				set(key, nil, true)
+				strip(key)
 			case "shadow_color":
 				if !validARGB(value) {
-					return nil, false, false
+					if lenient {
+						drop(key)
+						continue
+					}
+					return nil, nil, false, false, false
 				}
-				set(key, nil, true)
+				strip(key)
+			case "color":
+				if lenient {
+					if s, ok := value.(nbt.String); !ok || !validColor(string(s)) {
+						drop(key)
+					}
+				}
+			case "insertion":
+				if lenient {
+					if _, ok := value.(nbt.String); !ok {
+						drop(key)
+					}
+				}
 			case "extra", "with":
-				inner, s, ok := stripStyle(value, validDialog)
+				m, c, s, ch, ok := stripStyle(value, validDialog, lenient)
 				if !ok {
-					return nil, false, false
+					return nil, nil, false, false, false
 				}
-				if s {
-					set(key, inner, false)
-				}
+				update(key, m, c, s, ch)
 			case "hover_event":
 				event, ok := nbt.CompoundView(value)
 				if !ok {
+					if lenient {
+						drop(key)
+					}
 					continue
 				}
+				var mEvent, cEvent nbt.Compound
+				eventStyled, eventChanged, nestedOK := false, false, true
 				for _, field := range [...]string{"value", "name"} {
 					nested, present := event[field]
 					if !present {
 						continue
 					}
-					inner, s, ok := stripStyle(nested, validDialog)
+					m, c, s, ch, ok := stripStyle(nested, validDialog, lenient)
 					if !ok {
-						return nil, false, false
+						if !lenient {
+							return nil, nil, false, false, false
+						}
+						nestedOK = false
+						break
 					}
-					if s {
-						event = maps.Clone(event)
-						event[field] = inner
-						set(key, event, false)
+					if s || ch {
+						if mEvent == nil {
+							mEvent = maps.Clone(event)
+						}
+						mEvent[field] = m
+						eventStyled = eventStyled || s
+					}
+					if ch {
+						if cEvent == nil {
+							cEvent = maps.Clone(event)
+						}
+						cEvent[field] = c
+						eventChanged = true
 					}
 				}
+				if lenient {
+					check := event
+					if mEvent != nil {
+						check = mEvent
+					}
+					var scratch Text
+					if !nestedOK || !parseHoverEvent(check, &scratch) {
+						drop(key)
+						continue
+					}
+				}
+				if mEvent == nil {
+					mEvent = event
+				}
+				if cEvent == nil {
+					cEvent = event
+				}
+				update(key, mEvent, cEvent, eventStyled, eventChanged)
 			}
 		}
-		if !styled {
-			return tag, false, true
+		if lenient && !stripLenientContent(compoundFields, validDialog, strip, setModelled, drop, func(key string, val nbt.Tag) {
+			ensureCleaned()
+			cleanedOut[key] = val
+			changed = true
+		}) {
+			return nil, nil, false, false, false
 		}
-		return out, true, true
+		modelled, cleaned = tag, tag
+		if modelledOut != nil {
+			modelled = modelledOut
+		}
+		if cleanedOut != nil {
+			cleaned = cleanedOut
+		}
+		return modelled, cleaned, styled, changed, true
 	}
-	return tag, false, true
+	return tag, tag, false, false, true
+}
+
+// stripLenientContent handles unmodelled content types (selector, score, nbt,
+// object, translate fallback, explicit type) in lenient mode by stripping
+// their keys from the modelled copy so TextOf can validate the rest.
+func stripLenientContent(
+	fields nbt.Compound,
+	validDialog func(nbt.Tag) bool,
+	strip func(string),
+	setModelled func(string, nbt.Tag),
+	drop func(string),
+	setCleaned func(string, nbt.Tag),
+) bool {
+	if rawType, has := fields["type"]; has {
+		s, ok := rawType.(nbt.String)
+		if !ok {
+			return false
+		}
+		kind := strings.TrimPrefix(string(s), "minecraft:")
+		if _, known := contentTypes[kind]; !known && kind != "object" {
+			return false
+		}
+		strip("type")
+	}
+	cleanSeparator := func() bool {
+		sep, has := fields["separator"]
+		if !has {
+			return true
+		}
+		m, c, _, ch, ok := stripStyle(sep, validDialog, true)
+		if !ok {
+			return false
+		}
+		if _, ok := TextOf(m); !ok {
+			return false
+		}
+		if ch {
+			setCleaned("separator", c)
+		}
+		strip("separator")
+		return true
+	}
+	switch ComponentContent(fields) {
+	case "text", "keybind":
+		return true
+	case "translate":
+		if _, ok := fields["translate"].(nbt.String); !ok {
+			return false
+		}
+		// vanilla: TranslatableContents.MAP_CODEC (lenientOptionalFieldOf)
+		if fb, has := fields["fallback"]; has {
+			if _, ok := fb.(nbt.String); ok {
+				strip("fallback")
+			} else {
+				drop("fallback")
+			}
+		}
+		return true
+	case "selector":
+		if _, ok := fields["selector"].(nbt.String); !ok || !cleanSeparator() {
+			return false
+		}
+		strip("selector")
+		if _, has := fields["text"]; !has {
+			setModelled("text", nbt.String(""))
+		}
+		return true
+	case "score":
+		score, ok := nbt.CompoundView(fields["score"])
+		if !ok {
+			return false
+		}
+		if _, ok := score["name"].(nbt.String); !ok {
+			return false
+		}
+		if _, ok := score["objective"].(nbt.String); !ok {
+			return false
+		}
+		strip("score")
+		if _, has := fields["text"]; !has {
+			setModelled("text", nbt.String(""))
+		}
+		return true
+	case "nbt":
+		if _, ok := fields["nbt"].(nbt.String); !ok || !cleanSeparator() {
+			return false
+		}
+		for _, k := range [...]string{"nbt", "block", "entity", "storage", "interpret", "source"} {
+			if _, has := fields[k]; has {
+				strip(k)
+			}
+		}
+		if _, has := fields["text"]; !has {
+			setModelled("text", nbt.String(""))
+		}
+		return true
+	default:
+		if sprite, ok := fields["sprite"].(nbt.String); ok && ValidIdentifier(string(sprite)) {
+			if atlas, has := fields["atlas"]; has {
+				if s, ok := atlas.(nbt.String); !ok || !ValidIdentifier(string(s)) {
+					return false
+				}
+			}
+		} else if player, has := fields["player"]; has {
+			if _, ok := nbt.CompoundView(player); !ok {
+				return false
+			}
+		} else {
+			return true
+		}
+		for _, k := range [...]string{"sprite", "atlas", "player", "object"} {
+			if _, has := fields[k]; has {
+				strip(k)
+			}
+		}
+		if _, has := fields["text"]; !has {
+			setModelled("text", nbt.String(""))
+		}
+		return true
+	}
 }
 
 // validARGB reports whether a shadow colour is one the codec reads: an int,
