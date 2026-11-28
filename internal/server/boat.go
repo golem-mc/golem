@@ -787,6 +787,10 @@ type boatWorldBodies struct {
 	mobIdx    map[*mobEntity]int32
 	clientIdx map[*client]int32
 	indexed   bool
+	// bodies and skipBuf back the world boatBodyWorld returns, so a hull's
+	// tick boxes nothing; one hull's step finishes before the next reuses them.
+	bodies  entity.Bodies
+	skipBuf [4]int32
 }
 
 func (wb *boatWorldBodies) reset() {
@@ -950,7 +954,7 @@ func boatBodyWorld(w *world.World, wb *boatWorldBodies, it *boatEntity) entity.W
 	if wb == nil || len(wb.boxes) == 0 {
 		return w
 	}
-	var skip []int32
+	skip := wb.skipBuf[:0]
 	if len(it.passengers) > 0 {
 		wb.index()
 	}
@@ -962,7 +966,8 @@ func boatBodyWorld(w *world.World, wb *boatWorldBodies, it *boatEntity) entity.W
 			skip = append(skip, i)
 		}
 	}
-	return entity.Bodies{World: w, Boxes: wb.boxes, Grid: &wb.grid, Skip: skip}
+	wb.bodies = entity.Bodies{World: w, Boxes: wb.boxes, Grid: &wb.grid, Skip: skip}
+	return &wb.bodies
 }
 
 // boatBreak is what a broken boat leaves: its own item — the one whose name
