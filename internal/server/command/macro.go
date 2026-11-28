@@ -375,6 +375,7 @@ func (fn *Function) instantiate(arguments nbt.Compound) (*Function, *protocol.Te
 			// vanilla: CommandFunction.checkCommandLineLength
 			return nil, &protocol.Text{Text: fmt.Sprintf("command too long: %d characters", len(text))}
 		}
+		CacheLineTokens(text)
 		tokens := Tokenize(text)
 		if node, failure := Match(ForLevel(fn.level), text, tokens, true); node == nil {
 			return nil, &protocol.Text{Translate: functionParseKey, With: []protocol.Text{

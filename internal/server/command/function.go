@@ -8,6 +8,8 @@ import (
 	"runtime/debug"
 	"slices"
 	"strings"
+	"sync"
+	"sync/atomic"
 
 	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/internal/server/datapack"
@@ -205,6 +207,8 @@ func (l *Functions) IDs() []string {
 // vanilla: ServerFunctionLibrary.reload
 func CompileFunctions(files map[string][]string, level int, layers *registry.PackLayers, fail func(id string, err error)) *Functions {
 	lineTokens.Clear()
+	argCompounds.Clear()
+	argCompoundCount.Store(0)
 	lib := &Functions{byID: make(map[string]*Function, len(files))}
 	if len(files) == 0 {
 		return lib
@@ -772,6 +776,17 @@ func functionList(fns []*Function) protocol.Text {
 	return list
 }
 
+// maxArgCompounds bounds argCompounds.
+const maxArgCompounds = 4096
+
+// argCompounds holds the compound each literal-argument /function line read,
+// which a tick function reads again every tick. Shared, so read-only; cleared
+// on reload and whenever it passes its bound.
+var (
+	argCompounds     sync.Map // input -> nbt.Compound
+	argCompoundCount atomic.Int32
+)
+
 // functionArguments reads the macro arguments a /function hands the
 // functions it runs: the compound written after their name, or the with
 // clause's source — its whole compound, or the one compound its path
@@ -786,7 +801,18 @@ func functionArguments(src Source, input string, args []string) (nbt.Compound, e
 	}
 	tokens := Tokenize(input)
 	if rest[0] != "with" {
+		if c, ok := argCompounds.Load(input); ok {
+			return c.(nbt.Compound), nil
+		}
 		compound, perr := nbt.ParseSNBT(wordsInTokens(tokens, args, 1, len(rest)))
+		if perr == nil {
+			if argCompoundCount.Load() > maxArgCompounds {
+				argCompounds.Clear()
+				argCompoundCount.Store(0)
+			}
+			argCompounds.Store(input, compound)
+			argCompoundCount.Add(1)
+		}
 		if perr != nil {
 			// A compound the dispatcher read cannot fail here; the token
 			// joins were the things that changed.

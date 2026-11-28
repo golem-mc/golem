@@ -1,6 +1,7 @@
 package commands
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/golem-mc/golem/internal/protocol"
@@ -198,5 +199,22 @@ func TestFunctionMacroRefusesWhatVanillaRefuses(t *testing.T) {
 	c.ExpectCommandFailure(macroInstantiationFailure("t:parse", protocol.Text{
 		Translate: "commands.function.error.parse", With: []protocol.Text{
 			{Text: "t:parse"}, {Text: "e_x"}, {Text: "Unknown or incomplete command. See below for error at position 0: <--[HERE]"}}}))
+	c.Disconnect()
+}
+
+// TestFunctionMacroCacheEvictsOldInstantiations calls one macro with nine
+// different literal arguments, one more than the instantiation cache holds,
+// then the first again: each call runs with its own values.
+// vanilla: MacroFunction.instantiate (cache of 8)
+func TestFunctionMacroCacheEvictsOldInstantiations(t *testing.T) {
+	t.Parallel()
+	c := functionWorld(t, map[string]string{
+		"t/function/n.mcfunction": "$say n:$(n)\n",
+	})
+	for _, n := range []int{1, 2, 3, 4, 5, 6, 7, 8, 9, 1} {
+		c.ChatCommand(fmt.Sprintf("function t:n {n:%d}", n))
+		c.ExpectCommandFeedback("commands.function.scheduled.single", "t:n")
+		macroFeedback(c, fmt.Sprintf("n:%d", n))
+	}
 	c.Disconnect()
 }
