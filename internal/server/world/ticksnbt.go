@@ -289,15 +289,24 @@ func fluidTypeNamed(name string) fluidType {
 // find another block. Runs under p.mu.
 // vanilla: ServerLevel.tickBlock
 func (p *Physics) adoptLoadedTicks() {
-	p.adoptTicks(p.w.takeLoadedTicks())
+	loaded, unloaded := p.w.takeLoadedTicks()
+	p.adoptTicksAt(p.now-1, loaded, unloaded)
 }
 
 // adoptTicks discards the unloaded chunks' ticks and then queues loaded.
 // Runs under p.mu.
 func (p *Physics) adoptTicks(loaded []loadedTick, unloaded []ChunkPos) {
+	p.adoptTicksAt(p.now-1, loaded, unloaded)
+}
+
+// adoptTicksAt queues loaded ticks relative to the game time base. A chunk
+// loaded between game ticks is based on the previous tick's time, which is
+// one before p.now once Tick has advanced it.
+// vanilla: LevelChunkTicks.unpack
+func (p *Physics) adoptTicksAt(base int64, loaded []loadedTick, unloaded []ChunkPos) {
 	p.discardUnloadedTicks(unloaded)
 	for _, t := range loaded {
-		due := p.now + int64(t.delay)
+		due := base + int64(t.delay)
 		if t.fluid {
 			// The booking keeps its saved type whatever the cell holds now;
 			// dispatch checks the cell.
