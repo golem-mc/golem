@@ -392,24 +392,7 @@ func (b *Boat) updateFluids(w World, withCurrent bool) {
 	if !withCurrent {
 		return
 	}
-	if b.water.height > 0 {
-		if dx, dy, dz, any := b.water.currentImpulse(waterCurrent, b.VX, b.VZ); any {
-			b.VX += dx
-			b.VY += dy
-			b.VZ += dz
-		}
-	}
-	if b.lava.height > 0 {
-		scale := lavaCurrent
-		if w.FastLava() {
-			scale = fastLavaCurrent
-		}
-		if dx, dy, dz, any := b.lava.currentImpulse(scale, b.VX, b.VZ); any {
-			b.VX += dx
-			b.VY += dy
-			b.VZ += dz
-		}
-	}
+	b.VX, b.VY, b.VZ = applyCurrents(w, &b.water, &b.lava, b.VX, b.VY, b.VZ)
 }
 
 // boatBox is the hull's span as a fluid-walk AABB.

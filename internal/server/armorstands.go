@@ -956,6 +956,7 @@ func (s *Server) tickArmorStands() {
 	var located []standLocated
 	var cauldrons []cellSpot
 	var bodyLandings []bodyLanding
+	var groundSteps []groundStep
 
 	s.lockTick(&s.armorStandsMu)
 	alive := s.armorStands[:0]
@@ -1020,6 +1021,11 @@ func (s *Server) tickArmorStands() {
 				halfWidth: ent.stand.HalfWidth(), stand: true, silent: ent.look.silent, fall: fall})
 		}
 		ent.onFire = ent.stand.FireTicks > 0 || ent.look.visualFire
+		if ent.stand.OnGround && !ent.stand.Marker && !ent.stand.NoGravity {
+			if st, ok := groundStepOf(ent.w, ent.stand.X, ent.stand.Y, ent.stand.Z, ent.stand.HalfWidth(), true); ok {
+				groundSteps = append(groundSteps, st)
+			}
+		}
 		// ArmorStand.hasPhysics gates all inside-block effects.
 		if !ent.stand.Marker && !ent.stand.NoGravity {
 			if gx, gy, gz, ok := entity.EndGatewayInside(ent.w, from, ent.stand.Box()); ok {
@@ -1037,6 +1043,7 @@ func (s *Server) tickArmorStands() {
 	// Before the removals: a stand told its pose may break this tick.
 	out.send()
 	s.runBodyLandings(bodyLandings)
+	s.runGroundSteps(groundSteps)
 
 	var disks []mobDisk
 	for _, l := range located {

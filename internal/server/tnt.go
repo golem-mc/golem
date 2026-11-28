@@ -117,6 +117,7 @@ func (s *Server) tickTNT() {
 		ores           []cellSpot
 		bounces        []bodyBounce
 		bodyLandings   []bodyLanding
+		groundSteps    []groundStep
 	)
 
 	colliders := s.collidersByWorld(tntCollisions)
@@ -203,6 +204,11 @@ func (s *Server) tickTNT() {
 				ores = append(ores, cellSpot{it.w, int32(ev.X), int32(ev.Y), int32(ev.Z)})
 			}
 		}
+		if it.tnt.OnGround {
+			if st, ok := groundStepOf(it.w, it.tnt.X, it.tnt.Y, it.tnt.Z, entity.TNTHalfWidth, false); ok {
+				groundSteps = append(groundSteps, st)
+			}
+		}
 		if it.tnt.TakeBounce() {
 			bounces = append(bounces, bodyBounce{w: it.w, source: it.uuid, x: it.tnt.X, y: it.tnt.Y, z: it.tnt.Z, halfWidth: entity.TNTHalfWidth, quiet: true})
 		}
@@ -280,6 +286,7 @@ func (s *Server) tickTNT() {
 
 	s.runBodyBounces(bounces)
 	s.runBodyLandings(bodyLandings)
+	s.runGroundSteps(groundSteps)
 
 	// The blasts run ahead of the sends they may answer: a chain the blast
 	// lit is in the world before the tick's packets go out.

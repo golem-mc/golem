@@ -78,6 +78,39 @@ func (c *client) stepOnSculkSensor(pos player.Position, around rules.Habitat) {
 	c.srv.stepOnSculkSensor(c.theWorld(), x, y, z, pos.X, pos.Y, pos.Z, c.player.UUID, uuid.Nil)
 }
 
+// groundStep is a non-living body resting on a sculk sensor or redstone ore.
+type groundStep struct {
+	w       *world.World
+	x, y, z int32
+	at      [3]float64
+	sensor  bool
+}
+
+// groundStepOf is Block.stepOn for a body resting on the ground at (x, y, z):
+// the cell under it, when it is a sculk sensor, or with ore an unlit
+// redstone ore.
+// vanilla: Entity.applyEffectsFromBlocks, SculkSensorBlock.stepOn, RedStoneOreBlock.stepOn
+func groundStepOf(w *world.World, x, y, z, halfWidth float64, ore bool) (groundStep, bool) {
+	cx, cy, cz, state := rules.OnPosCell(w, x, y, z, halfWidth)
+	b := registry.BlockOf(state)
+	sensor := b == registry.BlockSculkSensor || b == registry.BlockCalibratedSculkSensor
+	if !sensor && (!ore || !rules.IsRedstoneOre(state) || registry.StateLit(state)) {
+		return groundStep{}, false
+	}
+	return groundStep{w: w, x: cx, y: cy, z: cz, at: [3]float64{x, y, z}, sensor: sensor}, true
+}
+
+// runGroundSteps applies the steps collected during a tick.
+func (s *Server) runGroundSteps(steps []groundStep) {
+	for _, st := range steps {
+		if st.sensor {
+			s.stepOnSculkSensor(st.w, st.x, st.y, st.z, st.at[0], st.at[1], st.at[2], uuid.Nil, uuid.Nil)
+		} else {
+			s.lightRedstoneOre(st.w, st.x, st.y, st.z)
+		}
+	}
+}
+
 // stepOnSculkSensor posts a body's step to the sensor it stands on.
 func (s *Server) stepOnSculkSensor(w *world.World, x, y, z int32, bx, by, bz float64, player, mob uuid.UUID) {
 	const event = registry.GameEventStep

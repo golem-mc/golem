@@ -447,6 +447,11 @@ func (s *Server) tickBoats() {
 			known = driver.player.KnownMovement()
 			moveX, moveZ = known.X, known.Z
 		}
+		if it.boat.OnGround && !it.boat.Dead {
+			if st, ok := groundStepOf(it.w, it.boat.X, it.boat.Y, it.boat.Z, entity.BoatHalfWidth, true); ok {
+				fx.steps = append(fx.steps, st)
+			}
+		}
 		if sp := it.boat.Splash; sp != nil {
 			if driver != nil {
 				sp.Ridden(known.X, known.Y, known.Z)
