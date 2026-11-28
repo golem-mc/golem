@@ -121,3 +121,28 @@ func BenchmarkHasTickDueAt(b *testing.B) {
 		})
 	}
 }
+
+// A finalize visit that is popped, parked, cancelled and released leaves the
+// live count of the other visit at its position and due tick intact.
+func TestHasTickDueAtAfterParkedFinalizeCancel(t *testing.T) {
+	const due = 100
+	pos := blockKey{1, 64, 1}
+	p := &Physics{cancelled: map[int64]struct{}{}, finalizeSeq: map[blockKey]finalizeBooking{}}
+	fin := scheduledTick{pos: pos, due: due, priority: tickPriorityFinalize, seq: 1}
+	other := scheduledTick{pos: pos, due: due, event: redstoneTickEvent, seq: 2}
+	p.finalizeSeq[pos] = finalizeBooking{fin.seq, due}
+	p.pushTick(fin)
+	p.park(p.popTick())
+	p.pushTick(other)
+	p.cancelPistonFinalize(pos.x, pos.y, pos.z)
+	if got := p.hasTickDueAt(pos, due); !got {
+		t.Fatalf("hasTickDueAt = %t with the other visit still queued", got)
+	}
+	p.releaseParked()
+	want := slices.ContainsFunc(p.queue, func(tick scheduledTick) bool {
+		return tick.pos == pos && tick.due == due && !p.tickCancelled(tick)
+	})
+	if got := p.hasTickDueAt(pos, due); got != want {
+		t.Errorf("after release hasTickDueAt = %t, linear scan = %t", got, want)
+	}
+}

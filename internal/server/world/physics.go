@@ -1551,7 +1551,9 @@ func (p *Physics) dropTickIndex() {
 func (p *Physics) pushTick(t scheduledTick) {
 	p.dropTickIndex()
 	p.queue.push(t)
-	p.addLive(t)
+	if !p.tickCancelled(t) {
+		p.addLive(t)
+	}
 }
 
 func (p *Physics) popTick() scheduledTick {
@@ -1773,8 +1775,21 @@ func (p *Physics) cancelPistonFinalize(x, y, z int32) {
 	if b, ok := p.finalizeSeq[key]; ok {
 		delete(p.finalizeSeq, key)
 		p.cancelled[b.seq] = struct{}{}
-		p.dropLive(dueKey{key, b.due})
+		if !p.isParked(key, b.seq) {
+			p.dropLive(dueKey{key, b.due})
+		}
 	}
+}
+
+// isParked reports whether the visit with seq at pos waits in p.parked, where
+// popTick already dropped its live count.
+func (p *Physics) isParked(pos blockKey, seq int64) bool {
+	for _, t := range p.parked[ChunkPos{X: pos.x >> 4, Z: pos.z >> 4}] {
+		if t.seq == seq {
+			return true
+		}
+	}
+	return false
 }
 
 func (p *Physics) tickCancelled(t scheduledTick) bool {
