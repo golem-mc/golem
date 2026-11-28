@@ -158,6 +158,7 @@ func (w *World) SetChunkForced(pos ChunkPos, forced bool) bool {
 		delete(w.forced.set, pos)
 	}
 	w.forced.dirty = true
+	w.forcedGen.Add(1)
 	w.mu.Unlock()
 	if forced {
 		for range w.AcquireMany(forcedFootprint(pos)) {
