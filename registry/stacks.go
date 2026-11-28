@@ -118,6 +118,9 @@ func StackComponents(stack protocol.ItemStack) nbt.Compound {
 // history is the hash order of the keys; nil when there are none.
 // vanilla: DataComponentPatch.CODEC
 func stackComponentsTag(stack protocol.ItemStack) *nbt.OrderedCompound {
+	if !stack.HasPatch() {
+		return nil
+	}
 	components := stackComponentsMap(stack)
 	if components == nil {
 		return nil
