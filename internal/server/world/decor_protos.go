@@ -654,6 +654,11 @@ var decorProtoZlib = sync.Pool{New: func() any {
 // deflate appends p's saved form to b.out: most of its sections are zeros.
 func (b *decorProtoBuf) deflate(p *decorProto) {
 	b.raw = appendDecorProto(b.raw[:0], p)
+	b.deflateRaw()
+}
+
+// deflateRaw appends b.raw's deflated form to b.out.
+func (b *decorProtoBuf) deflateRaw() {
 	zw := decorProtoZlib.Get().(*zlib.Writer)
 	defer decorProtoZlib.Put(zw)
 	zw.Reset(&b.out)

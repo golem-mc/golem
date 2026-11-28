@@ -103,13 +103,34 @@ type shapedTerrainCache struct {
 	byPos map[ChunkPos]*terrainEntry
 	lru   list.List // front = most recently used
 	cap   int       // 0 means shapedTerrainCap
+	// compressing holds entries evict removed from byPos that spill has not
+	// filed in cold yet; they stay readable.
+	compressing map[ChunkPos]*terrainEntry
+	cold        map[ChunkPos]*coldTerrain
+	coldLRU     list.List // front = most recently used
+	coldBytes   int
+}
+
+// takeBack returns an entry still compressing to the hot tier. Callers hold c.mu.
+func (c *shapedTerrainCache) takeBack(pos ChunkPos) *terrainEntry {
+	e := c.compressing[pos]
+	if e != nil {
+		delete(c.compressing, pos)
+		e.elem = c.lru.PushFront(e)
+		c.byPos[pos] = e
+	}
+	return e
 }
 
 // cached returns ready terrain without waiting for an in-flight shape.
 func (c *shapedTerrainCache) cached(pos ChunkPos) *shapedTerrain {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if e := c.byPos[pos]; e != nil {
+	e := c.byPos[pos]
+	if e == nil && c.compressing[pos] != nil {
+		e = c.takeBack(pos)
+	}
+	if e != nil {
 		select {
 		case <-e.ready:
 			c.lru.MoveToFront(e.elem)
@@ -123,23 +144,39 @@ func (c *shapedTerrainCache) cached(pos ChunkPos) *shapedTerrain {
 // of shares a single shape among callers; shaped belongs to a caller that will decorate it.
 func (c *shapedTerrainCache) of(pos ChunkPos, shaped *Chunk, limit chan struct{}, shape func(*Chunk)) *shapedTerrain {
 	c.mu.Lock()
-	if e := c.byPos[pos]; e != nil {
+	if c.byPos == nil {
+		c.byPos = map[ChunkPos]*terrainEntry{}
+	}
+	e := c.byPos[pos]
+	if e == nil {
+		e = c.takeBack(pos)
+	}
+	if e != nil {
 		c.lru.MoveToFront(e.elem)
 		c.mu.Unlock()
 		<-e.ready
 		return e.t
 	}
-	if c.byPos == nil {
-		c.byPos = map[ChunkPos]*terrainEntry{}
-	}
-	e := &terrainEntry{pos: pos, ready: make(chan struct{})}
+	e = &terrainEntry{pos: pos, ready: make(chan struct{})}
 	e.elem = c.lru.PushFront(e)
 	c.byPos[pos] = e
+	cold := c.cold[pos]
+	if cold != nil {
+		e.finals = cold.finals
+		c.removeCold(cold)
+	}
 	c.mu.Unlock()
-	t := &shapedTerrain{}
-	if shaped != nil {
+	var t *shapedTerrain
+	if cold != nil && shaped == nil {
+		t = inflateTerrain(cold)
+	}
+	switch {
+	case t != nil:
+	case shaped != nil:
+		t = &shapedTerrain{}
 		t.keep(shaped, true)
-	} else {
+	default:
+		t = &shapedTerrain{}
 		if limit != nil {
 			limit <- struct{}{}
 		}
@@ -153,8 +190,9 @@ func (c *shapedTerrainCache) of(pos ChunkPos, shaped *Chunk, limit chan struct{}
 	c.mu.Lock()
 	e.t = t
 	close(e.ready)
-	c.evict()
+	victims := c.evict()
 	c.mu.Unlock()
+	c.spill(victims)
 	return t
 }
 
@@ -163,7 +201,8 @@ func (c *shapedTerrainCache) remove(e *terrainEntry) {
 	c.lru.Remove(e.elem)
 }
 
-func (c *shapedTerrainCache) evict() {
+// evict moves ready entries past the cap to compressing and returns them for spill.
+func (c *shapedTerrainCache) evict() (victims []*terrainEntry) {
 	limit := c.cap
 	if limit == 0 {
 		limit = shapedTerrainCap
@@ -174,10 +213,16 @@ func (c *shapedTerrainCache) evict() {
 		select {
 		case <-e.ready:
 			c.remove(e)
+			if c.compressing == nil {
+				c.compressing = map[ChunkPos]*terrainEntry{}
+			}
+			c.compressing[e.pos] = e
+			victims = append(victims, e)
 		default:
 			// In-flight shapes keep their single-flight entry until publication.
 		}
 	}
+	return victims
 }
 
 func (c *shapedTerrainCache) markFinal(pos ChunkPos) {
@@ -185,10 +230,22 @@ func (c *shapedTerrainCache) markFinal(pos ChunkPos) {
 	defer c.mu.Unlock()
 	for dx := int32(-2); dx <= 2; dx++ {
 		for dz := int32(-2); dz <= 2; dz++ {
-			if e := c.byPos[ChunkPos{X: pos.X + dx, Z: pos.Z + dz}]; e != nil {
-				e.finals |= 1 << ((2-dz)*5 + 2 - dx)
+			p := ChunkPos{X: pos.X + dx, Z: pos.Z + dz}
+			bit := uint32(1) << ((2-dz)*5 + 2 - dx)
+			if e := c.byPos[p]; e != nil {
+				e.finals |= bit
 				if e.finals == 1<<25-1 {
 					c.remove(e)
+				}
+			} else if e := c.compressing[p]; e != nil {
+				e.finals |= bit
+				if e.finals == 1<<25-1 {
+					delete(c.compressing, p)
+				}
+			} else if e := c.cold[p]; e != nil {
+				e.finals |= bit
+				if e.finals == 1<<25-1 {
+					c.removeCold(e)
 				}
 			}
 		}
