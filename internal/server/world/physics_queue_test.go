@@ -2,6 +2,7 @@ package world
 
 import (
 	"cmp"
+	"fmt"
 	"math/rand"
 	"slices"
 	"testing"
@@ -87,14 +88,35 @@ func TestHasTickDueAtMatchesLinearScan(t *testing.T) {
 		{"rebooked under a cancelled parent", tickQueue{cancelled, rebooked}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			p := &Physics{queue: tc.queue, cancelled: map[int64]struct{}{cancelled.seq: {}}}
-			p.queue.init()
+			p := &Physics{cancelled: map[int64]struct{}{cancelled.seq: {}}}
+			p.setTicks(tc.queue)
 			p.park(event)
 			want := slices.ContainsFunc(p.queue, func(tick scheduledTick) bool {
 				return tick.pos == pos && tick.due == due && !p.tickCancelled(tick)
 			})
 			if got := p.hasTickDueAt(pos, due); got != want {
 				t.Errorf("hasTickDueAt(%v, %d) = %t, linear scan = %t", pos, due, got, want)
+			}
+		})
+	}
+}
+
+// BenchmarkHasTickDueAt checks that the lookup does not grow with the queue.
+func BenchmarkHasTickDueAt(b *testing.B) {
+	for _, n := range []int{100, 100000} {
+		b.Run(fmt.Sprint(n), func(b *testing.B) {
+			p := &Physics{cancelled: map[int64]struct{}{}}
+			ticks := make(tickQueue, n)
+			for i := range ticks {
+				ticks[i] = scheduledTick{pos: blockKey{int32(i), 64, 0}, due: 10, seq: int64(i)}
+			}
+			p.setTicks(ticks)
+			pos := blockKey{int32(n / 2), 64, 0}
+			b.ResetTimer()
+			for range b.N {
+				if !p.hasTickDueAt(pos, 10) || p.hasTickDueAt(pos, 11) {
+					b.Fatal("wrong answer")
+				}
 			}
 		})
 	}

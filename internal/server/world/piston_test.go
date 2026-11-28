@@ -490,8 +490,7 @@ func TestLandingSavedAtLowPriorityStillLands(t *testing.T) {
 			id: registry.BlockMovingPiston.Name(), x: tk.pos.x, y: tk.pos.y, z: tk.pos.z,
 			delay: int32(tk.due - p.now), priority: 2})
 	}
-	p.queue = kept
-	p.queue.init()
+	p.setTicks(kept)
 	if len(w.pendingLoaded) != 2 {
 		t.Fatalf("%d landings queued, want 2", len(w.pendingLoaded))
 	}

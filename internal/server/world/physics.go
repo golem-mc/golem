@@ -633,7 +633,10 @@ type Physics struct {
 	pending  map[blockKey]bool
 	// fluidBooked holds the fluid visits queued, one per position and type.
 	fluidBooked map[fluidBook]struct{}
-	finalizeSeq map[blockKey]int64
+	finalizeSeq map[blockKey]finalizeBooking
+	// liveDue counts the live (uncancelled) queue entries per position and due
+	// tick, so hasTickDueAt is a lookup. Only under mu.
+	liveDue map[dueKey]int32
 	// cancelled entries stay in the heap until popped or filtered; their
 	// sequence, rather than position, keeps a replacement booking live.
 	cancelled map[int64]struct{}
@@ -881,7 +884,8 @@ func NewPhysics(w *World) *Physics {
 		maxChain:            DefaultMaxChainedNeighborUpdates,
 		pending:             make(map[blockKey]bool),
 		fluidBooked:         make(map[fluidBook]struct{}),
-		finalizeSeq:         make(map[blockKey]int64),
+		finalizeSeq:         make(map[blockKey]finalizeBooking),
+		liveDue:             make(map[dueKey]int32),
 		cancelled:           make(map[int64]struct{}),
 		rideSet:             make(map[[3]int32]struct{}),
 		testBlocksTriggered: make(map[blockKey]bool),
@@ -1547,11 +1551,42 @@ func (p *Physics) dropTickIndex() {
 func (p *Physics) pushTick(t scheduledTick) {
 	p.dropTickIndex()
 	p.queue.push(t)
+	p.addLive(t)
 }
 
 func (p *Physics) popTick() scheduledTick {
 	p.dropTickIndex()
-	return p.queue.pop()
+	t := p.queue.pop()
+	if !p.tickCancelled(t) {
+		p.dropLive(dueKey{t.pos, t.due})
+	}
+	return t
+}
+
+// dueKey is a position and the tick a queue entry is due.
+type dueKey struct {
+	pos blockKey
+	due int64
+}
+
+// finalizeBooking is a piston landing's queue entry: its sequence and due tick.
+type finalizeBooking struct {
+	seq, due int64
+}
+
+func (p *Physics) addLive(t scheduledTick) {
+	if p.liveDue == nil {
+		p.liveDue = make(map[dueKey]int32)
+	}
+	p.liveDue[dueKey{t.pos, t.due}]++
+}
+
+func (p *Physics) dropLive(k dueKey) {
+	if n := p.liveDue[k]; n > 1 {
+		p.liveDue[k] = n - 1
+	} else {
+		delete(p.liveDue, k)
+	}
 }
 
 // setTicks replaces the heap's entries with kept and restores heap order.
@@ -1559,6 +1594,12 @@ func (p *Physics) setTicks(kept tickQueue) {
 	p.dropTickIndex()
 	p.queue = kept
 	p.queue.init()
+	clear(p.liveDue)
+	for _, t := range kept {
+		if !p.tickCancelled(t) {
+			p.addLive(t)
+		}
+	}
 }
 
 // insertTick queues a visit unless one is waiting for the same key and fluid
@@ -1589,7 +1630,7 @@ func (p *Physics) insertTick(key blockKey, typ fluidType, due int64, priority in
 	}
 	p.pushTick(t)
 	if priority == tickPriorityFinalize && typ == 0 {
-		p.finalizeSeq[key] = p.seq
+		p.finalizeSeq[key] = finalizeBooking{p.seq, due}
 	}
 	return true
 }
@@ -1729,9 +1770,10 @@ func (p *Physics) schedulePistonFinalize(x, y, z int32, due int64) {
 // wrote.
 func (p *Physics) cancelPistonFinalize(x, y, z int32) {
 	key := blockKey{x, y, z}
-	if seq, ok := p.finalizeSeq[key]; ok {
+	if b, ok := p.finalizeSeq[key]; ok {
 		delete(p.finalizeSeq, key)
-		p.cancelled[seq] = struct{}{}
+		p.cancelled[b.seq] = struct{}{}
+		p.dropLive(dueKey{key, b.due})
 	}
 }
 
@@ -1745,20 +1787,9 @@ func (p *Physics) tickCancelled(t scheduledTick) bool {
 
 // hasTickDueAt reports whether the active queue contains a live visit
 // at pos with the requested due tick. Runs under p.mu.
+// vanilla: LevelTicks.willTickThisTick
 func (p *Physics) hasTickDueAt(pos blockKey, due int64) bool {
-	return p.hasTickDueIn(0, pos, due)
-}
-
-func (p *Physics) hasTickDueIn(i int, pos blockKey, due int64) bool {
-	// A heap child can only be due at the same time as its parent or later.
-	if i >= len(p.queue) || p.queue[i].due > due {
-		return false
-	}
-	t := p.queue[i]
-	if t.due == due && t.pos == pos && !p.tickCancelled(t) {
-		return true
-	}
-	return p.hasTickDueIn(2*i+1, pos, due) || p.hasTickDueIn(2*i+2, pos, due)
+	return p.liveDue[dueKey{pos, due}] > 0
 }
 
 // set writes a block, records the change and runs the position's neighbour
