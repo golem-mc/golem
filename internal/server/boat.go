@@ -782,6 +782,8 @@ type boatWorldBodies struct {
 	reachGrid entity.BoxGrid
 	hulls     []*boatEntity
 	hullGrid  entity.BoxGrid
+	// hullBox is the index in boxes of each hull's own solid box, parallel to hulls.
+	hullBox   []int32
 	hullSlack float64
 	// mobIdx and clientIdx are built on the first hull that carries a
 	// passenger, from mobs and clients.
@@ -801,6 +803,7 @@ func (wb *boatWorldBodies) reset() {
 	wb.reach = wb.reach[:0]
 	clear(wb.hulls)
 	wb.hulls = wb.hulls[:0]
+	wb.hullBox = wb.hullBox[:0]
 	wb.reachGrid.Reset()
 	wb.hullGrid.Reset()
 	wb.hullSlack = 0
@@ -835,6 +838,15 @@ func (wb *boatWorldBodies) add(box entity.AABB, m *mobEntity, c *client, p boatP
 	wb.pushers = append(wb.pushers, p)
 }
 
+// addSolid files a body that only blocks a hull's move (another hull, a
+// cart): it has no owner and its push inputs sit above every hull's floor,
+// so the push sweep never takes it. Returns its index.
+func (wb *boatWorldBodies) addSolid(box entity.AABB) int32 {
+	i := int32(len(wb.boxes))
+	wb.add(box, nil, nil, boatPusher{minY: math.Inf(1)})
+	return i
+}
+
 // index builds the owner lookups once per tick.
 func (wb *boatWorldBodies) index() {
 	if wb.indexed {
@@ -850,7 +862,7 @@ func (wb *boatWorldBodies) index() {
 	for i := range wb.boxes {
 		if m := wb.mobs[i]; m != nil {
 			wb.mobIdx[m] = int32(i)
-		} else {
+		} else if wb.clients[i] != nil {
 			wb.clientIdx[wb.clients[i]] = int32(i)
 		}
 	}
@@ -880,8 +892,10 @@ func (s *Server) boatBodies(clients []*client, worlds []*world.World, teams push
 		out[w] = wb
 	}
 	s.boatsMu.Lock()
+	anyHull := false
 	for _, it := range s.boats {
 		if wb := out[it.w]; wb != nil && !it.boat.Dead {
+			anyHull = true
 			b := it.boat
 			speed := math.Max(math.Abs(b.VX), math.Max(math.Abs(b.VY), math.Abs(b.VZ)))
 			m := boatReachMargin + speed
@@ -889,9 +903,22 @@ func (s *Server) boatBodies(clients []*client, worlds []*world.World, teams push
 			wb.reachGrid.Add(int32(len(wb.reach)), box)
 			wb.reach = append(wb.reach, box)
 			wb.hulls = append(wb.hulls, it)
+			wb.hullBox = append(wb.hullBox, wb.addSolid(entity.NewAABB(entity.BoatBoxAt(b.X, b.Y, b.Z))))
 		}
 	}
 	s.boatsMu.Unlock()
+	if anyHull {
+		s.minecartsMu.Lock()
+		for _, c := range s.minecarts {
+			if wb := out[c.w]; wb != nil && len(wb.hulls) > 0 && !c.cart.Dead {
+				minX, minY, minZ, maxX, maxY, maxZ := c.cart.Box()
+				if wb.inReach((minX+maxX)/2, minY, (minZ+maxZ)/2, maxX-minX, maxY-minY) {
+					wb.addSolid(entity.NewAABB(minX, minY, minZ, maxX, maxY, maxZ))
+				}
+			}
+		}
+		s.minecartsMu.Unlock()
+	}
 	for _, c := range clients {
 		if c.player == nil || c.player.GameMode() == protocol.GameModeSpectator ||
 			c.player.Vitals().Dead {
@@ -958,6 +985,12 @@ func boatBodyWorld(w *world.World, wb *boatWorldBodies, it *boatEntity) entity.W
 	skip := wb.skipBuf[:0]
 	if len(it.passengers) > 0 {
 		wb.index()
+	}
+	for i, h := range wb.hulls {
+		if h == it {
+			skip = append(skip, wb.hullBox[i])
+			break
+		}
 	}
 	for _, p := range it.passengers {
 		if i, ok := wb.mobIdx[p.ent]; p.ent != nil && ok {
