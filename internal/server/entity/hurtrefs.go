@@ -86,10 +86,16 @@ func (m *Mob) learnHurtRefs(players []Player, others []*Mob) {
 				return
 			}
 		}
-	} else if id := m.lastAttackerID; id != 0 && m.grudge.id != id {
+	} else if id := m.lastAttackerID; id != 0 && m.grudge.id != id && m.Age-m.lastAttackerAge <= 100 {
 		for i := range players {
 			if players[i].EntityID == id {
 				m.grudge.note(id, players[i].UUID)
+				return
+			}
+		}
+		for _, o := range others {
+			if o.ID == id {
+				m.grudge.note(id, o.UUID)
 				return
 			}
 		}
