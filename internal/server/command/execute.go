@@ -899,6 +899,8 @@ func executeRun(src Source, ctxs []execContext, forked bool, tail []string, inpu
 			if cmd.Name == "execute" && !f.run.spend() {
 				return nil
 			}
+			// A copy, so only this branch's closure moves ctx to the heap.
+			ctx := ctx
 			cb := func(success bool, result int32) error {
 				reportResult(src, success, result)
 				return ctx.report(success, result)
@@ -2051,11 +2053,10 @@ func (s nbtStore) attach(next []execContext, ctx execContext, target dataTarget)
 func (t dataTarget) storeData(path nbtPath, tag nbt.Tag) {
 	if t.kind == dataTargetStorage {
 		if path.isKeyChain() {
-			// Every node creates compounds or refuses before changing anything,
-			// so the live compound can be edited without a copy.
+			// A refused key-chain set changes nothing, so the live compound is
+			// edited without a copy.
 			t.src.ModifyCommandStorage(t.id, func(live nbt.CompoundTag) bool {
-				changed, refusal := path.set(live, tag)
-				return changed > 0 && refusal == nil
+				return path.setScalarInKeyChain(live, tag)
 			})
 			return
 		}
