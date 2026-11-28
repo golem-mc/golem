@@ -1198,6 +1198,9 @@ func (s *Server) registerBoat(it *boatEntity) {
 	s.minecartsMu.Lock()
 	if s.cartCols != nil {
 		s.cartCols.addBoat(it)
+		if len(s.cartCols.boats) > 0 {
+			s.cartColsEmptyWorld.Store(nil)
+		}
 	}
 	s.minecartsMu.Unlock()
 	s.boatsMu.Unlock()
@@ -2408,7 +2411,7 @@ func (s *Server) teleportBoat(it *boatEntity, to player.Position, yaw float32, b
 	boatTracker.teleport(s, it, func() {
 		// A teleport during the block entity pass invalidates the column snapshot.
 		s.minecartsMu.Lock()
-		s.cartCols = nil
+		s.invalidateCartColumnsLocked()
 		s.minecartsMu.Unlock()
 		it.boat.SetPos(to.X, to.Y, to.Z)
 		it.boat.Yaw, it.look.pitch = yaw, to.Pitch

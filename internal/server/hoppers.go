@@ -656,6 +656,7 @@ func (s *Server) indexItemColumns(w *world.World) {
 		clear(idx.scanned)
 	}
 	s.itemCols = idx
+	s.itemCount.Store(int32(len(s.items)))
 }
 
 func (s *Server) dropItemColumns() {
@@ -666,6 +667,9 @@ func (s *Server) dropItemColumns() {
 
 // itemsOverColumn reports whether an item may reach the column.
 func (s *Server) itemsOverColumn(w *world.World, x, z int32) bool {
+	if s.itemCount.Load() == 0 {
+		return false
+	}
 	s.itemsMu.Lock()
 	defer s.itemsMu.Unlock()
 	if len(s.items) == 0 {

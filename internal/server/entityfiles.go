@@ -124,7 +124,7 @@ func (s *Server) sweepDepartingEntities() []departure {
 	var out []departure
 
 	s.lockTick(&s.itemsMu)
-	s.items = sweepSaved(s.items, func(it *itemEntity) bool {
+	s.setItemsLocked(sweepSaved(s.items, func(it *itemEntity) bool {
 		if it.item.Dead {
 			return false // a pickup or a kill consumed it; its own tick drops it
 		}
@@ -137,7 +137,7 @@ func (s *Server) sweepDepartingEntities() []departure {
 			tag: itemTag(it), item: it,
 		})
 		return false
-	}, itemTracker.unfile)
+	}, itemTracker.unfile))
 	s.unlockTick(&s.itemsMu)
 
 	s.lockTick(&s.arrowsMu)

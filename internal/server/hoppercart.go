@@ -307,11 +307,22 @@ func (s *Server) indexCartColumns(w *world.World) {
 		idx.addBoat(it)
 	}
 	s.cartCols = idx
+	if len(idx.cols) == 0 && len(idx.boats) == 0 {
+		s.cartColsEmptyWorld.Store(w)
+	} else {
+		s.cartColsEmptyWorld.Store(nil)
+	}
+}
+
+// invalidateCartColumnsLocked drops the active vehicle column index. Caller holds minecartsMu.
+func (s *Server) invalidateCartColumnsLocked() {
+	s.cartCols = nil
+	s.cartColsEmptyWorld.Store(nil)
 }
 
 func (s *Server) dropCartColumns() {
 	s.minecartsMu.Lock()
-	s.cartCols = nil
+	s.invalidateCartColumnsLocked()
 	// Release the vehicles and world the last pass buffered.
 	idx := &s.cartColBuffer
 	idx.w = nil
@@ -323,6 +334,9 @@ func (s *Server) dropCartColumns() {
 // unit box centred on (cx, cy, cz), never except; nil for none.
 // vanilla: HopperBlockEntity.getEntityContainer
 func (s *Server) entityContainerAt(w *world.World, cx, cy, cz float64, except *minecartEntity) containerTarget {
+	if w != nil && s.cartColsEmptyWorld.Load() == w {
+		return nil
+	}
 	// Boats are read under boatsMu then minecartsMu, the order the index
 	// build uses, so dropCartColumns cannot recycle a bucket mid-traversal.
 	// An empty or cart-only column needs minecartsMu alone.

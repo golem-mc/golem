@@ -440,6 +440,7 @@ type Server struct {
 	// spawnItem and the tick's copy of the recipients.
 	itemsMu    sync.Mutex
 	items      []*itemEntity
+	itemCount  atomic.Int32
 	itemOrder  uint64
 	itemChunks entity.ChunkIndex[*itemEntity]
 	// foxView* are foxItemView's per-tick scratch, owned by the tick goroutine.
@@ -688,6 +689,9 @@ type Server struct {
 	vehicleMarks map[uuid.UUID]markState
 	vehicleGen   uint32
 	cartCols     *cartColumns
+	// cartColsEmptyWorld holds the world whose active cartCols index has no
+	// container vehicles, letting entityContainerAt skip minecartsMu.
+	cartColsEmptyWorld atomic.Pointer[world.World]
 	// cartColBuffer retains storage between passes; cartCols is nil outside them.
 	cartColBuffer cartColumns
 	// pickupCands retains pickUpMobs' per-world storage between ticks.
