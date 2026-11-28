@@ -444,6 +444,10 @@ func (s *Server) tickBoats() {
 		from := entity.NewAABB(entity.BoatBoxAt(sx, sy, sz))
 		it.boat.Step(bw, driver != nil)
 		fx.movements.add(it.w, it.uuid, it.boat.Movement)
+		known := player.Velocity{X: it.boat.VX, Z: it.boat.VZ}
+		if driver != nil {
+			known = driver.player.KnownMovement()
+		}
 		if it.boat.OnGround && !it.boat.Dead {
 			if st, ok := groundStepOf(it.w, it.boat.X, it.boat.Y, it.boat.Z, entity.BoatHalfWidth, true); ok {
 				fx.steps = append(fx.steps, st)
@@ -451,7 +455,6 @@ func (s *Server) tickBoats() {
 		}
 		if sp := it.boat.Splash; sp != nil {
 			if driver != nil {
-				known := driver.player.KnownMovement()
 				sp.Ridden(known.X, known.Y, known.Z)
 			}
 			fx.splashes = append(fx.splashes, projectileSplash{w: it.w, x: sp.X, y: sp.Y, z: sp.Z, volume: sp.Volume, pitch: sp.Pitch})
@@ -461,12 +464,7 @@ func (s *Server) tickBoats() {
 				fx.paddles = append(fx.paddles, boatPaddle{w: it.w, sound: ps})
 			}
 		}
-		moveX, moveZ := it.boat.VX, it.boat.VZ
-		if driver != nil {
-			known := driver.player.KnownMovement()
-			moveX, moveZ = known.X, known.Z
-		}
-		padBuf, flakeBuf = it.boat.InsideBlocks(it.w, sx, sy, sz, moveX, moveZ, padBuf, flakeBuf)
+		padBuf, flakeBuf = it.boat.InsideBlocks(it.w, sx, sy, sz, known.X, known.Z, padBuf, flakeBuf)
 		for range it.boat.LavaHurts {
 			fx.burns = append(fx.burns, burnSpot{it.w, it.boat.X, it.boat.Y, it.boat.Z})
 		}
@@ -474,6 +472,7 @@ func (s *Server) tickBoats() {
 		for range it.boat.Extinguishes {
 			fx.fizzles = append(fx.fizzles, burnSpot{it.w, it.boat.X, it.boat.Y, it.boat.Z})
 		}
+		fx.addPutOut(it.w, it.boat)
 		for _, c := range padBuf {
 			fx.padCells = append(fx.padCells, boatPad{w: it.w, x: c.X, y: c.Y, z: c.Z})
 		}

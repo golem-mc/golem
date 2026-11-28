@@ -954,6 +954,7 @@ func (s *Server) tickArmorStands() {
 		travels []armorStandPortalTravel
 	)
 	var located []standLocated
+	var cauldrons, snows []cellSpot
 	var bodyLandings []bodyLanding
 	var groundSteps []groundStep
 	var slides []honeySlide
@@ -994,6 +995,10 @@ func (s *Server) tickArmorStands() {
 					// The health the tick took ran out; the tail — the removal,
 					// the sound, the drops — runs once the lock is given back.
 					broke, torn = true, true
+				case entity.ArmorStandDousedCauldron:
+					cauldrons = append(cauldrons, cellSpot{ent.w, int32(item.X), int32(item.Y), int32(item.Z)})
+				case entity.ArmorStandMeltedSnow:
+					snows = append(snows, cellSpot{ent.w, int32(item.X), int32(item.Y), int32(item.Z)})
 				case entity.ArmorStandSlid:
 					slides = append(slides, honeySlide{ent.w, ent.stand.ID, ent.stand.X, ent.stand.Y, ent.stand.Z})
 				case entity.ArmorStandLocated:
@@ -1051,6 +1056,8 @@ func (s *Server) tickArmorStands() {
 		disks = append(disks, s.standLocated(l)...)
 	}
 	s.applyDisks(disks)
+	applyEach(s, cauldrons, (*Server).douseCellCauldron)
+	applyEach(s, snows, (*Server).meltCellSnow)
 
 	for _, t := range broken {
 		s.tellWatchers(t.ent.w, t.watchers, []outbound{{id: protocol.IDPlayRemoveEntities, data: removeEntitiesPayload([]int32{t.ent.stand.ID})}})

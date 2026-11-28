@@ -87,6 +87,12 @@ const (
 	// OrbSteppedOnRedstoneOre: the orb rests on the unlit redstone ore at
 	// X, Y, Z.
 	OrbSteppedOnRedstoneOre
+	// OrbDousedCauldron: a burning orb was put out in the layered cauldron
+	// at X, Y, Z, which drops a level.
+	OrbDousedCauldron
+	// OrbMeltedSnow: a burning orb was put out in the powder snow at X, Y, Z,
+	// which breaks.
+	OrbMeltedSnow
 )
 
 // OrbEvent is one event out of an orb's tick. The Collector rides only an
@@ -428,6 +434,7 @@ func (o *Orb) insideEffects(w World, move bodyMove, events *[]OrbEvent) {
 	sideways := o.VX != 0 || o.VZ != 0
 	rel := AABB{-orbHalfSize, 0, -orbHalfSize, orbHalfSize, orbHeight, orbHalfSize}
 	inSnow, inLava := false, false
+	var cauldrons, snows [][3]int32
 	walkInside(w, []bodyMove{move}, rel, func(x, y, z int32, state uint16, _ int, from AABB, dx, dy, dz float64) bool {
 		inSnow = inSnow || rules.IsPowderSnow(state)
 		if insideNonLiving(state, sideways, &o.stuck) {
@@ -435,6 +442,10 @@ func (o *Orb) insideEffects(w World, move bodyMove, events *[]OrbEvent) {
 		}
 		fluid := sweptFluid(w, x, y, z, state, from, dx, dy, dz)
 		switch {
+		case rules.IsLayeredCauldron(state):
+			cauldrons = append(cauldrons, [3]int32{x, y, z})
+		case rules.IsPowderSnow(state):
+			snows = append(snows, [3]int32{x, y, z})
 		case fluid == fluidWater:
 			o.fireTicks = 0
 		case fluid == fluidLava || sweptLavaCauldron(x, y, z, state, from, dx, dy, dz):
@@ -459,6 +470,20 @@ func (o *Orb) insideEffects(w World, move bodyMove, events *[]OrbEvent) {
 		return !o.Dead // vanilla: the walk stops for a body no longer alive
 	})
 	applyFreeze(&o.TicksFrozen, inSnow, inLava)
+	// Both run before the extinguish, so a burning orb in each lowers the
+	// cauldron and breaks the snow.
+	// vanilla: LayeredCauldronBlock.entityInside, PowderSnowBlock.entityInside
+	if o.fireTicks > 0 {
+		for _, c := range cauldrons {
+			*events = append(*events, OrbEvent{Kind: OrbDousedCauldron, X: c[0], Y: c[1], Z: c[2]})
+		}
+		for _, c := range snows {
+			*events = append(*events, OrbEvent{Kind: OrbMeltedSnow, X: c[0], Y: c[1], Z: c[2]})
+		}
+		if len(cauldrons)+len(snows) > 0 {
+			o.fireTicks = 0
+		}
+	}
 	if rainLandsOn(w, o.X, o.Y, o.Z, orbHeight) {
 		o.fireTicks = 0
 	}
@@ -466,6 +491,12 @@ func (o *Orb) insideEffects(w World, move bodyMove, events *[]OrbEvent) {
 		*events = append(*events, OrbEvent{Kind: OrbExtinguished})
 	}
 }
+
+// FireTicks is the burn the orb still has to run.
+func (o *Orb) FireTicks() int { return o.fireTicks }
+
+// SetFire sets the burn, vanilla's remainingFireTicks.
+func (o *Orb) SetFire(ticks int) { o.fireTicks = ticks }
 
 // followNearbyPlayer is vanilla's followNearbyPlayer. The current player is
 // kept unless a spectator or more than 8 blocks feet to feet (64 squared; a

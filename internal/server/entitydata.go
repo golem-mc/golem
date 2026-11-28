@@ -286,7 +286,7 @@ func orbTagAs(ent *orbEntity, id string) *nbt.OrderedCompound {
 	o := ent.orb
 	tag := orderedEntityBaseTag(id,
 		o.X, o.Y, o.Z, o.VX, o.VY, o.VZ,
-		ent.look.yaw, ent.look.pitch, ent.uuid, o.OnGround, ent.portal.Cooldown, restingFire, 0)
+		ent.look.yaw, ent.look.pitch, ent.uuid, o.OnGround, ent.portal.Cooldown, o.FireTicks(), 0)
 	putEntityOptions(tag, ent.custom, ent.look.silent, o.NoGravity, ent.look, ent.tags)
 	putTicksFrozen(tag, o.TicksFrozen)
 	tag.Set("Invulnerable", boolTag(ent.look.invulnerable))
@@ -889,6 +889,7 @@ func applyOrbTag(it *orbEntity, compound nbt.Compound) {
 	}
 	o.NoGravity = nbt.BoolField(compound, "NoGravity")
 	o.TicksFrozen = ticksFrozenOfTag(compound)
+	o.SetFire(fireOfTag(compound))
 	o.Invulnerable = it.look.invulnerable
 	it.portal.Cooldown = portalCooldownOf(compound)
 	it.tags.Reset(tagsOfTag(compound))
