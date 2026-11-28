@@ -34,8 +34,8 @@ func TestBaseDataTagMatchesDataTag(t *testing.T) {
 				continue
 			}
 			shortcut[e.EntityType()+" "+key] = true
-			if got.Entries()[key] == nil || !nbt.Equal(got.Entries()[key], full.Entries()[key]) {
-				t.Errorf("%s %s = %v, want %v", e.EntityType(), key, got.Entries()[key], full.Entries()[key])
+			if !nbt.Equal(got, full.Entries()[key]) {
+				t.Errorf("%s %s = %v, want %v", e.EntityType(), key, got, full.Entries()[key])
 			}
 		}
 	}

@@ -276,10 +276,10 @@ type DataTarget interface {
 	DataTag() (nbt.CompoundTag, bool)
 }
 
-// BaseDataTarget is a DataTarget that builds the one-entry compound of a
-// key such as Pos or UUID without its whole tag; false defers to DataTag.
+// BaseDataTarget is a DataTarget that builds the entry of a key such as Pos
+// or UUID without its whole tag; false defers to DataTag.
 type BaseDataTarget interface {
-	BaseDataTag(key string) (nbt.CompoundTag, bool)
+	BaseDataTag(key string) (nbt.Tag, bool)
 }
 
 // DataWriter is a DataTarget the /data command can write back: the
@@ -473,8 +473,8 @@ func (t dataTarget) getTag(path nbtPath) (nbt.Tag, *pathError) {
 		if t.kind == dataTargetEntity {
 			if base, ok := t.entity.(BaseDataTarget); ok {
 				if key, scoped := path.rootKey(); scoped && !path.hasRootMatch() {
-					if data, ok := base.BaseDataTag(key); ok {
-						return getSingleTag(path, data)
+					if entry, ok := base.BaseDataTag(key); ok {
+						return getEntryTag(path, key, entry)
 					}
 				}
 			}
@@ -1015,6 +1015,25 @@ func getSingleTag(path nbtPath, data nbt.CompoundTag) (nbt.Tag, *pathError) {
 		return nil, pathRefusal(dataGetMultipleKey)
 	}
 	return tags[0], nil
+}
+
+// getEntryTag is getSingleTag on a root holding only key: entry. The common
+// reads, the key itself and one of its list's elements, skip the walk.
+func getEntryTag(path nbtPath, key string, entry nbt.Tag) (nbt.Tag, *pathError) {
+	if _, plain := path.nodes[0].(compoundChildNode); !plain {
+		return getSingleTag(path, nbt.Compound{key: entry})
+	}
+	switch len(path.nodes) {
+	case 1:
+		return entry, nil
+	case 2:
+		if at, ok := path.nodes[1].(indexedElementNode); ok {
+			if list, ok := entry.(nbt.List); ok && at.index >= 0 && at.index < len(list.Items) {
+				return list.Items[at.index], nil
+			}
+		}
+	}
+	return getSingleTag(path, nbt.Compound{key: entry})
 }
 
 // numericDouble is a numeric tag's value as the game's own reader takes
