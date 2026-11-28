@@ -213,8 +213,8 @@ func (w *World) loadedListeners() []*BlockEntity {
 	w.mu.RLock()
 	defer w.mu.RUnlock()
 	var out []*BlockEntity
-	for _, be := range w.sculkBlockEntities {
-		if !be.removed.Load() && listenerKind(be.Kind) && be.listenerLoaded.Swap(false) {
+	for _, be := range w.sculkBlockEntities.bes {
+		if be != nil && listenerKind(be.Kind) && be.listenerLoaded.Swap(false) {
 			out = append(out, be)
 		}
 	}

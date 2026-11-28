@@ -1416,49 +1416,114 @@ func (w *World) appendBlockEntityOrder(bes ...*BlockEntity) {
 	for _, be := range bes {
 		w.nextEntityTickOrder++
 		be.tickOrder = w.nextEntityTickOrder
-		w.blockEntityOrder = append(w.blockEntityOrder, be)
+		w.blockEntityOrder.add(be)
 		if blockEntityTicks(be.Kind) {
-			w.tickingBlockEntities = append(w.tickingBlockEntities, be)
+			w.tickingBlockEntities.add(be)
 		}
 		if sculkBlockEntityKind(be.Kind) {
-			w.sculkBlockEntities = append(w.sculkBlockEntities, be)
+			w.sculkBlockEntities.add(be)
 		}
 	}
 }
 
-// removeBlockEntityOrder flags one entity removed and leaves it in the world's
-// lists, which readers skip it in until compactBlockEntityLists drops it; call
-// it under mu.
+// removeBlockEntityOrder flags one entity removed and clears its slots in the
+// world's lists, which readers skip until compactBlockEntityLists drops them;
+// call it under mu.
 func (w *World) removeBlockEntityOrder(be *BlockEntity) {
-	if !be.removed.Swap(true) {
-		w.removedInLists++
-	}
+	w.clearBlockEntitySlots(be)
 	w.compactBlockEntityLists()
 }
 
-// compactBlockEntityLists drops the removed entries from the three lists once
-// they are over half of blockEntityOrder, so a removal costs O(1) amortised.
-// Call it under mu.
-func (w *World) compactBlockEntityLists() {
-	if w.removedInLists*2 <= len(w.blockEntityOrder) {
+// clearBlockEntitySlots flags be removed and nils its slots, so a reader skips
+// it by a nil check rather than a load from every entity. Call it under mu.
+func (w *World) clearBlockEntitySlots(be *BlockEntity) {
+	if be.removed.Swap(true) {
 		return
 	}
-	gone := func(b *BlockEntity) bool { return b.removed.Load() }
-	w.blockEntityOrder = slices.DeleteFunc(w.blockEntityOrder, gone)
-	w.tickingBlockEntities = slices.DeleteFunc(w.tickingBlockEntities, gone)
-	w.sculkBlockEntities = slices.DeleteFunc(w.sculkBlockEntities, gone)
+	w.blockEntityOrder.clear(be)
+	if blockEntityTicks(be.Kind) {
+		w.tickingBlockEntities.clear(be)
+	}
+	if sculkBlockEntityKind(be.Kind) {
+		w.sculkBlockEntities.clear(be)
+	}
+	w.removedInLists++
+}
+
+// compactBlockEntityLists drops the cleared slots from the three lists once
+// they are over half of blockEntityOrder, so a removal costs O(1) amortised
+// even with no tick to read the lists. Call it under mu.
+func (w *World) compactBlockEntityLists() {
+	if w.removedInLists*2 > len(w.blockEntityOrder.bes) {
+		w.compactBlockEntityListsNow()
+	}
+}
+
+// compactBlockEntityListsNow drops every cleared slot; call it under mu.
+func (w *World) compactBlockEntityListsNow() {
+	w.blockEntityOrder.compact()
+	w.tickingBlockEntities.compact()
+	w.sculkBlockEntities.compact()
 	w.removedInLists = 0
 }
 
-// removeChunkBlockEntities flags an unloading chunk's entities removed, so
-// readers of the world's lists skip them and a UseLive turn holding an old
-// pointer skips. Call it under mu; the flag is atomic, so no entity lock is
-// taken.
+// blockEntityList is block entities in tickOrder; a removed one's slot is nil
+// until compact drops it.
+type blockEntityList struct {
+	bes []*BlockEntity
+	// orders is each slot's tickOrder, ascending, so clear finds a slot without
+	// loading any entity.
+	orders []uint64
+	// hole is the lowest nil slot plus one, 0 if there is none.
+	hole int
+}
+
+func (l *blockEntityList) add(be *BlockEntity) {
+	l.bes = append(l.bes, be)
+	l.orders = append(l.orders, be.tickOrder)
+}
+
+// clear nils be's slot; an entity never listed has none.
+func (l *blockEntityList) clear(be *BlockEntity) {
+	if i, ok := slices.BinarySearch(l.orders, be.tickOrder); ok && l.bes[i] == be {
+		l.bes[i] = nil
+		if l.hole == 0 || i < l.hole-1 {
+			l.hole = i + 1
+		}
+	}
+}
+
+// compact drops the nil slots, moving each run of live ones with one copy.
+func (l *blockEntityList) compact() {
+	if l.hole == 0 {
+		return
+	}
+	n := l.hole - 1
+	l.hole = 0
+	for i := n; i < len(l.bes); {
+		if l.bes[i] == nil {
+			i++
+			continue
+		}
+		j := i + 1
+		for j < len(l.bes) && l.bes[j] != nil {
+			j++
+		}
+		copy(l.bes[n:], l.bes[i:j])
+		copy(l.orders[n:], l.orders[i:j])
+		n, i = n+j-i, j
+	}
+	clear(l.bes[n:])
+	l.bes, l.orders = l.bes[:n], l.orders[:n]
+}
+
+// removeChunkBlockEntities flags an unloading chunk's entities removed and
+// clears their slots, so readers of the world's lists skip them and a UseLive
+// turn holding an old pointer skips. Call it under mu; the flag is atomic, so
+// no entity lock is taken.
 func (w *World) removeChunkBlockEntities(c *Chunk) {
 	for _, be := range c.blockEntities() {
-		if !be.removed.Swap(true) {
-			w.removedInLists++
-		}
+		w.clearBlockEntitySlots(be)
 	}
 	w.compactBlockEntityLists()
 }
@@ -2121,13 +2186,17 @@ func (w *World) TickingBlockEntities() []*BlockEntity {
 // AppendTickingBlockEntities appends TickingBlockEntities' list to dst.
 func (w *World) AppendTickingBlockEntities(dst []*BlockEntity) []*BlockEntity {
 	w.mu.RLock()
-	defer w.mu.RUnlock()
-	for _, be := range w.tickingBlockEntities {
-		if !be.removed.Load() {
-			dst = append(dst, be)
-		}
+	if w.removedInLists == 0 {
+		defer w.mu.RUnlock()
+		return append(dst, w.tickingBlockEntities.bes...)
 	}
-	return dst
+	w.mu.RUnlock()
+	// The tick reads this once per tick: drop the cleared slots here, which
+	// moves only pointers, so every later read is one copy.
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.compactBlockEntityListsNow()
+	return append(dst, w.tickingBlockEntities.bes...)
 }
 
 // BlockEntitiesOfKind returns every live block entity of kind in loaded
@@ -2136,8 +2205,8 @@ func (w *World) BlockEntitiesOfKind(kind BlockEntityKind) []*BlockEntity {
 	w.mu.RLock()
 	defer w.mu.RUnlock()
 	var out []*BlockEntity
-	for _, be := range w.blockEntityOrder {
-		if be.Kind == kind && !be.removed.Load() {
+	for _, be := range w.blockEntityOrder.bes {
+		if be != nil && be.Kind == kind {
 			out = append(out, be)
 		}
 	}
@@ -2149,8 +2218,8 @@ func (w *World) SculkCatalystEntities() []*BlockEntity {
 	w.mu.RLock()
 	defer w.mu.RUnlock()
 	var out []*BlockEntity
-	for _, be := range w.sculkBlockEntities {
-		if be.Kind == KindSculkCatalyst && !be.removed.Load() {
+	for _, be := range w.sculkBlockEntities.bes {
+		if be != nil && be.Kind == KindSculkCatalyst {
 			out = append(out, be)
 		}
 	}

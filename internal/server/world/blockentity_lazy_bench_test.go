@@ -58,32 +58,41 @@ func BenchmarkBreakBlockEntityAmongMany(b *testing.B) {
 	}
 }
 
-// BenchmarkAppendTickingBlockEntities reads 8000 live hoppers' tick list; in
-// "halfremoved" every other hopper of 16000 was broken, the most removed
-// entries the list keeps before compactBlockEntityLists drops them.
+// BenchmarkAppendTickingBlockEntities reads 8000 hoppers' tick list. In
+// "afterbreak" each op first breaks and replaces one hopper, so the read comes
+// after a removal; the "read" cases then read each entry's Kind, as
+// tickBlockEntities does right after its copy.
 func BenchmarkAppendTickingBlockEntities(b *testing.B) {
-	for _, removed := range []bool{false, true} {
-		name := map[bool]string{false: "live", true: "halfremoved"}[removed]
-		b.Run(name, func(b *testing.B) {
-			n := 8000
-			if removed {
-				n *= 2
+	w := lazyFixture(b, 8000)
+	w.Acquire(ChunkPos{})
+	w.EnsureBlockEntity(0, GroundLevel, 0, KindHopper)
+	buf := w.AppendTickingBlockEntities(nil)
+	for _, brk := range []bool{false, true} {
+		for _, read := range []bool{false, true} {
+			name := map[bool]string{false: "live", true: "afterbreak"}[brk]
+			if read {
+				name += "+read"
 			}
-			w := lazyFixture(b, n)
-			if removed {
-				for i := 1; i < n; i += 2 {
-					cx := int32(1 + i/256)
-					w.RemoveBlockEntity(cx*16+int32(i%16), GroundLevel, int32(i/16%16))
+			b.Run(name, func(b *testing.B) {
+				hoppers := 0
+				for range b.N {
+					if brk {
+						w.RemoveBlockEntity(0, GroundLevel, 0)
+						w.EnsureBlockEntity(0, GroundLevel, 0, KindHopper)
+					}
+					buf = w.AppendTickingBlockEntities(buf[:0])
+					if read {
+						for _, be := range buf {
+							if be.Kind == KindHopper {
+								hoppers++
+							}
+						}
+					}
 				}
-			}
-			var buf []*BlockEntity
-			if buf = w.AppendTickingBlockEntities(buf); len(buf) != 8000 {
-				b.Fatalf("got %d ticking, want 8000", len(buf))
-			}
-			b.ResetTimer()
-			for range b.N {
-				buf = w.AppendTickingBlockEntities(buf[:0])
-			}
-		})
+				if len(buf) != 8001 {
+					b.Fatalf("got %d ticking, want 8001", len(buf))
+				}
+			})
+		}
 	}
 }
