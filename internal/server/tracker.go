@@ -503,19 +503,54 @@ var sendBucketPool = sync.Pool{New: func() any { return new(sendBuckets) }}
 
 func (l *sendList) add(c *client, p outbound) { l.addIn(c, nil, p) }
 
+func (l *sendList) fastBucket(slot int) *[]sendEntry {
+	if b := l.b; b != nil && slot < len(b.by) {
+		if bp := &b.by[slot]; len(*bp) > 0 {
+			return bp
+		}
+	}
+	return nil
+}
+
+func (l *sendList) bucketSlow(slot int) *[]sendEntry {
+	b := l.b
+	if b == nil {
+		b = sendBucketPool.Get().(*sendBuckets)
+		l.b = b
+	}
+	if slot >= len(b.by) {
+		b.by = append(b.by, make([][]sendEntry, slot+1-len(b.by))...)
+	}
+	bp := &b.by[slot]
+	if len(*bp) == 0 {
+		b.touched = append(b.touched, slot)
+	}
+	return bp
+}
+
 // addIn queues a packet for c only while c stays in w.
 func (l *sendList) addIn(c *client, w *world.World, p outbound) {
-	if l.b == nil {
-		l.b = sendBucketPool.Get().(*sendBuckets)
+	bp := l.fastBucket(c.slot)
+	if bp == nil {
+		bp = l.bucketSlow(c.slot)
 	}
-	b := l.b
-	if c.slot >= len(b.by) {
-		b.by = append(b.by, make([][]sendEntry, c.slot+1-len(b.by))...)
+	*bp = append(*bp, sendEntry{to: c, w: w, p: p})
+}
+
+// addAll queues packets in order for c only while c stays in w.
+func (l *sendList) addAll(c *client, w *world.World, packets []outbound) {
+	if len(packets) == 0 {
+		return
 	}
-	if len(b.by[c.slot]) == 0 {
-		b.touched = append(b.touched, c.slot)
+	bp := l.fastBucket(c.slot)
+	if bp == nil {
+		bp = l.bucketSlow(c.slot)
 	}
-	b.by[c.slot] = append(b.by[c.slot], sendEntry{to: c, w: w, p: p})
+	dst := *bp
+	for _, p := range packets {
+		dst = append(dst, sendEntry{to: c, w: w, p: p})
+	}
+	*bp = dst
 }
 
 func (l *sendList) send() {

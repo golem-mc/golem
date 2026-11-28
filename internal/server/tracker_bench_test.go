@@ -220,10 +220,9 @@ func BenchmarkPlayerTrackingMoves(b *testing.B) {
 	for _, body := range players {
 		body.trackMu.Lock()
 		body.tracked = track(body.player.Position())
-		body.seenBy = make(map[uuid.UUID]*client, len(players)-1)
 		for _, viewer := range players {
 			if viewer != body {
-				body.seenBy[viewer.player.UUID] = viewer
+				body.seenBy.add(viewer)
 			}
 		}
 		body.trackMu.Unlock()

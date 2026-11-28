@@ -656,12 +656,12 @@ func (c *client) expireCorpse() {
 	}
 	wasGone := c.bodyGone.Swap(true)
 	w := c.theWorld()
-	for _, viewer := range c.seenBy {
+	for _, viewer := range c.seenBy.list {
 		viewer.sendIn(w, protocol.IDPlayEntityEvent,
 			entityEventPayload(c.player.EntityID, protocol.EntityStatusDeathPoof))
 		viewer.sendIn(w, protocol.IDPlayRemoveEntities, removeEntity(c.player))
 	}
-	clear(c.seenBy)
+	c.seenBy.clear()
 	c.srv.playerPairEpoch.Add(1)
 	var trigger mobEffectTrigger
 	if !wasGone {
@@ -1206,7 +1206,6 @@ func (s *Server) forgetObserver(c *client) {
 // to be sent back out as Remove Entities before it; a dimension change's
 // new world takes them with it and needs none.
 func (s *Server) observerRemovals(c *client) []int32 {
-	id := c.player.UUID
 	var ids []int32
 	for _, k := range observerTrackers() {
 		ids = k.held(s, c, ids)
@@ -1217,7 +1216,7 @@ func (s *Server) observerRemovals(c *client) []int32 {
 			continue
 		}
 		other.trackMu.Lock()
-		held := other.seenBy[id] == c
+		held := other.seenBy.has(c)
 		other.trackMu.Unlock()
 		if held {
 			ids = append(ids, other.player.EntityID)
@@ -1239,12 +1238,12 @@ func (s *Server) forgetBodies(traveler *client) {
 	s.mu.RLock()
 	for _, other := range s.clients {
 		other.trackMu.Lock()
-		delete(other.seenBy, traveler.player.UUID)
+		other.seenBy.delete(traveler)
 		other.trackMu.Unlock()
 	}
 	s.mu.RUnlock()
 	traveler.trackMu.Lock()
-	clear(traveler.seenBy)
+	traveler.seenBy.clear()
 	traveler.trackMu.Unlock()
 }
 
@@ -1259,7 +1258,7 @@ func (s *Server) recordBody(w *world.World, arrived *client) {
 	arrived.trackMu.Lock()
 	for _, other := range s.clients {
 		if other != arrived && other.theWorld() == w && bodyVisibleTo(arrived, other) {
-			arrived.seenBy[other.player.UUID] = other
+			arrived.seenBy.add(other)
 		}
 	}
 	arrived.trackMu.Unlock()
@@ -1393,14 +1392,14 @@ func (s *Server) tickPlayerTracking() {
 					}
 					seen := inTrackingRange(viewer.x, viewer.z, body.x, body.z,
 						entity.PlayerTrackingRange, rng, viewer.radius) && bodyVisibleToSnap(body, viewer)
-					held := body.c.seenBy[viewer.c.player.UUID] == viewer.c
+					held := body.c.seenBy.has(viewer.c)
 					switch {
 					case seen && !held:
-						body.c.seenBy[viewer.c.player.UUID] = viewer.c
+						body.c.seenBy.add(viewer.c)
 						settles = append(settles, settle{viewer: viewer.c, body: body.c, w: viewer.w, pair: true})
 						pairing = true
 					case !seen && held:
-						delete(body.c.seenBy, viewer.c.player.UUID)
+						body.c.seenBy.delete(viewer.c)
 						settles = append(settles, settle{viewer: viewer.c, body: body.c, w: viewer.w})
 					}
 				}
@@ -1408,14 +1407,9 @@ func (s *Server) tickPlayerTracking() {
 				continue
 			}
 			clear(told)
-			stale := false
-			for id, holder := range body.c.seenBy {
-				// A record left by a reconnect names the old connection, so
-				// only a holder still present under its own UUID counts.
-				if i := holder.trackIdx; i < len(present) && present[i].c == holder && holder.player.UUID == id {
+			for _, holder := range body.c.seenBy.list {
+				if i := holder.trackIdx; i < len(present) && present[i].c == holder {
 					told[i] = true
-				} else {
-					stale = true
 				}
 			}
 			for i := range present {
@@ -1428,18 +1422,13 @@ func (s *Server) tickPlayerTracking() {
 				}
 				seen := inTrackingRange(viewer.x, viewer.z, body.x, body.z,
 					entity.PlayerTrackingRange, rng, viewer.radius) && bodyVisibleToSnap(body, viewer)
-				if stale && !told[i] {
-					if held, ok := body.c.seenBy[viewer.c.player.UUID]; ok && held != viewer.c {
-						delete(body.c.seenBy, viewer.c.player.UUID)
-					}
-				}
 				switch {
 				case seen && !told[i]:
-					body.c.seenBy[viewer.c.player.UUID] = viewer.c
+					body.c.seenBy.add(viewer.c)
 					settles = append(settles, settle{viewer: viewer.c, body: body.c, w: viewer.w, pair: true})
 					pairing = true
 				case !seen && told[i]:
-					delete(body.c.seenBy, viewer.c.player.UUID)
+					body.c.seenBy.delete(viewer.c)
 					settles = append(settles, settle{viewer: viewer.c, body: body.c, w: viewer.w})
 				}
 			}
@@ -1460,7 +1449,7 @@ func (s *Server) tickPlayerTracking() {
 			// respawn in between records the body again, and the removal
 			// would take out what the arrival just put back.
 			st.body.trackMu.Lock()
-			if _, held := st.body.seenBy[st.viewer.player.UUID]; held {
+			if st.body.seenBy.has(st.viewer) {
 				st.body.trackMu.Unlock()
 				continue
 			}
@@ -1477,7 +1466,7 @@ func (s *Server) tickPlayerTracking() {
 		st.body.trackMu.Lock()
 		if st.body.theWorld() != st.w || st.viewer.theWorld() != st.w ||
 			st.body.traveling.Load() || st.viewer.traveling.Load() {
-			delete(st.body.seenBy, st.viewer.player.UUID)
+			st.body.seenBy.delete(st.viewer)
 			// The pair is undecided, not settled: the next pass redecides it.
 			s.playerPairEpoch.Add(1)
 			st.body.trackMu.Unlock()
@@ -1487,14 +1476,14 @@ func (s *Server) tickPlayerTracking() {
 			// A watcher newly in range folds any step the existing holders
 			// have not been told into its spawn; the others cannot lose the
 			// same step when the shared baseline moves with it.
-			for _, holder := range st.body.seenBy {
+			for _, holder := range st.body.seenBy.list {
 				for _, packet := range packets {
 					holder.sendIn(st.w, packet.id, packet.data)
 				}
 			}
 		}
 		st.body.tracked = track(st.body.player.Position())
-		st.body.seenBy[st.viewer.player.UUID] = st.viewer
+		st.body.seenBy.add(st.viewer)
 		packets := playerPairing(st.body.player, spawnPlayerAt(st.body.player, st.body.tracked))
 		st.viewer.sendAllIn(st.w, packets)
 		st.body.trackMu.Unlock()
@@ -1509,10 +1498,8 @@ func (s *Server) tickPlayerTracking() {
 		}
 		body.c.trackMu.Lock()
 		if packets := body.c.movementPackets(mt); len(packets) != 0 {
-			for _, viewer := range body.c.seenBy {
-				for _, packet := range packets {
-					movements.add(viewer, packet)
-				}
+			for _, viewer := range body.c.seenBy.list {
+				movements.addAll(viewer, nil, packets)
 			}
 		}
 		body.c.trackMu.Unlock()
@@ -1645,7 +1632,7 @@ func (c *client) tellObserversTeleported() {
 func (c *client) tellObserversTeleportedLocked() {
 	w := c.dimension().w
 	for _, p := range c.movementPackets(moveTick{teleported: true}) {
-		for _, r := range c.seenBy {
+		for _, r := range c.seenBy.list {
 			r.sendIn(w, p.id, p.data)
 		}
 	}
@@ -1769,8 +1756,10 @@ func (c *client) sendPlayerInfo(others []*client) error {
 			continue
 		}
 		other.trackMu.Lock()
-		held := other.seenBy[c.player.UUID] == c
-		other.seenBy[c.player.UUID] = c
+		held := other.seenBy.has(c)
+		if !held {
+			other.seenBy.add(c)
+		}
 		c.srv.playerPairEpoch.Add(1)
 		spawn := spawnPlayerAt(p, other.tracked)
 		other.trackMu.Unlock()
