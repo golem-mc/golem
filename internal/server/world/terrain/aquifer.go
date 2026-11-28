@@ -301,15 +301,20 @@ func (a *Aquifer) ComputeSubstance(x, y, z int32, density float64) Substance {
 		a.shouldSchedule = false
 		return SubstanceDefault
 	}
-	s3 := a.neighborStatus(c3)
 	sim13 := aquiferSimilarity(d1, d3)
+	sim23 := aquiferSimilarity(d2, d3)
+	// s3 is read only when a similarity needs it; the lookup is memoized, so
+	// deferring it cannot change the result.
+	var s3 FluidStatus
+	if sim13 > 0.0 || sim23 > 0.0 || s1 == s2 && (sim13 >= flowingSimilarity || sim23 >= flowingSimilarity) {
+		s3 = a.neighborStatus(c3)
+	}
 	if sim13 > 0.0 {
 		if density+sim12*sim13*a.pressure(x, y, z, &barrierValue, s1, s3) > 0.0 {
 			a.shouldSchedule = false
 			return SubstanceDefault
 		}
 	}
-	sim23 := aquiferSimilarity(d2, d3)
 	if sim23 > 0.0 {
 		if density+sim12*sim23*a.pressure(x, y, z, &barrierValue, s2, s3) > 0.0 {
 			a.shouldSchedule = false
