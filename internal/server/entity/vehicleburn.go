@@ -7,8 +7,10 @@ import (
 
 // vehicleBurnPass applies per-cell hurts in effect-step order, stopping when
 // a hurt removes the vehicle. Ignition is deduplicated per step; hurts are not.
+// A layered cauldron met while on fire is appended to doused, and powder snow
+// to melted, as the step's extinguish runs.
 // vanilla: InsideBlockEffectApplier.StepBasedCollector, Entity.applyEffectsFromBlocks
-func vehicleBurnPass(w World, move bodyMove, rel AABB, fire *int, dead *bool, hurt func(float64, registry.DamageType, bool) bool, visit insideVisitor) (burns, fizzles int) {
+func vehicleBurnPass(w World, move bodyMove, rel AABB, fire *int, dead *bool, hurt func(float64, registry.DamageType, bool) bool, visit insideVisitor, doused, melted *[][3]int32) (burns, fizzles int) {
 	if *dead {
 		return
 	}
@@ -18,6 +20,7 @@ func vehicleBurnPass(w World, move bodyMove, rel AABB, fire *int, dead *bool, hu
 	fires := fireBuf[:0]
 	lava := 0
 	extinguish := false
+	var cauldrons, snows [][3]int32
 	lastStep := -1
 	flush := func() {
 		if *dead {
@@ -50,8 +53,15 @@ func vehicleBurnPass(w World, move bodyMove, rel AABB, fire *int, dead *bool, hu
 			}
 		}
 		if !*dead && extinguish {
+			// vanilla: LayeredCauldronBlock.entityInside and
+			// PowderSnowBlock.entityInside act only for a body still on fire.
+			if *fire > 0 {
+				*doused = append(*doused, cauldrons...)
+				*melted = append(*melted, snows...)
+			}
 			*fire = 0
 		}
+		cauldrons, snows = cauldrons[:0], snows[:0]
 		fires = fires[:0]
 		lava = 0
 		extinguish = false
@@ -75,6 +85,10 @@ func vehicleBurnPass(w World, move bodyMove, rel AABB, fire *int, dead *bool, hu
 			}
 			fires = append(fires, damage)
 		case rules.IsPowderSnow(state):
+			snows = append(snows, [3]int32{x, y, z})
+			extinguish = true
+		case rules.IsLayeredCauldron(state):
+			cauldrons = append(cauldrons, [3]int32{x, y, z})
 			extinguish = true
 		case sweptLavaCauldron(x, y, z, state, from, dx, dy, dz):
 			lava++

@@ -130,6 +130,12 @@ const (
 	// per EnchEquipment piece whose stack changed, and LocatedMoved for a new
 	// cell or a landing.
 	ArmorStandLocated
+	// ArmorStandDousedCauldron: a burning stand was put out in the layered
+	// cauldron at X, Y, Z, which drops a level.
+	ArmorStandDousedCauldron
+	// ArmorStandMeltedSnow: a burning stand was put out in the powder snow at
+	// X, Y, Z, which breaks.
+	ArmorStandMeltedSnow
 	// ArmorStandSlid: the stand slid down a honey block's side, owed the
 	// slide's sound and particles.
 	ArmorStandSlid
@@ -249,10 +255,12 @@ func (s *ArmorStand) Step(w World) []ArmorStandEvent {
 		s.FireTicks--
 	}
 
+	var fx, fy, fz, ax, az float64
 	if s.NoGravity {
 		s.settleVelocity()
 	} else {
 		wasOnGround, fell := s.OnGround, s.FallDistance
+		fx, fy, fz, ax, az = s.X, s.Y, s.Z, s.VX, s.VZ
 		s.LandedFall = s.travel(w, box, ArmorStandWidth/2*scale, ArmorStandGravity)
 		if !wasOnGround && fell > 0 && s.OnGround && s.locatedActive() {
 			events = append(events, ArmorStandEvent{Kind: ArmorStandLocated, X: s.X, Y: s.Y, Z: s.Z,
@@ -269,8 +277,16 @@ func (s *ArmorStand) Step(w World) []ArmorStandEvent {
 	// vanilla: BaseFireBlock.entityInside, LavaFluid.entityInside,
 	// ArmorStand.hurtServer, Entity.applyEffectsFromBlocks
 	if !s.NoGravity {
-		s.VY, _ = bubbleColumnDrift(w, s.Box(), s.VY)
+		var spots []bubbleSpot
+		rel := s.boxAtScale(scale).moved(-s.X, -s.Y, -s.Z)
+		walkInside(w, []bodyMove{{fx, fy, fz, s.X, s.Y, s.Z, ax, az, true}}, rel,
+			func(x, y, z int32, state uint16, _ int, from AABB, dx, dy, dz float64) bool {
+				s.VY, _ = projectileBubblePush(w, x, y, z, state, from, dx, dy, dz, s.VY, true, &spots)
+				return true
+			})
 		var broke bool
+		var cauldrons, snows [][3]int32
+		extinguish := false
 		s.Box().insideCells(func(x, y, z int32) {
 			switch {
 			case rules.IsFire(w.BlockAt(x, y, z)):
@@ -291,6 +307,12 @@ func (s *ArmorStand) Step(w World) []ArmorStandEvent {
 				}
 			case rules.IsLava(w.BlockAt(x, y, z)), rules.IsLavaCauldron(w.BlockAt(x, y, z)):
 				s.igniteFor(fireTicksLava)
+			case rules.IsPowderSnow(w.BlockAt(x, y, z)):
+				snows = append(snows, [3]int32{x, y, z})
+				extinguish = true
+			case rules.IsLayeredCauldron(w.BlockAt(x, y, z)):
+				cauldrons = append(cauldrons, [3]int32{x, y, z})
+				extinguish = true
 			case honeySlideCell(w.BlockAt(x, y, z), x, y, z, s.X, s.Y, s.Z, 2*s.HalfWidth(), s.OnGround, &s.VX, &s.VY, &s.VZ, &s.FallDistance):
 				events = append(events, ArmorStandEvent{Kind: ArmorStandSlid})
 			}
@@ -302,6 +324,18 @@ func (s *ArmorStand) Step(w World) []ArmorStandEvent {
 		// Rain (only where the sky reaches the stand) and water extinguish it,
 		// after the move and the inside-block effects.
 		// vanilla: Entity.applyEffectsFromBlocks
+		// vanilla: LayeredCauldronBlock.entityInside, PowderSnowBlock.entityInside
+		if extinguish {
+			if s.FireTicks > 0 {
+				for _, c := range cauldrons {
+					events = append(events, ArmorStandEvent{Kind: ArmorStandDousedCauldron, X: float64(c[0]), Y: float64(c[1]), Z: float64(c[2])})
+				}
+				for _, c := range snows {
+					events = append(events, ArmorStandEvent{Kind: ArmorStandMeltedSnow, X: float64(c[0]), Y: float64(c[1]), Z: float64(c[2])})
+				}
+			}
+			s.FireTicks = 0
+		}
 		if s.inRain(w) || rules.IsWater(w.BlockAt(int32(math.Floor(s.X)), int32(math.Floor(s.Y)), int32(math.Floor(s.Z)))) {
 			s.FireTicks = 0
 		}

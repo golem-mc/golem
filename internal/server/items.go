@@ -254,6 +254,14 @@ type cellSpot struct {
 	x, y, z int32
 }
 
+// appendCells adds each of cells, in w, to list.
+func appendCells(list []cellSpot, w *world.World, cells [][3]int32) []cellSpot {
+	for _, c := range cells {
+		list = append(list, cellSpot{w, c[0], c[1], c[2]})
+	}
+	return list
+}
+
 // setItemStepDeferral holds arrivals back while an entity pass is running.
 func (s *Server) setItemStepDeferral(deferSteps bool) {
 	s.lockTick(&s.itemsMu)

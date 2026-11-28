@@ -1397,6 +1397,18 @@ func (s *Server) cauldronDoused(w *world.World, x, y, z int32) {
 	}
 }
 
+// douseCellCauldron lowers the cauldron a burning body was put out in.
+func (s *Server) douseCellCauldron(c cellSpot) { s.cauldronDoused(c.w, c.x, c.y, c.z) }
+
+// meltCellSnow breaks the powder snow a burning non-living body was put out
+// in, when mob_griefing allows.
+// vanilla: PowderSnowBlock.entityInside
+func (s *Server) meltCellSnow(c cellSpot) {
+	if c.w.BoolRule(world.RuleMobGriefing) {
+		s.meltPowderSnow(c.w, c.x, c.y, c.z)
+	}
+}
+
 // mobDousedCauldron lowers the cauldron a burning mob doused itself in.
 func (s *Server) mobDousedCauldron(g mobGraze) {
 	s.cauldronDoused(g.w, g.x, g.y, g.z)
