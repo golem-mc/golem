@@ -13,7 +13,7 @@ import (
 // TypeEnderDragon is the multipart End boss.
 const TypeEnderDragon = registry.EntityTypeEnderDragon
 
-var dragonKind = &kind{name: "Ender Dragon", width: 16, height: 8, maxHealth: 200, fireImmune: true,
+var dragonKind = &kind{name: "Ender Dragon", width: 16, height: 8, maxHealth: 200, speed: 0.7, cameraDistance: 16, fireImmune: true,
 	volume: 5.0, // vanilla: EnderDragon.getSoundVolume
 	sounds: MobSounds{Ambient: registry.SoundEntityEnderDragonAmbient, Hurt: registry.SoundEntityEnderDragonHurt, Death: registry.SoundEntityGenericDeath}}
 

@@ -49,7 +49,7 @@ func init() {
 	// vanilla: EntityTypes.VEX and Vex.createAttributes
 	kinds[TypeVex] = &kind{
 		name: "Vex", width: 0.4, height: 0.8, eyeHeight: 0.51875,
-		maxHealth: 14, speed: float64(float32(0.7)), hostile: true, fireImmune: true,
+		maxHealth: 14, speed: 0.7, hostile: true, fireImmune: true,
 		attackDamage: 4,
 		sounds: MobSounds{
 			Ambient: registry.SoundEntityVexAmbient,

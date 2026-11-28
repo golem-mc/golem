@@ -29,7 +29,7 @@ func init() {
 		fireAverse: true,
 		name:       "Hoglin", width: 1.3964844, height: 1.4, eyeHeight: 1.4 * 0.85,
 		babyWidth: 0.75, babyHeight: 0.85, babyEye: 0.625,
-		maxHealth: 40, speed: float64(float32(0.3)), hostile: true, attackDamage: hoglinAttack, knockbackResist: float64(float32(0.6)),
+		maxHealth: 40, speed: float64(float32(0.3)), hostile: true, attackDamage: hoglinAttack, attackKnockback: 1, knockbackResist: float64(float32(0.6)),
 		temptTag: &registry.ItemTagIDHoglinFood, followPace: 0.6, // vanilla: HoglinAi.initIdleActivity
 		sounds: MobSounds{
 			Ambient: registry.SoundEntityHoglinAmbient,
@@ -43,7 +43,7 @@ func init() {
 	kinds[TypeZoglin] = &kind{
 		name: "Zoglin", width: 1.3964844, height: 1.4, eyeHeight: 1.4 * 0.85,
 		babyWidth: 0.75, babyHeight: 0.85, babyEye: 0.625,
-		maxHealth: 40, speed: float64(float32(0.3)), hostile: true, attackDamage: hoglinAttack, knockbackResist: float64(float32(0.6)),
+		maxHealth: 40, speed: float64(float32(0.3)), hostile: true, attackDamage: hoglinAttack, attackKnockback: 1, knockbackResist: float64(float32(0.6)),
 		fireImmune: true,
 		sounds: MobSounds{
 			Ambient: registry.SoundEntityZoglinAmbient,
@@ -111,7 +111,9 @@ type HoglinBlow struct {
 	// rolled angle in radians, horizontal share and vertical share.
 	Throw       bool
 	Angle, H, V float64
-	Zoglin      bool
+	// Knockback is the hoglin's live attack_knockback.
+	Knockback float64
+	Zoglin    bool
 }
 
 // IsHoglinKind reports whether the type is the hoglin or the zoglin.
@@ -589,6 +591,10 @@ func (m *Mob) hoglinBlow(ev *MobEvent) {
 	attack := m.attackDamage()
 	ev.Damage = rules.HoglinBlowDamage(attack, m.Rand.Intn(max(int(attack), 1)))
 	b.Throw = true
+	b.Knockback = m.kind().attackKnockback
+	if m.attrs != nil {
+		b.Knockback = m.attrs.Value(registry.AttributeAttackKnockback)
+	}
 	b.Angle = float64(m.Rand.Intn(21) - 10)
 	b.H = float64(m.Rand.Float32()*0.5 + 0.2)
 	b.V = float64(m.Rand.Float32()) * 0.5

@@ -21,7 +21,7 @@ func init() {
 	kinds[TypeShulker] = &kind{
 		maxHeadXRot: 180, maxHeadYRot: 180,
 		name: "Shulker", width: 1, height: 1, eyeHeight: 0.5,
-		maxHealth: 30, hostile: true, livesInPeaceful: true, fireImmune: true,
+		maxHealth: 30, speed: 0.7, hostile: true, livesInPeaceful: true, fireImmune: true,
 		sounds: MobSounds{
 			Ambient: registry.SoundEntityShulkerAmbient,
 			Hurt:    registry.SoundEntityShulkerHurt,

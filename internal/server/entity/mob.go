@@ -147,7 +147,9 @@ type kind struct {
 	// attackKnockback is the attack_knockback attribute the kind's
 	// createAttributes gives.
 	attackKnockback float64
-	sounds          MobSounds
+	// cameraDistance is the camera_distance base when not the default 4.
+	cameraDistance float64
+	sounds         MobSounds
 
 	// water marks the squids: their spawn rules ask for water, not grass, the
 	// passive cap never counts them, and they run only their own swim.
@@ -975,8 +977,7 @@ var kinds = [registry.EntityTypeCount]*kind{
 		rangedIntervalHard: 50,
 	},
 	// vanilla: EntityTypes.WITHER_SKELETON's builder, fire immune, and
-	// WitherSkeleton.finalizeSpawn's attack damage 4. A stone sword makes it
-	// fight in melee.
+	// AbstractSkeleton.createAttributes. A stone sword makes it fight in melee.
 	TypeWitherSkeleton: &kind{
 		family:       TypeSkeleton,
 		name:         "Wither Skeleton",
@@ -987,7 +988,7 @@ var kinds = [registry.EntityTypeCount]*kind{
 		speed:        0.25,
 		hostile:      true,
 		followRange:  16,
-		attackDamage: 4,
+		attackDamage: 2,
 		sounds: MobSounds{
 			Ambient: registry.SoundEntityWitherSkeletonAmbient,
 			Hurt:    registry.SoundEntityWitherSkeletonHurt,
@@ -2860,6 +2861,11 @@ func (m *Mob) finalizeSpawn(dice Dice, ctx rules.SpawnContext, group *SpawnGroup
 	if m.Type == TypeWitherSkeleton {
 		// vanilla: WitherSkeleton.populateDefaultEquipmentSlots (no armour roll)
 		m.SetEquipment(protocol.EquipMainHand, protocol.ItemStack{ItemID: int32(registry.ItemStoneSword), Count: 1})
+		// vanilla: WitherSkeleton.finalizeSpawn
+		if m.attrs == nil {
+			m.SetAttributes(m.BuildAttributes(nbt.List{}))
+		}
+		m.attrs.SetBase(registry.AttributeAttackDamage, 4)
 	}
 	if m.Type == TypeVindicator {
 		m.finalizeVindicator(dice, local)

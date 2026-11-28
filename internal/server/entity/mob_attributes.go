@@ -1,6 +1,7 @@
 package entity
 
 import (
+	"cmp"
 	"sync"
 
 	"github.com/golem-mc/golem/internal/protocol"
@@ -59,10 +60,12 @@ func (m *Mob) buildSupplier() *player.Supplier {
 	// vanilla: Mob.createMobAttributes; the zombie, happy ghast and every
 	// hostile kind override it through BaseFollowRange.
 	s.Bases["minecraft:follow_range"] = m.BaseFollowRange()
-	if m.Size > 0 && m.Type != TypeSulfurCube || Enemy(m.Type) || k.attackDamage > 0 {
+	// vanilla: Mob.createMobAttributes has no attack_damage; the ghast and
+	// shulker build on it.
+	if m.Size > 0 && m.Type != TypeSulfurCube || Enemy(m.Type) && family != TypeGhast && !m.IsShulker() || k.attackDamage > 0 {
 		s.Names["minecraft:attack_damage"] = true
-		// vanilla: Monster.createMonsterAttributes leaves the base at 2.
-		s.Bases["minecraft:attack_damage"] = k.attackDamage
+		// vanilla: Monster.createMonsterAttributes
+		s.Bases["minecraft:attack_damage"] = cmp.Or(k.attackDamage, 2)
 	}
 	if m.Type == TypeSulfurCube {
 		s.Names["minecraft:tempt_range"] = true
@@ -82,6 +85,9 @@ func (m *Mob) buildSupplier() *player.Supplier {
 	if fs := flyingSpeedBase(family); fs != 0 {
 		s.Names["minecraft:flying_speed"] = true
 		s.Bases["minecraft:flying_speed"] = fs
+	}
+	if k.cameraDistance != 0 {
+		s.Bases["minecraft:camera_distance"] = k.cameraDistance
 	}
 	if family == TypeGhast {
 		// vanilla: Ghast.createAttributes; movement_speed keeps the registry
