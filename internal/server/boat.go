@@ -441,11 +441,9 @@ func (s *Server) tickBoats() {
 		from := entity.NewAABB(entity.BoatBoxAt(sx, sy, sz))
 		it.boat.Step(bw, driver != nil)
 		fx.movements.add(it.w, it.uuid, it.boat.Movement)
-		moveX, moveZ := it.boat.VX, it.boat.VZ
-		var known player.Velocity
+		known := player.Velocity{X: it.boat.VX, Z: it.boat.VZ}
 		if driver != nil {
 			known = driver.player.KnownMovement()
-			moveX, moveZ = known.X, known.Z
 		}
 		if it.boat.OnGround && !it.boat.Dead {
 			if st, ok := groundStepOf(it.w, it.boat.X, it.boat.Y, it.boat.Z, entity.BoatHalfWidth, true); ok {
@@ -464,7 +462,7 @@ func (s *Server) tickBoats() {
 			}
 			fx.paddles = append(fx.paddles, boatPaddle{w: it.w, sound: ps})
 		}
-		padBuf, flakeBuf = it.boat.InsideBlocks(it.w, sx, sy, sz, moveX, moveZ, padBuf, flakeBuf)
+		padBuf, flakeBuf = it.boat.InsideBlocks(it.w, sx, sy, sz, known.X, known.Z, padBuf, flakeBuf)
 		for range it.boat.LavaHurts {
 			fx.burns = append(fx.burns, burnSpot{it.w, it.boat.X, it.boat.Y, it.boat.Z})
 		}
