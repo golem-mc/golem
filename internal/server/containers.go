@@ -487,6 +487,15 @@ func (b boatCargo) Put(slot int, stack protocol.ItemStack) {
 	b.it.cargoVersion++
 }
 
+// AdjustCount changes the count of an occupied cargo slot in place.
+func (b boatCargo) AdjustCount(slot int, delta int32) {
+	if slot < 0 || slot >= len(b.it.cargo) {
+		return
+	}
+	b.it.cargo[slot].Count += delta
+	b.it.cargoVersion++
+}
+
 // Peek reads the cargo slot without copying its components.
 func (b boatCargo) Peek(slot int) (itemID, count int32) {
 	if slot < 0 || slot >= len(b.it.cargo) {
@@ -604,6 +613,15 @@ func (b blockEntitySlots) StackPtr(slot int) *protocol.ItemStack {
 		return &b.be.Slots[slot]
 	}
 	return nil
+}
+
+// AdjustCount changes the count of an occupied slot in place and marks the
+// chunk dirty.
+func (b blockEntitySlots) AdjustCount(slot int, delta int32) {
+	b.be.AdjustCount(slot, delta)
+	if b.w != nil {
+		b.w.Touch(b.be.X, b.be.Y, b.be.Z)
+	}
 }
 
 // Put replaces the container slot's stack, dropping any compound the file

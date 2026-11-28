@@ -32,8 +32,9 @@ func (b *testBlock) Filled() uint64 {
 	}
 	return m
 }
-func (b *testBlock) Len() int   { return len(b.slots) }
-func (b *testBlock) Kind() Kind { return b.kind }
+func (b *testBlock) AdjustCount(i int, delta int32) { b.slots[i].Count += delta }
+func (b *testBlock) Len() int                       { return len(b.slots) }
+func (b *testBlock) Kind() Kind                     { return b.kind }
 
 func item(tb testing.TB, name string, count int32) protocol.ItemStack {
 	tb.Helper()

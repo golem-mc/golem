@@ -40,6 +40,14 @@ func (b cartBlock) StackPtr(slot int) *protocol.ItemStack {
 // Filled scans the cargo: carts are rare and small.
 func (b cartBlock) Filled() uint64 { return filledOf(b.it.cargo.slots) }
 
+func (b cartBlock) AdjustCount(slot int, delta int32) {
+	if slot < 0 || slot >= len(b.it.cargo.slots) {
+		return
+	}
+	b.it.cargo.slots[slot].Count += delta
+	b.it.cargo.version++
+}
+
 func (b cartBlock) Put(slot int, stack protocol.ItemStack) {
 	cartCargo(b).Put(slot, stack)
 }
