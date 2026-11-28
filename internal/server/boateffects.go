@@ -47,6 +47,7 @@ type boatEffects struct {
 	movements vehicleMovements
 	burns     []burnSpot
 	fizzles   []burnSpot
+	slides    []honeySlide
 	paddles   []boatPaddle
 	steps     []groundStep
 	gateways  []gatewayTouch
@@ -74,6 +75,7 @@ func (fx *boatEffects) apply(s *Server) {
 	applyEach(s, fx.splashes, (*Server).splashProjectile)
 	applyEach(s, fx.burns, (*Server).burnVehicle)
 	applyEach(s, fx.fizzles, (*Server).fizzleVehicle)
+	applyEach(s, fx.slides, (*Server).slideHoney)
 	applyEach(s, fx.paddles, (*Server).playPaddle)
 	s.runGroundSteps(fx.steps)
 	s.applyMobShares(fx.mobShares)

@@ -48,6 +48,9 @@ const (
 	// TntSteppedOnRedstoneOre: the body rests on the unlit redstone ore at the
 	// cell X, Y, Z (whole numbers).
 	TntSteppedOnRedstoneOre
+	// TntSlid: the body slid down a honey block's side, owed the slide's
+	// sound and particles.
+	TntSlid
 )
 
 // TNTEvent is one event out of a primed TNT's tick. The X, Y, Z and the
@@ -127,8 +130,14 @@ func (t *TNT) Step(w World) []TNTEvent {
 			events = append(events, TNTEvent{Kind: TntSteppedOnRedstoneOre, X: float64(x), Y: float64(y), Z: float64(z)})
 		}
 	}
-	t.VY, _ = bubbleColumnDrift(w, AABB{t.X - TNTHalfWidth, t.Y, t.Z - TNTHalfWidth,
-		t.X + TNTHalfWidth, t.Y + TNTHeight, t.Z + TNTHalfWidth}, t.VY)
+	box := AABB{t.X - TNTHalfWidth, t.Y, t.Z - TNTHalfWidth,
+		t.X + TNTHalfWidth, t.Y + TNTHeight, t.Z + TNTHalfWidth}
+	t.VY, _ = bubbleColumnDrift(w, box, t.VY)
+	box.insideCells(func(x, y, z int32) {
+		if honeySlideCell(w.BlockAt(x, y, z), x, y, z, t.X, t.Y, t.Z, 2*TNTHalfWidth, t.OnGround, &t.VX, &t.VY, &t.VZ, &t.fallDistance) {
+			events = append(events, TNTEvent{Kind: TntSlid})
+		}
+	})
 	t.VX *= tntAirDrag
 	t.VY *= tntAirDrag
 	t.VZ *= tntAirDrag
