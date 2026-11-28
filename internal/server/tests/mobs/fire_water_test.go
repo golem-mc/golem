@@ -1,6 +1,7 @@
 package mobs
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/golem-mc/golem/internal/server/servertest"
@@ -24,36 +25,29 @@ func TestWaterTouchingTheBoxPutsOutFireAfterTheBurn(t *testing.T) {
 		{"side cell", `setblock 31 64 30 minecraft:light[waterlogged=true]`, "minecraft:iron_golem", "301s", 100},
 		{"summoned in water", `setblock 40 64 40 minecraft:water`, "minecraft:zombie", "300s", 19},
 	}
-	x := int32(20)
-	for _, tc := range cases {
+	for i, tc := range cases {
+		x := 20 + 10*i
 		srv.RunLine(tc.line)
-		srv.RunLine("summon " + tc.kind + " " + itoa(x) + ".5 64 " + itoa(x) + ".5 {NoAI:1b,Fire:" + tc.fire + "}")
-		x += 10
+		srv.RunLine(fmt.Sprintf("summon %s %d.5 64 %d.5 {NoAI:1b,Fire:%s}", tc.kind, x, x, tc.fire))
 	}
 	servertest.RunTicks(t, srv, 1)
 	for i, tc := range cases {
-		ids := srv.MobIDsOfKind(tc.kind)
-		_ = i
-		for _, id := range ids {
-			x, _, _, _ := srv.MobPos(id)
-			if int(x)/10 != 2+i {
+		found := false
+		for _, id := range srv.MobIDsOfKind(tc.kind) {
+			if x, _, _, _ := srv.MobPos(id); int(x) != 20+10*i {
 				continue
 			}
+			found = true
 			hp, _ := srv.MobHealth(id)
-			fire := srv.MobFire(id)
-			if tc.fire == "301s" && fire != 0 {
+			if fire := srv.MobFire(id); fire != 0 {
 				t.Errorf("%s: Fire %d, want 0", tc.name, fire)
 			}
 			if hp != tc.wantHealth {
 				t.Errorf("%s: health %v, want %v", tc.name, hp, tc.wantHealth)
 			}
 		}
+		if !found {
+			t.Fatalf("%s: summoned %s not found", tc.name, tc.kind)
+		}
 	}
-}
-
-func itoa(n int32) string {
-	if n < 10 {
-		return string(rune('0' + n))
-	}
-	return itoa(n/10) + string(rune('0'+n%10))
 }
