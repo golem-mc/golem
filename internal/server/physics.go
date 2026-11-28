@@ -3,7 +3,6 @@ package server
 import (
 	"github.com/golem-mc/golem/internal/server/pluginruntime"
 	"log/slog"
-	"maps"
 	"math"
 	"math/rand/v2"
 	"slices"
@@ -344,6 +343,7 @@ func (s *Server) tickPhysics() {
 	defer s.endTouchWindows()
 	gate := s.newEntityGate()
 	for _, dim := range s.allDims() {
+		s.refreshFireSpreadPlayers(dim)
 		// A debug level runs no scheduled or random ticks.
 		// vanilla: ServerLevel.tick, ServerChunkCache.tickChunks
 		if dim.w.IsDebug() {
@@ -365,8 +365,12 @@ func (s *Server) tickPhysics() {
 		// Command block runs go with the dispenses: the engine's pass is done, so
 		// their commands wake nothing mid-tick, and their feedback goes out with
 		// the tick's other sends.
-		for _, r := range dim.physics.TakeCommandRuns() {
-			s.runCommandBlock(dim.w, r)
+		if runs := dim.physics.TakeCommandRuns(); len(runs) > 0 {
+			for _, r := range runs {
+				s.runCommandBlock(dim.w, r)
+			}
+			// A command block may have set the rule before the random ticks.
+			dim.fireSpread.refreshRadius(dim.w)
 		}
 		for _, t := range dim.physics.TakeStructureTriggers() {
 			s.runStructureTrigger(dim.w, t)
@@ -1015,7 +1019,7 @@ func (s *Server) tickRedstoneTouch() {
 			p.SetRailCartSource(railCarts{s: s, dim: dim})
 		}
 		if p.SpreaderMissing() {
-			p.SetFireSpreader(fireSpreadChecker{s: s, dim: dim})
+			p.SetFireSpreader(fireSpreadChecker{dim: dim})
 		}
 		if p.EntityOutputMissing() {
 			p.SetEntityAnalogOutput(frameAnalogOutputs{s: s, w: dim.w})
@@ -1287,27 +1291,51 @@ func (s *Server) touchBodies(w *world.World, bodies []touchBody) []touchBody {
 // a non-spectator player in the dimension within that straight-line radius
 // from the cell's corner to their feet.
 // vanilla: ServerLevel.canSpreadFireAround
-type fireSpreadChecker struct {
-	s   *Server
-	dim *dimension
+type fireSpreadChecker struct{ dim *dimension }
+
+// fireSpreadView holds the rule and the feet of the dimension's non-spectator
+// players as of the last refresh. Players do not move during the level tick,
+// so one read per tick is what vanilla's per-call loop sees.
+type fireSpreadView struct {
+	// everywhere is a negative radius: fire ticks everywhere.
+	everywhere bool
+	r2         float64
+	pts        []fireSpreadPoint
 }
 
-func (t fireSpreadChecker) FireCanSpread(x, y, z int32) bool {
-	radius := t.dim.w.IntRule(world.RuleFireSpread)
-	if radius < 0 {
-		// -1 means fire ticks everywhere.
-		return true
-	}
-	t.s.mu.RLock()
-	clients := slices.Collect(maps.Values(t.s.clients))
-	t.s.mu.RUnlock()
-	for _, c := range clients {
-		if c.theWorld() != t.dim.w || c.player.GameMode() == protocol.GameModeSpectator {
+type fireSpreadPoint struct{ x, y, z float64 }
+
+// refreshFireSpreadPlayers rereads the rule and the dimension's players.
+func (s *Server) refreshFireSpreadPlayers(dim *dimension) {
+	v := &dim.fireSpread
+	v.refreshRadius(dim.w)
+	v.pts = v.pts[:0]
+	s.mu.RLock()
+	for _, c := range s.clients {
+		if c.theWorld() != dim.w || c.player.GameMode() == protocol.GameModeSpectator {
 			continue
 		}
 		pos := c.player.Position()
-		dx, dy, dz := pos.X-float64(x), pos.Y-float64(y), pos.Z-float64(z)
-		if dx*dx+dy*dy+dz*dz < float64(radius)*float64(radius) {
+		v.pts = append(v.pts, fireSpreadPoint{pos.X, pos.Y, pos.Z})
+	}
+	s.mu.RUnlock()
+}
+
+// refreshRadius rereads fire_spread_radius_around_player.
+func (v *fireSpreadView) refreshRadius(w *world.World) {
+	radius := w.IntRule(world.RuleFireSpread)
+	v.everywhere = radius < 0
+	v.r2 = float64(radius) * float64(radius)
+}
+
+func (t fireSpreadChecker) FireCanSpread(x, y, z int32) bool {
+	v := &t.dim.fireSpread
+	if v.everywhere {
+		return true
+	}
+	for _, p := range v.pts {
+		dx, dy, dz := p.x-float64(x), p.y-float64(y), p.z-float64(z)
+		if dx*dx+dy*dy+dz*dz < v.r2 {
 			return true
 		}
 	}

@@ -48,6 +48,9 @@ type dimension struct {
 	// server's own folder.
 	folder, folderDim string
 	physics           *world.Physics
+	// fireSpread is the fire_spread_radius_around_player gate's view of the
+	// players, read on the tick goroutine.
+	fireSpread fireSpreadView
 	// listCounter numbers the players as they join this dimension's player
 	// list, a player who crosses in appended. It is the order a world-limited
 	// selector resolves in.
