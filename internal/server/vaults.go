@@ -133,6 +133,11 @@ func (c *client) useVault(hand, x, y, z int32) bool {
 	if held.Empty() {
 		return false
 	}
+	// Cheap test first: building the opener snapshots the player.
+	if st := w.BlockAt(x, y, z); registry.BlockOf(st) != registry.BlockVault ||
+		registry.StateValue(st, registry.PropVaultState) != entity.VaultActive {
+		return false
+	}
 	dim := c.dimension()
 	age, _ := c.srv.world.Time()
 	host := &trialHost{s: c.srv, dim: dim, now: age}
