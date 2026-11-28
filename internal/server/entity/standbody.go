@@ -138,6 +138,11 @@ func (s *StandBody) travel(w World, box AABB, halfWidth, gravity float64) (lande
 		s.VX *= g
 		s.VZ *= g
 	}
+	// stepOn follows the whole travel, drag included.
+	// vanilla: LivingEntity.aiStep's applyEffectsFromBlocks
+	if s.OnGround {
+		slimeStep(w, s.X, s.Y, s.Z, halfWidth, s.VY, &s.VX, &s.VZ)
+	}
 	return landed
 }
 

@@ -95,6 +95,9 @@ type FallingBlock struct {
 	FallHurtAmount float64
 	CancelDrop     bool
 	FallDistance   float64
+	// FireTicks is vanilla's remainingFireTicks. The body's tick never runs
+	// baseTick, so lava sets it and nothing counts it down or draws flames.
+	FireTicks int
 	// LandedFall is the fall a landing this tick ended, 0 when none.
 	LandedFall float64
 	// vanilla: Entity.isNoGravity
@@ -262,6 +265,10 @@ func (f *FallingBlock) Step(w World) []FallingEvent {
 	// vanilla: Entity.onInsideBubbleColumn
 	box := AABB{f.X - FallingHalfWidth, f.Y, f.Z - FallingHalfWidth,
 		f.X + FallingHalfWidth, f.Y + FallingHeight, f.Z + FallingHalfWidth}
+	// vanilla: LavaFluid.entityInside, Entity.lavaIgnite
+	if BoxInLava(w, f.X, f.Y, f.Z, 2*FallingHalfWidth, FallingHeight) {
+		f.FireTicks = max(f.FireTicks, 300)
+	}
 	var inColumn bool
 	if f.VY, inColumn = bubbleColumnDrift(w, box, f.VY); inColumn {
 		f.FallDistance = 0

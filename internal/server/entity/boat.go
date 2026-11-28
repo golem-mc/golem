@@ -283,6 +283,13 @@ func (b *Boat) Step(w World, ridden bool) {
 
 	fx, fy, fz, ax, az := b.X, b.Y, b.Z, b.VX, b.VZ
 	b.OnGround = b.move(w, ridden)
+	if b.OnGround {
+		// AbstractBoat.tick applies the block effects twice.
+		// vanilla: Entity.applyEffectsFromBlocks's stepOn
+		for range 2 {
+			slimeStep(w, b.X, b.Y, b.Z, BoatHalfWidth, b.VY, &b.VX, &b.VZ)
+		}
+	}
 	b.Movement = b.stride.vehicleEvent(w, bodyMove{fx: fx, fy: fy, fz: fz, tx: b.X, ty: b.Y, tz: b.Z}, BoatHalfWidth, b.OnGround, false, inWater)
 	b.stepMove, b.stepMoved = bodyMove{fx, fy, fz, b.X, b.Y, b.Z, ax, az, true}, true
 	b.bubbleColumn(w, false)
@@ -585,6 +592,10 @@ func (b *Boat) move(w World, ridden bool) bool {
 			b.bounced = true
 		}
 	}
+	// vanilla: Entity.move ends with the block speed factor
+	f := blockSpeedFactor(w, b.X, b.Y, b.Z)
+	b.VX *= f
+	b.VZ *= f
 	bankFall(&b.fallDistance, startY, b.Y, onGround)
 	return onGround
 }

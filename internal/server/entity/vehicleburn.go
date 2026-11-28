@@ -88,6 +88,8 @@ func vehicleBurnPass(w World, move bodyMove, rel AABB, fire *int, dead *bool, hu
 		case rules.IsLayeredCauldron(state):
 			cauldrons = append(cauldrons, [3]int32{x, y, z})
 			extinguish = true
+		case sweptLavaCauldron(x, y, z, state, from, dx, dy, dz):
+			lava++
 		default:
 			switch sweptFluid(w, x, y, z, state, from, dx, dy, dz) {
 			case fluidLava:

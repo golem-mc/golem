@@ -250,6 +250,16 @@ const (
 	// game event. It comes ahead of the tick's other events.
 	// vanilla: Entity.doWaterSplashEffect
 	ThrownSplashed
+	// ThrownBurnedUp: a shulker bullet met lava and was destroyed at X, Y, Z.
+	// vanilla: LavaFluid.entityInside, ShulkerBullet.hurtServer
+	ThrownBurnedUp
+)
+
+const (
+	// thrownLavaFireTicks is Entity.lavaIgnite's 15 seconds.
+	thrownLavaFireTicks = 300
+	// thrownBurnFireTicks is AbstractHurtingProjectile.tick's igniteForSeconds(1).
+	thrownBurnFireTicks = 20
 )
 
 // ThrownEvent is one event from a thrown projectile's tick. Target goes with
@@ -312,6 +322,12 @@ type Thrown struct {
 	noDeflect int
 	// wasInWater is Entity.wasTouchingWater.
 	wasInWater bool
+
+	// FireTicks is vanilla's remainingFireTicks; FireFlag is the shared
+	// on-fire flag, set from it by baseTick, so it trails an ignition by a
+	// tick.
+	FireTicks int
+	FireFlag  bool
 
 	// lastDeflectedBy is the body that last turned this one back, which
 	// never turns it twice; 0 for none. Not saved.
@@ -502,11 +518,31 @@ func (t *Thrown) StepGather(w World, gather func(*Thrown) (*ArrowTarget, []Arrow
 	// block a thrown body reacts to.
 	// vanilla: ThrowableProjectile.tick, AbstractHurtingProjectile.tick
 	moves := [1]bodyMove{{fx: fromX, fy: fromY, fz: fromZ, tx: t.X, ty: t.Y, tz: t.Z}}
+	inLava := false
 	walkInside(w, moves[:], t.blockBox(0, 0, 0), func(x, y, z int32, state uint16, _ int, from AABB, dx, dy, dz float64) bool {
 		t.VY, _ = projectileBubblePush(w, x, y, z, state, from, dx, dy, dz, t.VY, pearl, &bubbles)
+		if !inLava && !rules.IsFire(state) && sweptFluid(w, x, y, z, state, from, dx, dy, dz) == fluidLava {
+			inLava = true
+		}
 		return true
 	})
 	events := splash
+	if inLava {
+		if bullet {
+			// vanilla: Entity.lavaHurt reaches ShulkerBullet.hurtServer
+			t.Dead = true
+			return append(events, ThrownEvent{Kind: ThrownBurnedUp, X: t.X, Y: t.Y, Z: t.Z})
+		}
+		t.FireTicks = max(t.FireTicks, thrownLavaFireTicks) // vanilla: Entity.lavaIgnite
+	}
+	// vanilla: Entity.baseTick, then AbstractHurtingProjectile.tick's ignite
+	if t.FireTicks > 0 {
+		t.FireTicks--
+	}
+	t.FireFlag = t.FireTicks > 0
+	if t.Kind.Burns() {
+		t.FireTicks = max(t.FireTicks, thrownBurnFireTicks)
+	}
 	for _, p := range bubbles {
 		events = append(events, ThrownEvent{Kind: ThrownBubbleSurface, X: float64(p.x), Y: float64(p.y), Z: float64(p.z)})
 	}
