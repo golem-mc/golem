@@ -23,7 +23,7 @@ func TestOldWorldBorderFieldsReachEveryDimension(t *testing.T) {
 		"DataVersion":   nbt.Int(3955),
 		"BorderCenterX": nbt.Double(80), "BorderCenterZ": nbt.Double(-160),
 		"BorderSize": nbt.Double(100), "BorderSizeLerpTarget": nbt.Double(50),
-		"BorderSizeLerpTime": nbt.Long(2000), "BorderDamagePerBlock": nbt.Double(1.5),
+		"BorderSizeLerpTime": nbt.Long(200000), "BorderDamagePerBlock": nbt.Double(1.5),
 		"BorderSafeZone": nbt.Double(2), "BorderWarningBlocks": nbt.Double(7),
 		"BorderWarningTime": nbt.Double(20),
 	}})
@@ -34,6 +34,8 @@ func TestOldWorldBorderFieldsReachEveryDimension(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	// The shrink is slow enough that the size still reads 100 however many
+	// ticks run before the loop stops.
 	srv, c := servertest.Join(t, cfg, "Warden", servertest.OpsListing(t, "Warden"))
 	srv.StopTick()
 	c.ChatCommand("execute in minecraft:the_nether run worldborder get")
@@ -54,7 +56,7 @@ func TestOldWorldBorderFieldsReachEveryDimension(t *testing.T) {
 		if size := d("size"); size > 100 || size < 50 {
 			t.Errorf("%s size = %v, want a size in the shrink from 100 to 50", dim, size)
 		}
-		if lt := d("lerp_time"); lt <= 0 || lt > 2000 {
+		if lt := d("lerp_time"); lt <= 0 || lt > 200000 {
 			t.Errorf("%s lerp_time = %v, want the shrink's remaining ticks", dim, lt)
 		}
 	}
