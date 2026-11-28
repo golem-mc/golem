@@ -644,8 +644,11 @@ func refuseStep(view Source, forked bool, key string, with ...protocol.Text) err
 // expectOver runs a conditional's test over every context: matching answers
 // keep their context on, and every answer is kept beside its context for the
 // chain's end to report. numeric says the answers are counts.
-func expectOver(src Source, ctxs []execContext, expected, numeric bool, test func(view Source) condAnswer) ([]execContext, *condAsk) {
-	ask := &condAsk{expected: expected, numeric: numeric}
+func expectOver(src Source, ctxs []execContext, want condWant, used int, numeric bool, test func(view Source) condAnswer) ([]execContext, *condAsk) {
+	// Only a conditional the chain ends on is reported, so only it keeps
+	// its answers; the ask then carries no per-context record.
+	record := used >= want.words
+	ask := &condAsk{expected: want.expected, numeric: numeric}
 	next := ask.nextBuf[:0]
 	if len(ctxs) <= 1 {
 		ask.asked, ask.answers = ask.askedBuf[:0], ask.answersBuf[:0]
@@ -658,9 +661,11 @@ func expectOver(src Source, ctxs []execContext, expected, numeric bool, test fun
 			continue
 		}
 		ans := test(view)
-		ask.asked = append(ask.asked, ctx)
-		ask.answers = append(ask.answers, ans)
-		if ans.throwKey == "" && ans.passed == expected {
+		if record {
+			ask.asked = append(ask.asked, ctx)
+			ask.answers = append(ask.answers, ans)
+		}
+		if ans.throwKey == "" && ans.passed == want.expected {
 			next = append(next, ctx)
 		}
 	}
@@ -1374,14 +1379,23 @@ type condAsk struct {
 	nextBuf    [1]execContext
 }
 
+// condWant is what a conditional step is asked: whether it keeps matches
+// (if) or misses (unless), and how many words the chain has left from it, so
+// a step can tell whether it ends the chain.
+type condWant struct {
+	expected bool
+	words    int
+}
+
 // stepConditional reads one conditional and answers it in every context,
 // keeping those that match. Tests without a registry here refuse as their
 // empty registry would.
 func stepConditional(src Source, ctxs []execContext, forked bool, expected bool, rest []string, tokens []Token, at int) ([]execContext, int, *condAsk, error) {
+	want := condWant{expected: expected, words: len(rest)}
 	switch rest[1] {
 	case "entity":
 		word, span := selectorArgAt(tokens, at+2)
-		next, ask := expectOver(src, ctxs, expected, true, func(view Source) condAnswer {
+		next, ask := expectOver(src, ctxs, want, 2+span, true, func(view Source) condAnswer {
 			found := resolveOptionalEntities(view, word)
 			return condAnswer{passed: len(found) > 0, count: len(found)}
 		})
@@ -1390,18 +1404,19 @@ func stepConditional(src Source, ctxs []execContext, forked bool, expected bool,
 		coords := rest[2:5]
 		span := blockSpanCount(rest[5:])
 		pred := wordsInTokens(tokens, rest, 5, span)
-		next, ask := expectOver(src, ctxs, expected, false, func(view Source) condAnswer {
-			x, y, z, ok := resolveBlockPos(view, coords)
-			if !ok {
+		pos, posOK := parseBlockPos(coords)
+		predicate, predOK := parseBlockPredicate(pred)
+		next, ask := expectOver(src, ctxs, want, 5+span, false, func(view Source) condAnswer {
+			if !posOK {
 				src.Debug("execute if block position did not parse", "args", coords)
 				return condAnswer{}
 			}
+			x, y, z := pos.block(view)
 			if !view.BlockLoaded(x, y, z) {
 				return condAnswer{throwKey: posUnloadedKey}
 			}
 			state := view.BlockAt(x, y, z)
-			predicate, ok := parseBlockPredicate(pred)
-			if !ok {
+			if !predOK {
 				src.Debug("execute if block predicate did not parse", "predicate", pred)
 				return condAnswer{}
 			}
@@ -1411,28 +1426,31 @@ func stepConditional(src Source, ctxs []execContext, forked bool, expected bool,
 	case "blocks":
 		startW, endW, destW := rest[2:5], rest[5:8], rest[8:11]
 		skipAir := rest[11] == "masked"
-		next, ask := expectOver(src, ctxs, expected, true, func(view Source) condAnswer {
-			sx, sy, sz, ok := resolveBlockPos(view, startW)
-			if !ok {
+		start, startOK := parseBlockPos(startW)
+		end, endOK := parseBlockPos(endW)
+		dest, destOK := parseBlockPos(destW)
+		next, ask := expectOver(src, ctxs, want, 12, true, func(view Source) condAnswer {
+			if !startOK {
 				src.Debug("execute if blocks start did not parse", "args", startW)
 				return condAnswer{}
 			}
+			sx, sy, sz := start.block(view)
 			if !view.BlockLoaded(sx, sy, sz) {
 				return condAnswer{throwKey: posUnloadedKey}
 			}
-			ex, ey, ez, ok := resolveBlockPos(view, endW)
-			if !ok {
+			if !endOK {
 				src.Debug("execute if blocks end did not parse", "args", endW)
 				return condAnswer{}
 			}
+			ex, ey, ez := end.block(view)
 			if !view.BlockLoaded(ex, ey, ez) {
 				return condAnswer{throwKey: posUnloadedKey}
 			}
-			dx0, dy0, dz0, ok := resolveBlockPos(view, destW)
-			if !ok {
+			if !destOK {
 				src.Debug("execute if blocks destination did not parse", "args", destW)
 				return condAnswer{}
 			}
+			dx0, dy0, dz0 := dest.block(view)
 			if !view.BlockLoaded(dx0, dy0, dz0) {
 				return condAnswer{throwKey: posUnloadedKey}
 			}
@@ -1470,12 +1488,12 @@ func stepConditional(src Source, ctxs []execContext, forked bool, expected bool,
 		})
 		return next, 12, ask, nil
 	case "data":
-		return stepDataConditional(src, ctxs, expected, rest, tokens, at)
+		return stepDataConditional(src, ctxs, want, rest, tokens, at)
 	case "predicate":
 		// The argument is a pack predicate's name or an inline one.
 		text, span := itemPredicateText(tokens, at+2)
 		cond, err := parsePredicate(text, nil)
-		next, ask := expectOver(src, ctxs, expected, false, func(view Source) condAnswer {
+		next, ask := expectOver(src, ctxs, want, 2+span, false, func(view Source) condAnswer {
 			if err != nil {
 				return condAnswer{}
 			}
@@ -1490,7 +1508,7 @@ func stepConditional(src Source, ctxs []execContext, forked bool, expected bool,
 		return next, 2 + span, ask, nil
 	case "dimension":
 		dim := registry.Qualify(rest[2])
-		next, ask := expectOver(src, ctxs, expected, false, func(view Source) condAnswer {
+		next, ask := expectOver(src, ctxs, want, 3, false, func(view Source) condAnswer {
 			if !dimensionKnown(src, dim) {
 				return condAnswer{throwKey: dimensionInvalidKey, throwWith: []protocol.Text{{Text: dim}}}
 			}
@@ -1498,7 +1516,7 @@ func stepConditional(src Source, ctxs []execContext, forked bool, expected bool,
 		})
 		return next, 3, ask, nil
 	case "loaded":
-		next, ask := expectOver(src, ctxs, expected, false, func(view Source) condAnswer {
+		next, ask := expectOver(src, ctxs, want, 5, false, func(view Source) condAnswer {
 			x, y, z, ok := resolveBlockPos(view, rest[2:5])
 			if !ok {
 				src.Debug("execute if loaded position did not parse", "args", rest[2:5])
@@ -1509,7 +1527,7 @@ func stepConditional(src Source, ctxs []execContext, forked bool, expected bool,
 		return next, 5, ask, nil
 	case "biome":
 		coords, biomeWord := rest[2:5], rest[5]
-		next, ask := expectOver(src, ctxs, expected, false, func(view Source) condAnswer {
+		next, ask := expectOver(src, ctxs, want, 6, false, func(view Source) condAnswer {
 			x, y, z, ok := resolveBlockPos(view, coords)
 			if !ok {
 				src.Debug("execute if biome position did not parse", "args", coords)
@@ -1526,7 +1544,7 @@ func stepConditional(src Source, ctxs []execContext, forked bool, expected bool,
 		})
 		return next, 6, ask, nil
 	case "score":
-		return stepScoreConditional(src, ctxs, expected, rest, tokens, at)
+		return stepScoreConditional(src, ctxs, want, rest, tokens, at)
 	case "stopwatch":
 		id, ok := parseResourceLocation(rest[2])
 		if !ok {
@@ -1538,7 +1556,7 @@ func stepConditional(src Source, ctxs []execContext, forked bool, expected bool,
 			src.Debug("execute if stopwatch range did not parse", "range", rest[3])
 			return nil, 4, nil, nil
 		}
-		next, ask := expectOver(src, ctxs, expected, false, func(view Source) condAnswer {
+		next, ask := expectOver(src, ctxs, want, 4, false, func(view Source) condAnswer {
 			seconds, ok := view.StopwatchSeconds(id)
 			if !ok {
 				return condAnswer{throwKey: stopwatchDoesNotExistKey, throwWith: []protocol.Text{{Text: id}}}
@@ -1547,7 +1565,7 @@ func stepConditional(src Source, ctxs []execContext, forked bool, expected bool,
 		})
 		return next, 4, ask, nil
 	case "items", "slots":
-		return stepItemsConditional(src, ctxs, expected, rest, tokens, at)
+		return stepItemsConditional(src, ctxs, want, rest, tokens, at)
 	}
 	// The function test is answered by walkExecute, so no input the walk
 	// accepted reaches here.
@@ -1559,16 +1577,17 @@ func stepConditional(src Source, ctxs []execContext, forked bool, expected bool,
 // path, counting matches. A block without a block entity refuses; a body's
 // data, or an empty storage, matches nothing.
 // vanilla: ExecuteCommand.checkMatchingData
-func stepDataConditional(src Source, ctxs []execContext, expected bool, rest []string, tokens []Token, at int) ([]execContext, int, *condAsk, error) {
+func stepDataConditional(src Source, ctxs []execContext, want condWant, rest []string, tokens []Token, at int) ([]execContext, int, *condAsk, error) {
 	switch rest[2] {
 	case "block":
 		coords := rest[3:6]
-		return dataConditionalOverPath(src, ctxs, expected, rest[6:], tokens, ownedData(func(view Source) (nbt.CompoundTag, condAnswer) {
-			x, y, z, ok := resolveBlockPos(view, coords)
-			if !ok {
+		pos, posOK := parseBlockPos(coords)
+		return dataConditionalOverPath(src, ctxs, want, rest[6:], tokens, ownedData(func(view Source) (nbt.CompoundTag, condAnswer) {
+			if !posOK {
 				src.Debug("execute if data position did not parse", "args", coords)
 				return nil, condAnswer{}
 			}
+			x, y, z := pos.block(view)
 			if !view.BlockLoaded(x, y, z) {
 				return nil, condAnswer{throwKey: posUnloadedKey}
 			}
@@ -1583,7 +1602,7 @@ func stepDataConditional(src Source, ctxs []execContext, expected bool, rest []s
 		}), 6)
 	case "entity":
 		word, span := selectorArgAt(tokens, at+3)
-		return dataConditionalOverPath(src, ctxs, expected, rest[3+span:], tokens, ownedData(func(view Source) (nbt.CompoundTag, condAnswer) {
+		return dataConditionalOverPath(src, ctxs, want, rest[3+span:], tokens, ownedData(func(view Source) (nbt.CompoundTag, condAnswer) {
 			bodies, notFound := resolveRequiredEntities(view, word)
 			if notFound != "" {
 				return nil, condAnswer{throwKey: notFound}
@@ -1603,7 +1622,7 @@ func stepDataConditional(src Source, ctxs []execContext, expected bool, rest []s
 		}), 3+span)
 	default:
 		id := rest[3]
-		return dataConditionalOverPath(src, ctxs, expected, rest[4:], tokens, func(view Source, count func(nbt.CompoundTag) int) (int, condAnswer) {
+		return dataConditionalOverPath(src, ctxs, want, rest[4:], tokens, func(view Source, count func(nbt.CompoundTag) int) (int, condAnswer) {
 			n := 0
 			view.ReadCommandStorage(id, func(storage nbt.CompoundTag) { n = count(storage) })
 			return n, condAnswer{}
@@ -1627,17 +1646,17 @@ func ownedData(read func(Source) (nbt.CompoundTag, condAnswer)) func(Source, fun
 // answering its refusal) and counts the path's matches. base is the words
 // consumed before the path.
 // vanilla: ExecuteCommand.checkMatchingData
-func dataConditionalOverPath(src Source, ctxs []execContext, expected bool, rest []string, tokens []Token, read func(src Source, count func(nbt.CompoundTag) int) (int, condAnswer), base int) ([]execContext, int, *condAsk, error) {
+func dataConditionalOverPath(src Source, ctxs []execContext, want condWant, rest []string, tokens []Token, read func(src Source, count func(nbt.CompoundTag) int) (int, condAnswer), base int) ([]execContext, int, *condAsk, error) {
 	span := pathSpanOf(rest)
 	path, err := parseNBTPath(wordsInTokens(tokens, rest, 0, span))
 	if err != nil {
 		src.Debug("execute if data path did not parse", "path", rest[:span])
-		next, ask := expectOver(src, ctxs, expected, true, func(Source) condAnswer {
+		next, ask := expectOver(src, ctxs, want, base+span, true, func(Source) condAnswer {
 			return condAnswer{}
 		})
 		return next, base + span, ask, nil
 	}
-	next, ask := expectOver(src, ctxs, expected, true, func(view Source) condAnswer {
+	next, ask := expectOver(src, ctxs, want, base+span, true, func(view Source) condAnswer {
 		count, answer := read(view, func(data nbt.CompoundTag) int { return path.countMatching(data) })
 		if answer.throwKey != "" {
 			return answer
@@ -1650,7 +1669,7 @@ func dataConditionalOverPath(src Source, ctxs []execContext, expected bool, rest
 // stepScoreConditional compares a holder's score with another's or a range;
 // a holder without a score fails without an error.
 // vanilla: ExecuteCommand.checkScore
-func stepScoreConditional(src Source, ctxs []execContext, expected bool, rest []string, tokens []Token, at int) ([]execContext, int, *condAsk, error) {
+func stepScoreConditional(src Source, ctxs []execContext, want condWant, rest []string, tokens []Token, at int) ([]execContext, int, *condAsk, error) {
 	targetWord, s1 := selectorArgAt(tokens, at+2)
 	targetObj := rest[2+s1]
 	cmp := rest[3+s1]
@@ -1660,7 +1679,7 @@ func stepScoreConditional(src Source, ctxs []execContext, expected bool, rest []
 			src.Debug("execute if score range did not parse", "range", rest[4+s1])
 			return nil, 5 + s1, nil, nil
 		}
-		next, ask := expectOver(src, ctxs, expected, false, func(view Source) condAnswer {
+		next, ask := expectOver(src, ctxs, want, 5+s1, false, func(view Source) condAnswer {
 			target, ans, ok := scoreRef(view, targetWord, targetObj)
 			if !ok {
 				return ans
@@ -1673,7 +1692,7 @@ func stepScoreConditional(src Source, ctxs []execContext, expected bool, rest []
 	sourceWord, s2 := selectorArgAt(tokens, at+4+s1)
 	sourceObj := rest[4+s1+s2]
 	compare := scoreOperator(cmp)
-	next, ask := expectOver(src, ctxs, expected, false, func(view Source) condAnswer {
+	next, ask := expectOver(src, ctxs, want, 5+s1+s2, false, func(view Source) condAnswer {
 		// Both references are resolved before either score is read, so a
 		// missing score never hides the source's refusal.
 		target, ans, ok := scoreRef(view, targetWord, targetObj)
@@ -1736,7 +1755,7 @@ func scoreOperator(op string) func(a, b int32) bool {
 // the stacks in the named slots of bodies or a container block that match a
 // predicate, and the slots test, which counts the named slots that exist.
 // vanilla: ExecuteCommand.countItems, countSlots
-func stepItemsConditional(src Source, ctxs []execContext, expected bool, rest []string, tokens []Token, at int) ([]execContext, int, *condAsk, error) {
+func stepItemsConditional(src Source, ctxs []execContext, want condWant, rest []string, tokens []Token, at int) ([]execContext, int, *condAsk, error) {
 	countSlots := rest[1] == "slots"
 	block := rest[2] == "block"
 	var word string
@@ -1751,7 +1770,7 @@ func stepItemsConditional(src Source, ctxs []execContext, expected bool, rest []
 	test, predSpan := itemsConditionalTest(countSlots, tokens, at+slotsAt+sourceSpan)
 	arity := slotsAt + sourceSpan + predSpan
 	if !block {
-		next, ask := expectOver(src, ctxs, expected, true, func(view Source) condAnswer {
+		next, ask := expectOver(src, ctxs, want, arity, true, func(view Source) condAnswer {
 			found, notFound := resolveRequiredEntities(view, word)
 			if notFound != "" {
 				return condAnswer{throwKey: notFound}
@@ -1770,7 +1789,7 @@ func stepItemsConditional(src Source, ctxs []execContext, expected bool, rest []
 		return next, arity, ask, nil
 	}
 	coords := rest[3:6]
-	next, ask := expectOver(src, ctxs, expected, true, func(view Source) condAnswer {
+	next, ask := expectOver(src, ctxs, want, arity, true, func(view Source) condAnswer {
 		x, y, z, ok := resolveBlockPos(view, coords)
 		if !ok {
 			src.Debug("execute items or slots position did not parse", "args", coords)
