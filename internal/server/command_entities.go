@@ -1479,7 +1479,7 @@ func (ws worldScope) query(q entityQuery) []command.Entity {
 	// vanilla: EntitySelector.findEntities
 	var players []*client
 	switch {
-	case q.Type != "" && q.Type != "minecraft:player":
+	case q.Type != "" && !fixedPlayerType(q.Type):
 	case q.UUID != nil:
 		if c := s.clientByUUID(*q.UUID); c != nil {
 			players = []*client{c}
@@ -2158,6 +2158,12 @@ func (s *Server) frameSnapshot(it *frameEntity, q *entityQuery) *entitySnapshot 
 	e.bind(&s.framesMu, &it.tags, &frameEntityOps)
 	e.setCustomName(it.custom.tag())
 	return e
+}
+
+// fixedPlayerType reports whether name is the player entity type.
+func fixedPlayerType(name string) bool {
+	t, ok := registry.EntityTypeByName(name)
+	return ok && t == registry.EntityTypePlayer
 }
 
 // entityDisplayName is Entity.getDisplayName: the custom name, or the type's
