@@ -692,6 +692,20 @@ func (b *BlockEntity) PutKeepingCook(slot int, stack protocol.ItemStack) {
 	b.setFilled(slot, stack.Count > 0)
 }
 
+// AdjustCount changes the count of a slot that holds items and still will,
+// in place. The ingredient's cook is kept, as PutKeepingCook keeps it.
+func (b *BlockEntity) AdjustCount(slot int, delta int32) {
+	if slot < 0 || slot >= len(b.Slots) {
+		return
+	}
+	if b.Kind == KindCrafter && b.SlotDisabled(slot) {
+		b.SetCrafterSlotState(slot, true)
+	}
+	b.Wake()
+	b.inventoryVersion.Add(1)
+	b.Slots[slot].Count += delta
+}
+
 // FilledSlots is the mask of slots holding items: bit i is set exactly when
 // Slots[i].Count > 0.
 func (b *BlockEntity) FilledSlots() uint64 { return b.filled }

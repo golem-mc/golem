@@ -29,6 +29,9 @@ type Block interface {
 	// Filled is the mask of slots holding items: bit i is set exactly when
 	// slot i's count is positive (at most 64 slots).
 	Filled() uint64
+	// AdjustCount changes the count of a slot that holds items and keeps
+	// holding them, in place: no stack is copied or rewritten.
+	AdjustCount(slot int, delta int32)
 	Kind() Kind
 }
 
@@ -68,6 +71,15 @@ func (c Pair[B]) StackPtr(slot int) *protocol.ItemStack {
 
 // Filled is the pair's masks joined, the second half above the first's slots.
 func (c Pair[B]) Filled() uint64 { return c.First.Filled() | c.Second.Filled()<<c.First.Len() }
+
+// AdjustCount changes the count of the given one of the pair's slots.
+func (c Pair[B]) AdjustCount(slot int, delta int32) {
+	if n := c.First.Len(); slot >= n {
+		c.Second.AdjustCount(slot-n, delta)
+		return
+	}
+	c.First.AdjustCount(slot, delta)
+}
 
 // Put replaces what the given one of the pair's slots holds.
 func (c Pair[B]) Put(slot int, stack protocol.ItemStack) {
@@ -479,9 +491,7 @@ func addOneItem[B Block](dest B, stack *protocol.ItemStack, face int32, throughF
 		if item.Count >= registry.StackMaxStackSizePtr(item) || !item.SamePtr(stack) {
 			continue
 		}
-		updated := *item
-		updated.Count++
-		dest.Put(slot, updated)
+		dest.AdjustCount(slot, 1)
 		return true, wasEmpty
 	}
 	return false, false
@@ -624,7 +634,5 @@ func shrinkSlot[B Block](b B, slot int, stack *protocol.ItemStack) {
 		b.Put(slot, protocol.ItemStack{})
 		return
 	}
-	updated := *stack
-	updated.Count--
-	b.Put(slot, updated)
+	b.AdjustCount(slot, -1)
 }

@@ -133,6 +133,15 @@ func (b *composterOutput) StackPtr(slot int) *protocol.ItemStack {
 // StackPtr is nil: the full composter has no slots.
 func (b ComposterFull) StackPtr(int) *protocol.ItemStack { return nil }
 
+// AdjustCount does nothing: the input view holds no stack.
+func (b composterInput) AdjustCount(int, int32) {}
+
+// AdjustCount does nothing: a count change leaves the bone meal's take unrecorded.
+func (b *composterOutput) AdjustCount(int, int32) {}
+
+// AdjustCount does nothing: the full composter has no slots.
+func (b ComposterFull) AdjustCount(int, int32) {}
+
 // Filled is none: the input view never holds a stack.
 func (b composterInput) Filled() uint64 { return 0 }
 
