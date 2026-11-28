@@ -501,8 +501,13 @@ func (s *Server) collectCushionsPistonPush(dim *dimension, pp *world.PistonPush)
 	defer s.fixturesMu.Unlock()
 	var breaks []func()
 	g := &dim.pistons.fixtures
+	seenCushion := false
 	for _, ent := range g.candidates(s.fixtures, pp) {
-		if ent.dead || ent.w != w || ent.kind != entity.FixtureCushion {
+		if ent.dead || ent.kind != entity.FixtureCushion {
+			continue
+		}
+		seenCushion = true
+		if ent.w != w {
 			continue
 		}
 		dx, dy, dz, hit := pp.Shift(pistonBoxOf(entity.FixtureBox(ent.kind, ent.tag, ent.x, ent.y, ent.z)))
@@ -510,9 +515,10 @@ func (s *Server) collectCushionsPistonPush(dim *dimension, pp *world.PistonPush)
 			breaks = append(breaks, func() { s.breakCushion(ent, cushionDrops) })
 		}
 	}
-	if len(breaks) == 0 && !s.anyCushionLocked() {
-		// Filing a fixture sets the bit under this lock; a push that finds
-		// no cushion clears it.
+	if !g.built && !seenCushion {
+		// Filing a fixture sets the bit under this lock; a full scan that
+		// finds no cushion clears it. A built grid skips the scan, and its
+		// bounds check already rejected the push.
 		s.pistonPopulated.And(^pistonCushions)
 	}
 	if len(breaks) > 0 {
@@ -524,17 +530,6 @@ func (s *Server) collectCushionsPistonPush(dim *dimension, pp *world.PistonPush)
 			})
 	}
 	return breaks
-}
-
-// anyCushionLocked reports whether any fixture is a live cushion; the fixtures
-// lock is held.
-func (s *Server) anyCushionLocked() bool {
-	for _, ent := range s.fixtures {
-		if !ent.dead && ent.kind == entity.FixtureCushion {
-			return true
-		}
-	}
-	return false
 }
 
 func (s *Server) collectMinecartsPistonPush(dim *dimension, pp *world.PistonPush) []func() {
