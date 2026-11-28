@@ -80,13 +80,15 @@ func (p *Physics) torchTick(x, y, z int32, block registry.Block, state uint16, c
 	}
 }
 
-// redstoneWakeAround wakes a torch's cell and the six neighbours of each
-// neighbour; the second ring reaches a lamp on the block the torch strongly
-// powers.
-// vanilla: RedstoneTorchBlock.notifyNeighbors
+// redstoneWakeAround wakes the six neighbours of each neighbour of a torch's
+// cell, then the cell's own neighbours; the second ring reaches a lamp on the
+// block the torch strongly powers. The ring comes first because onPlace runs
+// inside the block write, ahead of its flag-3 neighbour update, and the order
+// decides which scheduled tick a torch two blocks away books first.
+// vanilla: RedstoneTorchBlock.notifyNeighbors, LevelChunk.setBlockState
 func (p *Physics) redstoneWakeAround(x, y, z int32, changes *[]BlockChange) {
-	p.wireWakeNeighbors(x, y, z, changes)
-	for _, d := range updateNeighborOrder {
+	for _, d := range [6]int{dirDown, dirUp, dirNorth, dirSouth, dirWest, dirEast} {
 		p.wireWakeNeighbors(x+dirDelta[d][0], y+dirDelta[d][1], z+dirDelta[d][2], changes)
 	}
+	p.wireWakeNeighbors(x, y, z, changes)
 }
