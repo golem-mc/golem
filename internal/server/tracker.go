@@ -505,17 +505,45 @@ func (l *sendList) add(c *client, p outbound) { l.addIn(c, nil, p) }
 
 // addIn queues a packet for c only while c stays in w.
 func (l *sendList) addIn(c *client, w *world.World, p outbound) {
-	if l.b == nil {
-		l.b = sendBucketPool.Get().(*sendBuckets)
+	b := l.b
+	if b == nil {
+		b = sendBucketPool.Get().(*sendBuckets)
+		l.b = b
+	}
+	slot := c.slot
+	if slot >= len(b.by) {
+		b.by = append(b.by, make([][]sendEntry, slot+1-len(b.by))...)
+	}
+	bp := &b.by[slot]
+	if len(*bp) == 0 {
+		b.touched = append(b.touched, slot)
+	}
+	*bp = append(*bp, sendEntry{to: c, w: w, p: p})
+}
+
+// addAll queues packets in order for c only while c stays in w.
+func (l *sendList) addAll(c *client, w *world.World, packets []outbound) {
+	if len(packets) == 0 {
+		return
 	}
 	b := l.b
-	if c.slot >= len(b.by) {
-		b.by = append(b.by, make([][]sendEntry, c.slot+1-len(b.by))...)
+	if b == nil {
+		b = sendBucketPool.Get().(*sendBuckets)
+		l.b = b
 	}
-	if len(b.by[c.slot]) == 0 {
-		b.touched = append(b.touched, c.slot)
+	slot := c.slot
+	if slot >= len(b.by) {
+		b.by = append(b.by, make([][]sendEntry, slot+1-len(b.by))...)
 	}
-	b.by[c.slot] = append(b.by[c.slot], sendEntry{to: c, w: w, p: p})
+	bp := &b.by[slot]
+	dst := *bp
+	if len(dst) == 0 {
+		b.touched = append(b.touched, slot)
+	}
+	for _, p := range packets {
+		dst = append(dst, sendEntry{to: c, w: w, p: p})
+	}
+	*bp = dst
 }
 
 func (l *sendList) send() {

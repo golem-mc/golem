@@ -1,7 +1,6 @@
 package server
 
 import (
-	"maps"
 	"testing"
 
 	"github.com/golem-mc/golem/internal/protocol"
@@ -25,8 +24,11 @@ func BenchmarkPearlLanding(b *testing.B) {
 			}
 			owner := watchers[0]
 			owner.player.UpdateVitals(func(v *player.Vitals) { v.GameMode = protocol.GameModeCreative })
-			owner.seenBy = maps.Clone(s.clients)
-			delete(owner.seenBy, owner.player.UUID)
+			for _, c := range watchers {
+				if c != owner {
+					owner.seenBy.add(c)
+				}
+			}
 			boat := s.spawnBoat(w, "minecraft:oak_boat", 0.5, world.GroundLevel, 0.5, 0, customName{})
 			passenger := &boatPassenger{c: owner}
 			seat := []*boatPassenger{passenger}

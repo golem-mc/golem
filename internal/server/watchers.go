@@ -73,3 +73,79 @@ func (s watcherSet[T]) clients() iter.Seq[*client] {
 		}
 	}
 }
+
+type clientSlot struct {
+	generation uint64
+	indexPlus1 int
+}
+
+// clientSet tracks online clients by reusable slot with a dense slice for
+// iteration. Identity and generation checks keep departures and reconnects from
+// touching a newer connection that reused a slot.
+// vanilla: ChunkMap.TrackedEntity.seenBy
+type clientSet struct {
+	list  []*client
+	slots []clientSlot
+}
+
+func (s *clientSet) has(c *client) bool {
+	if c.slot < len(s.slots) {
+		if idx := s.slots[c.slot].indexPlus1; idx > 0 && s.list[idx-1] == c {
+			return true
+		}
+	}
+	return false
+}
+
+func (s *clientSet) add(c *client) bool {
+	if c.slot >= len(s.slots) {
+		s.slots = append(s.slots, make([]clientSlot, c.slot+1-len(s.slots))...)
+	}
+	e := &s.slots[c.slot]
+	if idx := e.indexPlus1; idx > 0 {
+		if s.list[idx-1] == c {
+			return false
+		}
+		if e.generation > c.slotGeneration {
+			return false
+		}
+		s.list[idx-1] = c
+		e.generation = c.slotGeneration
+		return true
+	}
+	if e.generation > c.slotGeneration {
+		return false
+	}
+	s.list = append(s.list, c)
+	*e = clientSlot{generation: c.slotGeneration, indexPlus1: len(s.list)}
+	return true
+}
+
+func (s *clientSet) delete(c *client) bool {
+	if c.slot >= len(s.slots) {
+		return false
+	}
+	e := &s.slots[c.slot]
+	idx := e.indexPlus1
+	if idx == 0 || s.list[idx-1] != c {
+		return false
+	}
+	last := len(s.list) - 1
+	if idx-1 != last {
+		moved := s.list[last]
+		s.list[idx-1] = moved
+		s.slots[moved.slot].indexPlus1 = idx
+	}
+	s.list[last] = nil
+	s.list = s.list[:last]
+	e.indexPlus1 = 0
+	return true
+}
+
+func (s *clientSet) clear() {
+	for _, c := range s.list {
+		s.slots[c.slot].indexPlus1 = 0
+	}
+	clear(s.list)
+	s.list = s.list[:0]
+}

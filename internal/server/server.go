@@ -1712,11 +1712,11 @@ type client struct {
 	// schedule; vanilla: EntityTypes.PLAYER.updateInterval(2).
 	movement movementSchedule
 
-	// seenBy are the clients holding this player's body, by UUID (vanilla's
-	// ChunkMap$TrackedEntity.seenBy): move sends steps to them only, and the
-	// tick settles them against tracking range. trackMu guards it; the join,
-	// departures and a respawn also hold s.mu, always taking this second.
-	seenBy map[uuid.UUID]*client
+	// seenBy are the clients holding this player's body, by online slot
+	// (vanilla's ChunkMap$TrackedEntity.seenBy): move sends steps to them only,
+	// and the tick settles them against tracking range. trackMu guards it; the
+	// join, departures and a respawn also hold s.mu, always taking this second.
+	seenBy clientSet
 
 	// trackIdx is the client's index in this tick's present slice, written
 	// only by the tick goroutine.
@@ -2174,9 +2174,9 @@ func (s *Server) addPlayer(c *client) ([]*client, error) {
 	// between would otherwise pair anyone not yet recorded twice.
 	c.trackMu.Lock()
 	c.tracked = track(c.player.Position())
-	c.seenBy = make(map[uuid.UUID]*client)
+	c.seenBy.clear()
 	for _, other := range sameDim {
-		c.seenBy[other.player.UUID] = other
+		c.seenBy.add(other)
 	}
 	c.trackMu.Unlock()
 	s.playerPairEpoch.Add(1)
