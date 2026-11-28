@@ -119,19 +119,16 @@ func ConvertMobRides(from, to *Mob) {
 	}
 }
 
-// DismountMob is Dismount for a mob taken off a mob: it ends beside an
-// animal where the ground allows, else on top of the vehicle's box.
-// vanilla: Entity.getDismountLocationForPassenger
+// DismountMob is Dismount for a mob taken off a mob: it ends where
+// DismountSpot puts a rider of its own size.
+// vanilla: LivingEntity.dismountVehicle
 func DismountMob(w rules.BoatWorld, vehicle, passenger *Mob) (ok bool) {
 	if !Dismount(vehicle, passenger) {
 		return false
 	}
 	dims := rules.PlayerDimensions{Width: passenger.width(), Height: passenger.height()}
-	if x, y, z, found := animalDismountSpot(w, vehicle, []rules.DismountPose{{Dims: dims}}); found {
-		passenger.SetPos(x, y, z)
-		return true
-	}
-	passenger.SetPos(vehicle.X, vehicle.Y+vehicle.height(), vehicle.Z)
+	p := DismountSpot(w, vehicle, passenger.Yaw, dims.Width, dims.Height, []rules.DismountPose{{Dims: dims}})
+	passenger.SetPos(p.X, p.Y, p.Z)
 	return true
 }
 
@@ -139,7 +136,7 @@ func DismountMob(w rules.BoatWorld, vehicle, passenger *Mob) (ok bool) {
 // its yaw; false for other kinds.
 // vanilla: Animal.getDismountLocationForPassenger
 func animalDismountSpot(w rules.BoatWorld, vehicle *Mob, poses []rules.DismountPose) (x, y, z float64, ok bool) {
-	if !mobIsAnimal(vehicle.Type) {
+	if !IsAnimal(vehicle.Type) {
 		return 0, 0, 0, false
 	}
 	// Direction.fromYRot, in the HORIZONTALS' order: south, west, north, east.
@@ -148,11 +145,11 @@ func animalDismountSpot(w rules.BoatWorld, vehicle *Mob, poses []rules.DismountP
 	return rules.AnimalDismountSpot(w, vehicle.X, vehicle.Y, vehicle.Z, d[0], d[1], poses)
 }
 
-// PlayerDismountSpot is where a dismounted player stands: beside a horse or
-// other animal if the ground allows, else on top of the mob; a happy ghast
-// always sets them on top.
+// DismountSpot is where a rider of the given box and dismount poses ends when taken off m: beside a horse or other animal if
+// the ground allows, else on top of the mob; a happy ghast always sets them on
+// top.
 // vanilla: AbstractHorse.getDismountLocationForPassenger, Animal.getDismountLocationForPassenger, Entity.getDismountLocationForPassenger, HappyGhast.getDismountLocationForPassenger
-func PlayerDismountSpot(w rules.BoatWorld, m *Mob, riderYaw float32, riderWidth, riderHeight float64) player.Position {
+func DismountSpot(w rules.BoatWorld, m *Mob, riderYaw float32, riderWidth, riderHeight float64, poses []rules.DismountPose) player.Position {
 	if m.Type == TypeHappyGhast {
 		return player.Position{X: m.X, Y: m.Y + m.height(), Z: m.Z}
 	}
@@ -162,10 +159,15 @@ func PlayerDismountSpot(w rules.BoatWorld, m *Mob, riderYaw float32, riderWidth,
 	if m.Type == TypeStrider {
 		return StriderDismountSpot(w, m, riderYaw)
 	}
-	if x, y, z, ok := animalDismountSpot(w, m, rules.PlayerDismountPoses); ok {
+	if x, y, z, ok := animalDismountSpot(w, m, poses); ok {
 		return player.Position{X: x, Y: y, Z: z}
 	}
 	return player.Position{X: m.X, Y: m.Y + m.height(), Z: m.Z}
+}
+
+// PlayerDismountSpot is DismountSpot for a player rider.
+func PlayerDismountSpot(w rules.BoatWorld, m *Mob, riderYaw float32, riderWidth, riderHeight float64) player.Position {
+	return DismountSpot(w, m, riderYaw, riderWidth, riderHeight, rules.PlayerDismountPoses)
 }
 
 // RootVehicle is the bottom mount of a ride chain (itself if riding
