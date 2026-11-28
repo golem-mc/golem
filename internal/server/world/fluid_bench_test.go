@@ -346,20 +346,14 @@ func BenchmarkFluidSlopeLayouts(b *testing.B) {
 			reach := p.behaviourOf(fluidWater).slopeFindDistance
 			search := func() int {
 				ctx := newSpreadContext(p.w, 0, 64, 0, fluidWater)
-				lowest := 1000
-				for i, d := range horizontal4 {
-					tx, tz := d[0], d[1]
-					ctx.state(tx, tz)
-					distance := 0
-					if !ctx.isHole(tx, tz) {
-						ti, _ := ctx.index(tx, tz)
-						distance = ctx.slopeDistance(ti, 1, i^2, min(reach, lowest))
-					}
-					if distance < lowest {
-						lowest = distance
+				for _, d := range horizontal4 {
+					ctx.state(d[0], d[1])
+					if ctx.isHole(d[0], d[1]) {
+						return 0
 					}
 				}
-				return lowest
+				_, dist := ctx.slopeWinners(0b1111, reach)
+				return dist
 			}
 			if got := search(); got != tc.want {
 				b.Fatalf("%s nearest distance = %d, want %d", tc.name, got, tc.want)

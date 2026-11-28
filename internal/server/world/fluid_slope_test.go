@@ -1,13 +1,14 @@
 package world
 
 import (
+	"maps"
 	"math/rand"
 	"testing"
 
 	"github.com/golem-mc/golem/registry"
 )
 
-func TestFluidSlopeDistanceBound(t *testing.T) {
+func TestFluidSlopeWinnersMatchesOracle(t *testing.T) {
 	w := newTestWorld(t, NewFlatGenerator())
 	t.Cleanup(func() { w.Close() })
 	for cx := int32(-1); cx <= 0; cx++ {
@@ -27,7 +28,8 @@ func TestFluidSlopeDistanceBound(t *testing.T) {
 		registry.BlockOakTrapdoor.DefaultState(),
 		registry.MustState("minecraft:oak_trapdoor", map[string]string{"open": "true"}),
 	}
-	reach := p.behaviourOf(fluidWater).slopeFindDistance
+	origins := []uint16{waterByLevel[0], waterByLevel[1]}
+	maxReach := p.behaviourOf(fluidWater).slopeFindDistance
 	for plane := range 500 {
 		for x := int32(-spreadReach); x <= spreadReach; x++ {
 			for z := int32(-spreadReach); z <= spreadReach; z++ {
@@ -35,29 +37,55 @@ func TestFluidSlopeDistanceBound(t *testing.T) {
 				w.SetBlock(x, 63, z, states[rng.Intn(2)])
 			}
 		}
-		// Keep the oracle's cell cache independent of the candidate's search cache.
-		ctx := newSpreadContext(p.w, 0, 64, 0, fluidWater)
-		bounded := newSpreadContext(p.w, 0, 64, 0, fluidWater)
-		for start, d := range horizontal4 {
-			ctx.state(d[0], d[1])
-			bounded.state(d[0], d[1])
-			i, _ := ctx.index(d[0], d[1])
-			for from := range horizontal4 {
-				ref := ctx.slopeDistanceRef(i, 1, from, reach)
-				for step := 0; step <= reach; step++ {
-					r := step
-					if plane%2 != 0 {
-						r = reach - step
-					}
-					want := ref
-					if ref > max(r, 1) {
-						want = 1000
-					}
-					got := bounded.slopeDistance(i, 1, from, r)
-					if got != want {
-						t.Fatalf("plane=%d start=%d from=%d bound=%d: got %d, want %d (unbounded %d)", plane, start, from, r, got, want, ref)
-					}
+		origin := origins[plane%len(origins)]
+		w.SetBlock(0, 64, 0, origin)
+		w.SetBlock(0, 63, 0, stoneState)
+
+		// Match fluidSideFlows' eligible set with no immediate hole.
+		var eligibleMask uint8
+		for i, d := range horizontal4 {
+			tState := w.BlockAt(d[0], 64, d[1])
+			axis, positive := faceOf(d[0], d[1])
+			if !canMaybePassThrough(fluidWater, origin, axis, positive, tState, fluidHolding(tState)) {
+				continue
+			}
+			if fluidContainer(tState) {
+				into := newLiquidAt(p.w, d[0], 64, d[1], tState, p.behaviourOf(fluidWater))
+				if !canHoldSpecific(tState, into) {
+					continue
 				}
+			}
+			// Keep immediate side cells off holes so the slope search runs.
+			w.SetBlock(d[0], 63, d[1], stoneState)
+			eligibleMask |= 1 << i
+		}
+		if eligibleMask == 0 || eligibleMask&(eligibleMask-1) == 0 {
+			continue
+		}
+		for reach := 1; reach <= maxReach; reach++ {
+			ref := newSpreadContext(p.w, 0, 64, 0, fluidWater)
+			bfs := newSpreadContext(p.w, 0, 64, 0, fluidWater)
+			wantDist := 1000
+			var wantMask uint8
+			for i, d := range horizontal4 {
+				if eligibleMask&(1<<i) == 0 {
+					continue
+				}
+				ref.state(d[0], d[1])
+				bfs.state(d[0], d[1])
+				ci, _ := ref.index(d[0], d[1])
+				dist := ref.slopeDistanceRef(ci, 1, i^2, reach)
+				if dist < wantDist {
+					wantDist = dist
+					wantMask = 1 << i
+				} else if dist == wantDist {
+					wantMask |= 1 << i
+				}
+			}
+			gotMask, gotDist := bfs.slopeWinners(eligibleMask, reach)
+			if gotMask != wantMask || gotDist != wantDist {
+				t.Fatalf("plane=%d reach=%d eligible=%04b: got (%04b, %d), want (%04b, %d)",
+					plane, reach, eligibleMask, gotMask, gotDist, wantMask, wantDist)
 			}
 		}
 	}
@@ -103,53 +131,81 @@ func (c *spreadContext) slopeDistanceRef(i, pass, from, reach int) int {
 	return lowest
 }
 
-func TestFluidSlopeTerminalMissAcrossDirections(t *testing.T) {
-	const north, east, west = 0, 1, 3
+// TestFluidSlopeAsymmetricOcclusionAndTies checks multi-source BFS parity with
+// vanilla FlowingFluid.getSpread on asymmetric face occlusion (stairs and slabs)
+// and tied multi-side paths.
+func TestFluidSlopeAsymmetricOcclusionAndTies(t *testing.T) {
+	stairsEast := registry.MustState("minecraft:oak_stairs", map[string]string{"facing": "east"})
+	stairsNorth := registry.MustState("minecraft:oak_stairs", map[string]string{"facing": "north"})
+	topSlab := registry.MustState("minecraft:oak_slab", map[string]string{"type": "top"})
+	// Half-height snow is washed away by fluids (enterable) and occupies the bottom half.
+	halfSnow := registry.MustState("minecraft:snow", map[string]string{"layers": "5"})
+
 	for _, tc := range []struct {
-		name      string
-		reader    fluidSpreadTestReader
-		warmNorth bool
+		name    string
+		surface map[[2]int32]uint16
+		hole    [2]int32
+		want    [4]bool // north, east, south, west
 	}{
 		{
-			name: "unchecked neighbor over a hole",
-			reader: fluidSpreadTestReader{
-				surface:   map[[2]int32]uint16{{1, 0}: stoneState, {0, 1}: stoneState, {-1, 0}: stoneState},
-				floorHole: &[2]int32{0, -1},
-			},
+			name: "tied diagonal hole via north and east",
+			hole: [2]int32{1, -1},
+			want: [4]bool{0: true, 1: true},
 		},
 		{
-			name:      "solid neighbors with a hole two steps away",
-			reader:    fluidSpreadTestReader{floorHole: &[2]int32{2, 0}},
-			warmNorth: true,
+			name: "top slab blocks east entry into half-snow while north reaches hole",
+			surface: map[[2]int32]uint16{
+				// Second water source at (1, 1) makes the waterloggable topSlab at (1, 0) eligible.
+				{1, 1}:  waterByLevel[0],
+				{1, 0}:  topSlab,
+				{1, -1}: halfSnow,
+				{2, 0}:  stoneState,
+				{-1, 0}: stoneState,
+				{0, 1}:  stoneState,
+			},
+			hole: [2]int32{2, -1},
+			// North (0, -1) -> (1, -1) halfSnow -> (2, -1) hole (distance 2).
+			// East (1, 0) topSlab -> (1, -1) halfSnow is occluded (merged face is full).
+			want: [4]bool{0: true},
+		},
+		{
+			name: "stairs facing east block east passage into hole at (2, 0)",
+			surface: map[[2]int32]uint16{
+				// Second water source at (1, 1) makes the waterloggable stairs at (1, 0) eligible.
+				{1, 1}:  waterByLevel[0],
+				{1, 0}:  stairsEast,
+				{-1, 0}: stoneState,
+				{0, 1}:  stoneState,
+			},
+			hole: [2]int32{2, 0},
+			// East (1, 0) -> (2, 0) hits stairsEast's full east face (occluded);
+			// East (1, 0) -> (1, -1) -> (2, -1) -> (2, 0) and North (0, -1) -> (1, -1) -> (2, -1) -> (2, 0)
+			// tie at distance 3.
+			want: [4]bool{0: true, 1: true},
+		},
+		{
+			name: "stairs facing north allow east passage into hole at (2, 0)",
+			surface: map[[2]int32]uint16{
+				// Second water source at (1, 1) makes the waterloggable stairs at (1, 0) eligible.
+				{1, 1}:  waterByLevel[0],
+				{1, 0}:  stairsNorth,
+				{-1, 0}: stoneState,
+				{0, 1}:  stoneState,
+			},
+			hole: [2]int32{2, 0},
+			// East (1, 0) -> (2, 0) exits stairsNorth's open east face at distance 1, beating north (distance 3).
+			want: [4]bool{1: true},
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			ctx := newSpreadContext(&tc.reader, 0, 64, 0, fluidWater)
-			ref := newSpreadContext(&tc.reader, 0, 64, 0, fluidWater)
-			ctx.state(0, 0)
-			ref.state(0, 0)
-			i, _ := ctx.index(0, 0)
-			check := func(from, reach, want int) {
-				t.Helper()
-				if got := ref.slopeDistanceRef(i, 1, from, reach); got != want {
-					t.Fatalf("oracle from=%d reach=%d: got %d, want %d", from, reach, got, want)
-				}
-				if got := ctx.slopeDistance(i, 1, from, reach); got != want {
-					t.Fatalf("slope from=%d reach=%d: got %d, want %d", from, reach, got, want)
-				}
+			surface := map[[2]int32]uint16{{0, 0}: waterByLevel[0]}
+			maps.Copy(surface, tc.surface)
+			hole := tc.hole
+			r := &fluidSpreadTestReader{surface: surface, floorHole: &hole}
+			_, got := fluidSideFlows(r, 0, 64, 0, waterByLevel[0], fluidHolding(waterByLevel[0]), fluidBehaviours[fluidWater])
+			if got != tc.want {
+				t.Fatalf("winning directions = %v, want %v", got, tc.want)
 			}
-			if !tc.warmNorth {
-				check(north, 1, 1000)
-				check(east, 1, 1)
-				return
-			}
-			ctx.isHole(0, -1)
-			check(north, 1, 1000)
-			check(west, 1, 1000)
-			if ctx.failedDepth[i][west] != 0 {
-				t.Error("the second entry scanned a cell already proven to have no adjacent hole")
-			}
-			check(west, 2, 2)
 		})
 	}
 }
@@ -172,8 +228,8 @@ func TestFluidSlopeTagReload(t *testing.T) {
 	reach := p.behaviourOf(fluidWater).slopeFindDistance
 	searchSouth := func(c *spreadContext) int {
 		c.state(8, 9)
-		ti, _ := c.index(8, 9)
-		return c.slopeDistance(ti, 1, 0, reach)
+		_, dist := c.slopeWinners(1<<2, reach)
+		return dist
 	}
 
 	// Built-in tags include torch in washed_away_by_fluids.

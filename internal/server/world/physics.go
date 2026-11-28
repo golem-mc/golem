@@ -2512,7 +2512,6 @@ type spreadContext struct {
 	chunksLoaded  uint8
 	states        [spreadSide * spreadSide]uint16
 	flags         [spreadSide * spreadSide]uint8
-	failedDepth   [spreadSide * spreadSide][4]uint8
 }
 
 // spreadOffsets is each cell's (dx, dz) from the square's corner.
@@ -2589,7 +2588,6 @@ const (
 	cellKnown
 	cellHoleKnown
 	cellHole
-	cellNoAdjacentHole
 )
 
 // cellFlags classifies the state for this spread's fluid and tag snapshot.
@@ -2753,6 +2751,7 @@ func fluidSideFlows(w fluidSpreadReader, x, y, z int32, state uint16, fs fluidSt
 	}
 	anyDiffers := false
 	eligible := 0
+	var eligibleMask uint8
 	for i, d := range horizontal4 {
 		tx, tz := x+d[0], z+d[1]
 		tState := w.BlockAt(tx, y, tz)
@@ -2772,6 +2771,7 @@ func fluidSideFlows(w fluidSpreadReader, x, y, z int32, state uint16, fs fluidSt
 		side.held = tFS
 		side.eligible = true
 		eligible++
+		eligibleMask |= 1 << i
 		anyDiffers = anyDiffers || tFS.kind != fs.kind
 	}
 	// Every eligible side already holds this fluid, which no write replaces.
@@ -2786,7 +2786,7 @@ func fluidSideFlows(w fluidSpreadReader, x, y, z int32, state uint16, fs fluidSt
 		// Only ranking competing sides needs the slope-search cache.
 		c.init(w, x, y, z, fs.kind)
 		// A hole check reads only its own cell and the one below, so seed and
-		// test each side in turn; all are seeded before the recursive search.
+		// test each side in turn; all are seeded before the slope search.
 		for i := range horizontal4 {
 			side := &sides[i]
 			if !side.eligible {
@@ -2798,26 +2798,17 @@ func fluidSideFlows(w fluidSpreadReader, x, y, z int32, state uint16, fs fluidSt
 			hasHole = hasHole || side.hole
 		}
 	}
-	lowest := 1000
-	for i := range horizontal4 {
-		side := &sides[i]
-		if !side.eligible || (hasHole && !side.hole) {
-			continue
+	if !hasHole && eligible > 1 {
+		winMask, _ := c.slopeWinners(eligibleMask, b.slopeFindDistance)
+		for i := range horizontal4 {
+			winners[i] = winMask&(1<<i) != 0
 		}
-		distance := 0
-		// A lone outlet wins at any distance.
-		if !hasHole && eligible > 1 {
-			distance = c.slopeDistance(spreadCenter+spreadStep[i], 1, i^2, min(b.slopeFindDistance, lowest))
+	} else {
+		for i := range horizontal4 {
+			side := &sides[i]
+			// A lone outlet wins at any distance; an immediate hole beats all others.
+			winners[i] = side.eligible && (!hasHole || side.hole)
 		}
-		if distance < lowest {
-			winners = [4]bool{}
-		}
-		if distance > lowest {
-			continue
-		}
-		// An eligible hole sets the distance even if its fluid cannot be displaced.
-		lowest = distance
-		winners[i] = true
 	}
 	// Finish planning every write before a spread or plugin hook changes the world.
 	for i, d := range horizontal4 {
@@ -2845,66 +2836,94 @@ var spreadStep = [4]int{-spreadSide, 1, spreadSide, -1}
 // spreadCenter is the origin's cell.
 const spreadCenter = spreadReach*spreadSide + spreadReach
 
-// slopeDistance finds the nearest hole without stepping back. i is a loaded
-// cell in the cached square, which the walk cannot leave; from is the
-// horizontal4 direction it came in by. reach also bounds the distance past
-// which the exact result no longer matters; exhausting it returns 1000.
-// vanilla: FlowingFluid.getSlopeDistance
-func (c *spreadContext) slopeDistance(i, pass, from, reach int) int {
-	// Even at the bound, the search checks the adjacent cells for holes.
-	depth := uint8(1 + max(reach-pass, 0))
-	failedDepth := &c.failedDepth[i][from]
-	if *failedDepth >= depth {
-		return 1000
-	}
-	flags := c.flags[i]
-	if depth == 1 && flags&cellNoAdjacentHole != 0 {
-		return 1000
-	}
-	lowest := 1000
-	for d, step := range spreadStep {
-		if d == from {
+// slopeWinners runs a level-by-level multi-source BFS from the seeded eligible
+// sides in eligibleMask (bits 0..3 matching horizontal4) up to reach steps,
+// returning the bitmask of sides tied for the nearest hole and that distance
+// (or eligibleMask, 1000 when no hole lies within reach).
+// vanilla: FlowingFluid.getSpread, FlowingFluid.getSlopeDistance
+func (c *spreadContext) slopeWinners(eligibleMask uint8, reach int) (uint8, int) {
+	var level [spreadSide * spreadSide]uint8
+	var mask [spreadSide * spreadSide]uint8
+	var bufA, bufB [spreadSide * spreadSide]uint8
+
+	// Block the origin so no path steps back through it.
+	level[spreadCenter] = 1
+
+	curr := bufA[:0]
+	for i := range horizontal4 {
+		if eligibleMask&(1<<i) == 0 {
 			continue
 		}
-		n := i + step
-		nf := c.flags[n]
-		if nf&cellKnown == 0 {
-			c.load(n)
-			nf = c.flags[n]
-		}
-		if nf&cellEnterable == 0 || (flags|nf)&cellFullShape != 0 {
-			continue
-		}
-		if flags&nf&cellEmptyShape == 0 {
-			axis, positive := faceOf(horizontal4[d][0], horizontal4[d][1])
-			if cachedFaceOccludes(c.states[i], c.states[n], axis, positive) {
+		ci := spreadCenter + spreadStep[i]
+		level[ci] = 1
+		mask[ci] = 1 << i
+		curr = append(curr, uint8(ci))
+	}
+	next := bufB[:0]
+
+	for pass := 1; pass <= reach && len(curr) > 0; pass++ {
+		passLevel := uint8(pass)
+		nextLevel := uint8(pass + 1)
+		var winMask uint8
+		next = next[:0]
+
+		for _, u8 := range curr {
+			mu := mask[u8]
+			if winMask != 0 && mu&^winMask == 0 {
 				continue
 			}
+			u := int(u8)
+			flags := c.flags[u]
+			for d, step := range spreadStep {
+				n := u + step
+				lv := level[n]
+				if lv != 0 && (lv <= passLevel || winMask != 0 || mu&^mask[n] == 0) {
+					continue
+				}
+				nf := c.flags[n]
+				if nf&cellKnown == 0 {
+					c.load(n)
+					nf = c.flags[n]
+				}
+				if nf&cellEnterable == 0 || (flags|nf)&cellFullShape != 0 {
+					continue
+				}
+				if flags&nf&cellEmptyShape == 0 {
+					axis, positive := faceOf(horizontal4[d][0], horizontal4[d][1])
+					if cachedFaceOccludes(c.states[u], c.states[n], axis, positive) {
+						continue
+					}
+				}
+				if nf&cellHoleKnown == 0 {
+					c.holeAt(n)
+					nf = c.flags[n]
+				}
+				if nf&cellHole != 0 {
+					winMask |= mu
+					if winMask == eligibleMask {
+						return winMask, pass
+					}
+					break
+				}
+				if winMask == 0 {
+					if pass < reach {
+						if lv == 0 {
+							level[n] = nextLevel
+							next = append(next, uint8(n))
+						}
+						mask[n] |= mu
+					} else {
+						level[n] = passLevel
+					}
+				}
+			}
 		}
-		if nf&cellHoleKnown == 0 {
-			c.holeAt(n)
-			nf = c.flags[n]
+		if winMask != 0 {
+			return winMask, pass
 		}
-		if nf&cellHole != 0 {
-			return pass
-		}
-		if pass >= reach {
-			continue
-		}
-		if v := c.slopeDistance(n, pass+1, d^2, reach); v < lowest {
-			lowest = v
-			reach = min(reach, v-1)
-		}
+		curr, next = next, curr
 	}
-	if lowest == 1000 {
-		*failedDepth = depth
-		// The scan ruled out three exits. Use only cached facts for the skipped face.
-		nf := c.flags[i+spreadStep[from]]
-		if nf&cellKnown != 0 && (nf&cellEnterable == 0 || nf&(cellHoleKnown|cellHole) == cellHoleKnown) {
-			c.flags[i] |= cellNoAdjacentHole
-		}
-	}
-	return lowest
+	return eligibleMask, 1000
 }
 
 // vanilla: FlowingFluid.sourceNeighborCount
