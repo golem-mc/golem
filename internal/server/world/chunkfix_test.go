@@ -626,3 +626,135 @@ func TestChunkFrom26_2GetsMapAndPotFixes(t *testing.T) {
 		t.Errorf("placed pot = %v", placed)
 	}
 }
+
+// oldChestStack loads a chest holding stack saved at version and returns the
+// stack read back, checking that it decodes.
+func oldChestStack(t *testing.T, version int32, stack nbt.Compound) nbt.Compound {
+	t.Helper()
+	stack["Slot"] = nbt.Byte(0)
+	chest := nbt.Compound{
+		"id": nbt.String("minecraft:chest"), "x": nbt.Int(16), "y": nbt.Int(64), "z": nbt.Int(32),
+		"Items": nbt.List{Elem: nbt.TypeCompound, Items: []nbt.Tag{stack}},
+	}
+	w, pos := oldChunkWorld(t, version, chest)
+	w.Acquire(pos)
+	tag, ok := w.BlockEntityTag(16, 64, 32)
+	if !ok {
+		t.Fatal("the chest was not loaded")
+	}
+	items, _ := nbt.Get[nbt.List](tag, "Items")
+	if len(items.Items) != 1 {
+		t.Fatalf("items = %v", items)
+	}
+	got, _ := nbt.CompoundView(items.Items[0])
+	if _, ok := registry.StoredContainerStack(got); !ok {
+		t.Errorf("stack does not decode: %v", got)
+	}
+	return got
+}
+
+func stackComponents(t *testing.T, stack nbt.Compound) nbt.Compound {
+	t.Helper()
+	c, _ := nbt.Get[nbt.Compound](stack, "components")
+	return c
+}
+
+func TestOldChainStackBecomesIronChain(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name    string
+		version int32
+		stack   nbt.Compound
+		want    string
+	}{
+		{"legacy", 3700, nbt.Compound{"id": nbt.String("minecraft:chain"), "Count": nbt.Byte(3)}, "minecraft:iron_chain"},
+		{"components", 3955, nbt.Compound{"id": nbt.String("minecraft:chain"), "count": nbt.Int(7)}, "minecraft:iron_chain"},
+		{"named", 3955, nbt.Compound{"id": nbt.String("minecraft:chain"), "count": nbt.Int(1),
+			"components": nbt.Compound{"minecraft:custom_name": nbt.String(`"x"`)}}, "minecraft:iron_chain"},
+		{"already renamed", 3955, nbt.Compound{"id": nbt.String("minecraft:iron_chain"), "count": nbt.Int(1)}, "minecraft:iron_chain"},
+		{"current chain id", 4556, nbt.Compound{"id": nbt.String("minecraft:iron_chain"), "count": nbt.Int(1)}, "minecraft:iron_chain"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			if got := oldChestStack(t, tc.version, tc.stack); got["id"] != nbt.String(tc.want) {
+				t.Errorf("id = %v, want %s", got["id"], tc.want)
+			}
+		})
+	}
+}
+
+func TestOldSweepingEnchantmentIsRenamed(t *testing.T) {
+	t.Parallel()
+	enchants := func(key string) nbt.Compound {
+		return nbt.Compound{key: nbt.List{Elem: nbt.TypeCompound, Items: []nbt.Tag{
+			nbt.Compound{"id": nbt.String("minecraft:sweeping"), "lvl": nbt.Short(3)}}}}
+	}
+	sword := oldChestStack(t, 3700, nbt.Compound{"id": nbt.String("minecraft:diamond_sword"), "Count": nbt.Byte(1), "tag": enchants("Enchantments")})
+	ench, _ := nbt.CompoundView(stackComponents(t, sword)["minecraft:enchantments"])
+	if !nbt.Equal(ench, nbt.Compound{"minecraft:sweeping_edge": nbt.Int(3)}) {
+		t.Errorf("sword levels = %v", ench)
+	}
+	book := oldChestStack(t, 3700, nbt.Compound{"id": nbt.String("minecraft:enchanted_book"), "Count": nbt.Byte(1), "tag": enchants("StoredEnchantments")})
+	ench, _ = nbt.CompoundView(stackComponents(t, book)["minecraft:stored_enchantments"])
+	if !nbt.Equal(ench, nbt.Compound{"minecraft:sweeping_edge": nbt.Int(3)}) {
+		t.Errorf("book levels = %v", ench)
+	}
+}
+
+func TestOldOminousBannerAndMapNames(t *testing.T) {
+	t.Parallel()
+	banner := oldChestStack(t, 3700, nbt.Compound{"id": nbt.String("minecraft:white_banner"), "Count": nbt.Byte(1),
+		"tag": nbt.Compound{"display": nbt.Compound{"Name": nbt.String(`{"color":"gold","translate":"block.minecraft.ominous_banner"}`)}}})
+	c := stackComponents(t, banner)
+	if c["minecraft:custom_name"] != nil || c["minecraft:rarity"] != nbt.String("uncommon") ||
+		!nbt.Equal(c["minecraft:item_name"], nbt.Compound{"translate": nbt.String("block.minecraft.ominous_banner")}) {
+		t.Errorf("banner components = %v", c)
+	}
+	banner = oldChestStack(t, 3839, nbt.Compound{"id": nbt.String("minecraft:white_banner"), "count": nbt.Int(1),
+		"components": nbt.Compound{"minecraft:item_name": nbt.String(`{"color":"gold","translate":"block.minecraft.ominous_banner"}`)}})
+	c = stackComponents(t, banner)
+	if c["minecraft:rarity"] != nbt.String("uncommon") ||
+		!nbt.Equal(c["minecraft:item_name"], nbt.Compound{"translate": nbt.String("block.minecraft.ominous_banner")}) {
+		t.Errorf("3839 banner components = %v", c)
+	}
+	m := oldChestStack(t, 3700, nbt.Compound{"id": nbt.String("minecraft:filled_map"), "Count": nbt.Byte(1),
+		"tag": nbt.Compound{"map": nbt.Int(1), "Decorations": nbt.List{Elem: nbt.TypeCompound, Items: []nbt.Tag{
+			nbt.Compound{"id": nbt.String("+"), "type": nbt.Byte(9), "x": nbt.Double(0), "z": nbt.Double(0), "rot": nbt.Double(180)}}},
+			"display": nbt.Compound{"Name": nbt.String(`{"translate":"filled_map.monument"}`)}}})
+	c = stackComponents(t, m)
+	if m["id"] != nbt.String("minecraft:ocean_monument_map") || c["minecraft:custom_name"] != nil || c["minecraft:item_name"] != nil {
+		t.Errorf("map = %v", m)
+	}
+}
+
+func TestOldFireResistantAndLockComponents(t *testing.T) {
+	t.Parallel()
+	sword := oldChestStack(t, 3839, nbt.Compound{"id": nbt.String("minecraft:netherite_sword"), "count": nbt.Int(1),
+		"components": nbt.Compound{"minecraft:fire_resistant": nbt.Compound{}}})
+	c := stackComponents(t, sword)
+	if c["minecraft:fire_resistant"] != nil || !nbt.Equal(c["minecraft:damage_resistant"], nbt.Compound{"types": nbt.String("#minecraft:is_fire")}) {
+		t.Errorf("sword components = %v", c)
+	}
+	box := oldChestStack(t, 3955, nbt.Compound{"id": nbt.String("minecraft:shulker_box"), "count": nbt.Int(1),
+		"components": nbt.Compound{"minecraft:lock": nbt.String("key")}})
+	want := nbt.Compound{"components": nbt.Compound{"minecraft:custom_name": nbt.String(`"key"`)}}
+	if got := stackComponents(t, box)["minecraft:lock"]; !nbt.Equal(got, want) {
+		t.Errorf("lock = %v", got)
+	}
+}
+
+func TestOldBannerBlockEntityOminousName(t *testing.T) {
+	t.Parallel()
+	banner := nbt.Compound{
+		"id": nbt.String("minecraft:banner"), "x": nbt.Int(16), "y": nbt.Int(64), "z": nbt.Int(32),
+		"CustomName": nbt.String(`{"color":"gold","translate":"block.minecraft.ominous_banner"}`),
+	}
+	w, pos := oldChunkWorld(t, 3700, banner)
+	w.Acquire(pos)
+	tag, _ := w.BlockEntityTag(16, 64, 32)
+	c, _ := nbt.Get[nbt.Compound](tag, "components")
+	if tag["CustomName"] != nil || c["minecraft:rarity"] != nbt.String("uncommon") ||
+		!nbt.Equal(c["minecraft:item_name"], nbt.Compound{"translate": nbt.String("block.minecraft.ominous_banner")}) {
+		t.Errorf("banner = %v", tag)
+	}
+}

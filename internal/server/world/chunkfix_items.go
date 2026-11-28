@@ -13,9 +13,12 @@ import (
 // Data versions of the item component fixes a 1.20.5 to 1.21.4 block entity
 // still needs; the generated STRUCTURE chain starts at templateChainVersion.
 const (
+	customNameOverrideVersion  = 3825 // vanilla: DataFixers.addFixers (ItemStackCustomNameToOverrideComponentFix)
 	attributeModifierIdVersion = 3945 // vanilla: DataFixers.addFixers (AttributeModifierIdFix)
+	ominousBannerRarityVersion = 4054 // vanilla: DataFixers.addFixers (OminousBannerRarityFix)
 	attributeIdPrefixVersion   = 4055 // vanilla: DataFixers.addFixers (AttributeIdPrefixFix)
 	foodConsumableVersion      = 4059 // vanilla: DataFixers.addFixers (FoodToConsumableFix)
+	damageResistantVersion     = 4064 // vanilla: DataFixers.addFixers (FireResistantToDamageResistantComponentFix)
 	customModelDataVersion     = 4175 // vanilla: DataFixers.addFixers (CustomModelDataExpandFix)
 	textComponentVersion       = 4290 // vanilla: DataFixers.addFixers (UnflattenTextComponentFix)
 	entityVariantVersion       = 4299 // vanilla: DataFixers.addFixers (EntitySpawnerItemVariantComponentFix)
@@ -39,13 +42,52 @@ func fixStoredComponents(tag nbt.Tag, version int32) {
 	case nbt.CompoundTag:
 		entries := v.Entries()
 		if id, isStack := entries["id"].(nbt.String); isStack {
-			if components, ok := entries["components"].(nbt.CompoundTag); ok {
+			components, hasComponents := entries["components"].(nbt.CompoundTag)
+			if hasComponents {
+				fixPreTextComponents(components, string(id), version)
 				fixComponentShapes(components.Entries(), string(id), version)
 				fixStackComponents(v, components, version)
+				id, _ = entries["id"].(nbt.String)
+			}
+			if _, hasCount := entries["count"]; hasCount || hasComponents {
+				if renamed := renameOldItem(string(id), version); renamed != string(id) {
+					v.Set("id", nbt.String(renamed))
+				}
 			}
 		}
 		for _, child := range entries {
 			fixStoredComponents(child, version)
+		}
+	}
+}
+
+// fixPreTextComponents runs the fixes that add or remove a component, of data
+// versions 3825 to 4068: they take the components' CompoundTag, whose key order
+// a plain map write would corrupt, and read a text component as the JSON
+// string it still is.
+func fixPreTextComponents(components nbt.CompoundTag, id string, version int32) {
+	c := components.Entries()
+	item := itemOrNone(id)
+	if version < customNameOverrideVersion && customNameOverrides(c, item) {
+		name := c["minecraft:custom_name"]
+		components.Delete("minecraft:custom_name")
+		components.Set("minecraft:item_name", name)
+	}
+	if version < ominousBannerRarityVersion && item == registry.ItemWhiteBanner {
+		fixOminousBannerRarity(components)
+	}
+	if version < damageResistantVersion {
+		if _, ok := c["minecraft:fire_resistant"]; ok {
+			components.Delete("minecraft:fire_resistant")
+			components.Set("minecraft:damage_resistant", nbt.Compound{"types": nbt.String("#minecraft:is_fire")})
+		}
+	}
+	if version < lockPredicateVersion {
+		if v, ok := c["minecraft:lock"]; ok {
+			components.Delete("minecraft:lock")
+			if name, isString := v.(nbt.String); isString && name != "" {
+				components.Set("minecraft:lock", lockPredicate(string(name)))
+			}
 		}
 	}
 }
@@ -93,6 +135,58 @@ func fixComponentShapes(c nbt.Compound, id string, version int32) {
 	}
 }
 
+// mapNames are the custom names of a generated explorer map that the item
+// name replaces.
+// vanilla: ItemStackCustomNameToOverrideComponentFix.MAP_NAMES
+var mapNames = []string{
+	"filled_map.buried_treasure", "filled_map.explorer_jungle", "filled_map.explorer_swamp", "filled_map.mansion",
+	"filled_map.monument", "filled_map.trial_chambers", "filled_map.village_desert", "filled_map.village_plains",
+	"filled_map.village_savanna", "filled_map.village_snowy", "filled_map.village_taiga",
+}
+
+// jsonTranslationKey is the translate key of a text component stored as a JSON
+// string.
+// vanilla: LegacyComponentDataFixUtils.extractTranslationString
+func jsonTranslationKey(tag nbt.Tag) (string, bool) {
+	s, ok := tag.(nbt.String)
+	if !ok {
+		return "", false
+	}
+	var obj map[string]any
+	if json.Unmarshal([]byte(s), &obj) != nil {
+		return "", false
+	}
+	key, ok := obj["translate"].(string)
+	return key, ok
+}
+
+// customNameOverrides reports whether the custom name of a stack of item is
+// the name of an ominous banner or a generated map, which the item name
+// replaces.
+// vanilla: ItemStackCustomNameToOverrideComponentFix
+func customNameOverrides(c nbt.Compound, item registry.Item) bool {
+	key, ok := jsonTranslationKey(c["minecraft:custom_name"])
+	if !ok {
+		return false
+	}
+	return item == registry.ItemWhiteBanner && key == ominousBannerKey || item == registry.ItemFilledMap && slices.Contains(mapNames, key)
+}
+
+const (
+	ominousBannerKey  = "block.minecraft.ominous_banner"
+	ominousBannerName = `{"translate":"` + ominousBannerKey + `"}`
+)
+
+// fixOminousBannerRarity gives an ominous banner's components the plain item
+// name and the uncommon rarity.
+// vanilla: OminousBannerRarityFix
+func fixOminousBannerRarity(components nbt.CompoundTag) {
+	if key, ok := jsonTranslationKey(components.Entries()["minecraft:item_name"]); ok && key == ominousBannerKey {
+		components.Set("minecraft:item_name", nbt.String(ominousBannerName))
+		components.Set("minecraft:rarity", nbt.String("uncommon"))
+	}
+}
+
 // fixStackComponents runs the fixes of data versions 4996 to 5016 on a stack:
 // they delete components and change the item id, so they take the stack's
 // CompoundTag, whose key order a plain map write would corrupt.
@@ -116,11 +210,6 @@ func fixStackComponents(stack, components nbt.CompoundTag, version int32) {
 		if string(id) == registry.ItemFilledMap.Name() {
 			templateExplorerMap(stack)
 			id, _ = stack.Entries()["id"].(nbt.String)
-		}
-	}
-	if version < explorerMapRenameVersion {
-		if renamed, ok := templateExplorerMapRenames[registry.Qualify(string(id))]; ok {
-			stack.Set("id", nbt.String(renamed))
 		}
 	}
 	if version < blockTransformerVersion {

@@ -70,6 +70,12 @@ func TestUpgradeEntitiesAppliesTheEntityFixesAfter1_21(t *testing.T) {
 			nbt.Compound{"id": str("minecraft:villager"), "VillagerDataFinalized": nbt.Byte(1)}},
 		{"zombie villager", 4700, nbt.Compound{"id": str("minecraft:zombie_villager")},
 			nbt.Compound{"id": str("minecraft:zombie_villager"), "VillagerDataFinalized": nbt.Byte(1)}},
+		{"falling chain", 4189, nbt.Compound{"id": str("minecraft:falling_block"), "BlockState": nbt.Compound{"Name": str("minecraft:chain")}},
+			nbt.Compound{"id": str("minecraft:falling_block"), "BlockState": nbt.Compound{"id": str("minecraft:iron_chain")}}},
+		{"minecart chain", 4440, nbt.Compound{"id": str("minecraft:minecart"), "DisplayState": nbt.Compound{"Name": str("minecraft:chain")}},
+			nbt.Compound{"id": str("minecraft:minecart"), "DisplayState": nbt.Compound{"id": str("minecraft:iron_chain")}}},
+		{"block display chain", 4189, nbt.Compound{"id": str("minecraft:block_display"), "block_state": nbt.Compound{"Name": str("minecraft:chain")}},
+			nbt.Compound{"id": str("minecraft:block_display"), "block_state": nbt.Compound{"Name": str("minecraft:iron_chain")}}},
 		{"current boat untouched", 4800, nbt.Compound{"id": str("minecraft:boat"), "Type": str("birch")},
 			nbt.Compound{"id": str("minecraft:boat"), "Type": str("birch")}},
 	} {

@@ -111,6 +111,9 @@ func upgradeEntityShapes(e nbt.CompoundTag, version int32) {
 	if version < villagerFinalizedVersion && (id == "minecraft:villager" || id == "minecraft:zombie_villager") {
 		entries["VillagerDataFinalized"] = nbt.Byte(1)
 	}
+	if version < ironChainVersion {
+		renameEntityChain(entries, string(id))
+	}
 	if version < blockStateFieldsVersion {
 		renameEntityBlockStates(entries, string(id))
 	}
@@ -119,6 +122,36 @@ func upgradeEntityShapes(e nbt.CompoundTag, version int32) {
 			if c, ok := p.(nbt.CompoundTag); ok {
 				upgradeEntityShapes(c, version)
 			}
+		}
+	}
+}
+
+// renameEntityChain renames a chain block state an entity saves.
+// vanilla: LegacyBlockRenameFix (v4541)
+func renameEntityChain(entries nbt.Compound, id string) {
+	key := ""
+	switch id {
+	case "minecraft:falling_block":
+		key = "BlockState"
+	case "minecraft:enderman":
+		key = "carriedBlockState"
+	case "minecraft:arrow", "minecraft:spectral_arrow", "minecraft:trident":
+		key = "inBlockState"
+	case "minecraft:block_display":
+		key = "block_state"
+	case "minecraft:minecart", "minecraft:chest_minecart", "minecraft:furnace_minecart", "minecraft:tnt_minecart",
+		"minecraft:hopper_minecart", "minecraft:spawner_minecart", "minecraft:command_block_minecart":
+		key = "DisplayState"
+	default:
+		return
+	}
+	state, ok := nbt.CompoundView(entries[key])
+	if !ok {
+		return
+	}
+	for _, nameKey := range []string{"Name", "id"} {
+		if name, ok := state[nameKey].(nbt.String); ok && registry.Qualify(string(name)) == "minecraft:chain" {
+			state[nameKey] = nbt.String("minecraft:iron_chain")
 		}
 	}
 }
