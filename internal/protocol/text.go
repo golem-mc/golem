@@ -1112,90 +1112,11 @@ func textOfCompound(fields nbt.Compound) (Text, bool) {
 			}
 			t.Insertion = string(s)
 		case "click_event":
-			event, ok := nbt.CompoundView(value)
-			if !ok {
-				return Text{}, false
-			}
-			action, _ := nbt.Get[nbt.String](event, "action")
-			switch string(action) {
-			case "suggest_command":
-				command, ok := nbt.Get[nbt.String](event, "command")
-				if !ok || !ValidChatString(string(command)) {
-					return Text{}, false
-				}
-				t.ClickCommand = string(command)
-			case "copy_to_clipboard":
-				copied, ok := nbt.Get[nbt.String](event, "value")
-				if !ok {
-					return Text{}, false
-				}
-				t.ClickCopy = string(copied)
-			case "run_command":
-				command, ok := nbt.Get[nbt.String](event, "command")
-				if !ok || !ValidChatString(string(command)) {
-					return Text{}, false
-				}
-				t.ClickRun = string(command)
-			case "open_url":
-				url, ok := nbt.Get[nbt.String](event, "url")
-				if !ok || !ValidUntrustedURI(string(url)) {
-					return Text{}, false
-				}
-				t.ClickURL = string(url)
-			case "change_page":
-				page, ok := nbt.IntValue(event["page"])
-				if !ok || page < 1 {
-					return Text{}, false
-				}
-				t.ClickPage = page
-			default:
-				// custom and show_dialog the model has no field for;
-				// open_file is refused from a server.
+			if !parseClickEvent(value, &t) {
 				return Text{}, false
 			}
 		case "hover_event":
-			event, ok := nbt.CompoundView(value)
-			if !ok {
-				return Text{}, false
-			}
-			action, _ := nbt.Get[nbt.String](event, "action")
-			switch string(action) {
-			case "show_entity":
-				name, ok := nbt.Get[nbt.Tag](event, "name")
-				if !ok {
-					return Text{}, false
-				}
-				hoverName, ok := textOf(name)
-				if !ok {
-					return Text{}, false
-				}
-				// The client resolves the id against its entity type
-				// registry while decoding, so it must be a real type.
-				// vanilla: HoverEvent.EntityTooltipInfo.CODEC
-				id, ok := nbt.Get[nbt.String](event, "id")
-				if !ok || !entityTypeNames[string(id)] {
-					return Text{}, false
-				}
-				id4, ok := hoverEntityUUID(event["uuid"])
-				if !ok {
-					return Text{}, false
-				}
-				var words [4]uint32
-				for i, word := range id4 {
-					words[i] = uint32(word)
-				}
-				t.HoverEntity = &HoverEntity{Name: hoverName, ID: string(id), UUID: words}
-			case "show_text":
-				value, ok := nbt.Get[nbt.Tag](event, "value")
-				if !ok {
-					return Text{}, false
-				}
-				hover, ok := textOf(value)
-				if !ok {
-					return Text{}, false
-				}
-				t.HoverText = &hover
-			default:
+			if !parseHoverEvent(value, &t) {
 				return Text{}, false
 			}
 		default:
@@ -1208,6 +1129,130 @@ func textOfCompound(fields nbt.Compound) (Text, bool) {
 		return Text{}, false
 	}
 	return t, true
+}
+
+// parseClickEvent reads a click_event compound into t, returning false when
+// the action or its fields are unreadable or not represented on Text.
+// vanilla: ClickEvent.CODEC
+func parseClickEvent(value nbt.Tag, t *Text) bool {
+	event, ok := nbt.CompoundView(value)
+	if !ok {
+		return false
+	}
+	action, _ := nbt.Get[nbt.String](event, "action")
+	switch string(action) {
+	case "suggest_command":
+		command, ok := nbt.Get[nbt.String](event, "command")
+		if !ok || !ValidChatString(string(command)) {
+			return false
+		}
+		t.ClickCommand = string(command)
+	case "copy_to_clipboard":
+		copied, ok := nbt.Get[nbt.String](event, "value")
+		if !ok {
+			return false
+		}
+		t.ClickCopy = string(copied)
+	case "run_command":
+		command, ok := nbt.Get[nbt.String](event, "command")
+		if !ok || !ValidChatString(string(command)) {
+			return false
+		}
+		t.ClickRun = string(command)
+	case "open_url":
+		url, ok := nbt.Get[nbt.String](event, "url")
+		if !ok || !ValidUntrustedURI(string(url)) {
+			return false
+		}
+		t.ClickURL = string(url)
+	case "change_page":
+		page, ok := nbt.IntValue(event["page"])
+		if !ok || page < 1 {
+			return false
+		}
+		t.ClickPage = page
+	default:
+		// custom and show_dialog the model has no field for;
+		// open_file is refused from a server.
+		return false
+	}
+	return true
+}
+
+// validClickEvent reports whether value is a click_event compound the client
+// decodes: parseClickEvent's actions plus the unmodelled show_dialog and
+// custom, which parseClickEvent refuses.
+// vanilla: ClickEvent.CODEC
+func validClickEvent(value nbt.Tag, validDialog func(nbt.Tag) bool) bool {
+	var scratch Text
+	if parseClickEvent(value, &scratch) {
+		return true
+	}
+	event, ok := nbt.CompoundView(value)
+	if !ok {
+		return false
+	}
+	switch action, _ := nbt.Get[nbt.String](event, "action"); string(action) {
+	case "show_dialog":
+		// vanilla: ClickEvent.ShowDialog.CODEC
+		return RawTextFits(event) && validDialog != nil && validDialog(event["dialog"])
+	case "custom":
+		// vanilla: ClickEvent.Custom.CODEC
+		id, ok := nbt.Get[nbt.String](event, "id")
+		return ok && ValidIdentifier(string(id))
+	}
+	return false
+}
+
+// parseHoverEvent reads a hover_event compound into t, returning false when
+// the action or its fields are unreadable.
+// vanilla: HoverEvent.CODEC
+func parseHoverEvent(value nbt.Tag, t *Text) bool {
+	event, ok := nbt.CompoundView(value)
+	if !ok {
+		return false
+	}
+	action, _ := nbt.Get[nbt.String](event, "action")
+	switch string(action) {
+	case "show_entity":
+		name, ok := nbt.Get[nbt.Tag](event, "name")
+		if !ok {
+			return false
+		}
+		hoverName, ok := textOf(name)
+		if !ok {
+			return false
+		}
+		// The client resolves the id against its entity type
+		// registry while decoding, so it must be a real type.
+		// vanilla: HoverEvent.EntityTooltipInfo.CODEC
+		id, ok := nbt.Get[nbt.String](event, "id")
+		if !ok || !entityTypeNames[string(id)] {
+			return false
+		}
+		id4, ok := hoverEntityUUID(event["uuid"])
+		if !ok {
+			return false
+		}
+		var words [4]uint32
+		for i, word := range id4 {
+			words[i] = uint32(word)
+		}
+		t.HoverEntity = &HoverEntity{Name: hoverName, ID: string(id), UUID: words}
+	case "show_text":
+		value, ok := nbt.Get[nbt.Tag](event, "value")
+		if !ok {
+			return false
+		}
+		hover, ok := textOf(value)
+		if !ok {
+			return false
+		}
+		t.HoverText = &hover
+	default:
+		return false
+	}
+	return true
 }
 
 // booleanTag reads a numeric component flag; false, leaving into unchanged,

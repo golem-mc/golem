@@ -79,7 +79,7 @@ func StyledTextOf(tag nbt.Tag) (Text, bool) {
 
 // StyledTextWithDialog reads styled text with the caller's dialog validator.
 func StyledTextWithDialog(tag nbt.Tag, validDialog func(nbt.Tag) bool) (Text, bool) {
-	modelled, styled, ok := stripStyle(tag, validDialog)
+	modelled, styled, ok := stripStyle(tag, validDialog, false)
 	if !ok {
 		return Text{}, false
 	}
@@ -93,21 +93,49 @@ func StyledTextWithDialog(tag nbt.Tag, validDialog func(nbt.Tag) bool) (Text, bo
 	return Text{Raw: tag}, true
 }
 
+// LenientTextOf is StyledTextOf on CleanStyle's result: each style field the
+// codec refuses is dropped and the rest of the component kept; unreadable
+// content still refuses it.
+// vanilla: TagValueInput.read (ComponentSerialization.CODEC's partial result)
+func LenientTextOf(tag nbt.Tag) (Text, bool) {
+	return LenientTextWithDialog(tag, DialogRefValid)
+}
+
+// LenientTextWithDialog is LenientTextOf with the caller's dialog validator.
+func LenientTextWithDialog(tag nbt.Tag, validDialog func(nbt.Tag) bool) (Text, bool) {
+	cleaned, _, ok := stripStyle(tag, validDialog, true)
+	if !ok {
+		return Text{}, false
+	}
+	return StyledTextWithDialog(cleaned, validDialog)
+}
+
+// CleanStyle is tag with each style field the codec refuses dropped, in it
+// and the components it nests, for a reader that keeps the tag whole; nil
+// for a keybind that is no string.
+// vanilla: Style.Serializer.MAP_CODEC
+func CleanStyle(tag nbt.Tag) nbt.Tag {
+	cleaned, _, _ := stripStyle(tag, DialogRefValid, true)
+	return cleaned
+}
+
 // stripStyle returns tag without the style keys the model has no field for,
 // whether it held any, and false where one of them is a value the codec
-// refuses. It walks the components a component nests: siblings, arguments
-// and hover texts. It has no depth cap of its own: the NBT reader and
-// RawTextFits bound the tree at the client's depth.
-func stripStyle(tag nbt.Tag, validDialog func(nbt.Tag) bool) (nbt.Tag, bool, bool) {
+// refuses. It walks the components a component nests: siblings, arguments,
+// separators and hover texts. It has no depth cap of its own: the NBT reader
+// and RawTextFits bound the tree at the client's depth.
+// With lenient it instead drops only the style keys the codec refuses,
+// modelled or not, and keeps the rest; styled then says whether it dropped any.
+func stripStyle(tag nbt.Tag, validDialog func(nbt.Tag) bool, lenient bool) (nbt.Tag, bool, bool) {
 	switch v := tag.(type) {
 	case *nbt.OrderedCompound:
-		return stripStyle(v.Entries(), validDialog)
+		return stripStyle(v.Entries(), validDialog, lenient)
 	case nbt.List:
 		// items is allocated only once an element turns out styled.
 		var items []nbt.Tag
 		for i, item := range v.Items {
 			inner := listElementOf(item)
-			out, s, ok := stripStyle(inner, validDialog)
+			out, s, ok := stripStyle(inner, validDialog, lenient)
 			if !ok {
 				return nil, false, false
 			}
@@ -121,10 +149,7 @@ func stripStyle(tag nbt.Tag, validDialog func(nbt.Tag) bool) (nbt.Tag, bool, boo
 				items = make([]nbt.Tag, len(v.Items))
 				copy(items, v.Items[:i])
 			}
-			if wrapper, ok := nbt.CompoundView(item); ok && len(wrapper) == 1 && wrapper[""] != nil {
-				out = nbt.Compound{"": out}
-			}
-			items[i] = out
+			items[i] = rewrapListElement(item, out)
 		}
 		if items == nil {
 			return tag, false, true
@@ -145,25 +170,36 @@ func stripStyle(tag nbt.Tag, validDialog func(nbt.Tag) bool) (nbt.Tag, bool, boo
 			}
 			styled = true
 		}
+		// strip removes a key the model has no field for, which lenient keeps.
+		strip := func(key string, value nbt.Tag, drop bool) {
+			if !lenient {
+				set(key, value, drop)
+			}
+		}
 		for key, value := range compoundFields {
+			if lenient && !validStyleField(key, value, validDialog) {
+				set(key, nil, true)
+				continue
+			}
 			switch key {
 			case "click_event":
 				event, ok := nbt.CompoundView(value)
-				if !ok || event["action"] != nbt.String("show_dialog") {
+				if !ok {
 					continue
 				}
-				// vanilla: ClickEvent.ShowDialog.CODEC
-				if !RawTextFits(event) || validDialog == nil || !validDialog(event["dialog"]) {
-					return nil, false, false
+				switch event["action"] {
+				case nbt.String("show_dialog"), nbt.String("custom"):
+					if !validClickEvent(value, validDialog) {
+						return nil, false, false
+					}
+					strip(key, nil, true)
 				}
-				set(key, nil, true)
 			case "bold", "italic", "underlined", "strikethrough", "obfuscated":
-				var flag bool
-				if !booleanTag(value, &flag) {
+				if !validStyleField(key, value, validDialog) {
 					return nil, false, false
 				}
-				if (key != "italic" && key != "underlined") || !flag {
-					set(key, nil, true)
+				if (key != "italic" && key != "underlined") || !FlagOn(value) {
+					strip(key, nil, true)
 				}
 			case "keybind":
 				// The model has no keybind content; the tag is kept and the
@@ -174,21 +210,15 @@ func stripStyle(tag nbt.Tag, validDialog func(nbt.Tag) bool) (nbt.Tag, bool, boo
 				if _, has := compoundFields["text"]; has {
 					continue
 				}
-				set(key, nil, true)
-				set("text", nbt.String(""), false)
-			case "font":
-				font, ok := value.(nbt.String)
-				if !ok || !ValidIdentifier(string(font)) {
+				strip(key, nil, true)
+				strip("text", nbt.String(""), false)
+			case "font", "shadow_color":
+				if !validStyleField(key, value, validDialog) {
 					return nil, false, false
 				}
-				set(key, nil, true)
-			case "shadow_color":
-				if !validARGB(value) {
-					return nil, false, false
-				}
-				set(key, nil, true)
-			case "extra", "with":
-				inner, s, ok := stripStyle(value, validDialog)
+				strip(key, nil, true)
+			case "extra", "with", "separator":
+				inner, s, ok := stripStyle(value, validDialog, lenient)
 				if !ok {
 					return nil, false, false
 				}
@@ -198,22 +228,41 @@ func stripStyle(tag nbt.Tag, validDialog func(nbt.Tag) bool) (nbt.Tag, bool, boo
 			case "hover_event":
 				event, ok := nbt.CompoundView(value)
 				if !ok {
+					if lenient {
+						set(key, nil, true)
+					}
 					continue
 				}
+				changed := false
 				for _, field := range [...]string{"value", "name"} {
 					nested, present := event[field]
 					if !present {
 						continue
 					}
-					inner, s, ok := stripStyle(nested, validDialog)
+					inner, s, ok := stripStyle(nested, validDialog, lenient)
 					if !ok {
-						return nil, false, false
+						if !lenient {
+							return nil, false, false
+						}
+						continue
 					}
 					if s {
-						event = maps.Clone(event)
+						if !changed {
+							event = maps.Clone(event)
+							changed = true
+						}
 						event[field] = inner
-						set(key, event, false)
 					}
+				}
+				// vanilla: HoverEvent.CODEC
+				if lenient {
+					if _, ok := StyledTextWithDialog(nbt.Compound{"text": nbt.String(""), "hover_event": event}, validDialog); !ok {
+						set(key, nil, true)
+						continue
+					}
+				}
+				if changed {
+					set(key, event, false)
 				}
 			}
 		}
@@ -223,6 +272,40 @@ func stripStyle(tag nbt.Tag, validDialog func(nbt.Tag) bool) (nbt.Tag, bool, boo
 		return out, true, true
 	}
 	return tag, false, true
+}
+
+// validStyleField reports whether the codec reads one style field's value;
+// any other key is true.
+// vanilla: Style.Serializer.MAP_CODEC
+func validStyleField(key string, value nbt.Tag, validDialog func(nbt.Tag) bool) bool {
+	switch key {
+	case "color":
+		s, ok := value.(nbt.String)
+		return ok && validColor(string(s))
+	case "bold", "italic", "underlined", "strikethrough", "obfuscated":
+		var flag bool
+		return booleanTag(value, &flag)
+	case "font":
+		s, ok := value.(nbt.String)
+		return ok && ValidIdentifier(string(s))
+	case "shadow_color":
+		return validARGB(value)
+	case "insertion":
+		_, ok := value.(nbt.String)
+		return ok
+	case "click_event":
+		return validClickEvent(value, validDialog)
+	}
+	return true
+}
+
+// rewrapListElement restores the {"": inner} wrapper when orig was a
+// heterogeneous list element.
+func rewrapListElement(orig, inner nbt.Tag) nbt.Tag {
+	if wrapper, ok := nbt.CompoundView(orig); ok && len(wrapper) == 1 && wrapper[""] != nil {
+		return nbt.Compound{"": inner}
+	}
+	return inner
 }
 
 // validARGB reports whether a shadow colour is one the codec reads: an int,

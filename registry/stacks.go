@@ -711,7 +711,7 @@ func (lookup *TagLookup) readStoredStack(tag nbt.CompoundTag, partialBook, stric
 		for _, name := range nbt.HashOrderedKeys(components) {
 			value := components.Entries()[name]
 			candidate := stack
-			if lookup.ReadComponent(&candidate, name, value) {
+			if lookup.readStoredComponent(&candidate, name, value) {
 				stack = candidate
 				continue
 			}
@@ -752,6 +752,63 @@ func (lookup *TagLookup) ReadComponent(stack *protocol.ItemStack, name string, v
 	}
 	ok, _ := lookup.readComponentKnown(stack, name, value)
 	return ok
+}
+
+// storedTextComponentReaders overrides the text-carrying item components on
+// the stored-stack path so unreadable style fields are dropped leniently.
+// vanilla: TagValueInput.read, ComponentSerialization.CODEC
+var storedTextComponentReaders = map[string]func(*protocol.ItemStack, nbt.Tag, func(nbt.Tag) (protocol.Text, bool)) bool{
+	"minecraft:item_name":   readItemName,
+	"minecraft:custom_name": readCustomName,
+	"minecraft:lore":        readLore,
+}
+
+func (lookup *TagLookup) readStoredComponent(stack *protocol.ItemStack, name string, value nbt.Tag) bool {
+	if !strings.HasPrefix(name, "!") {
+		qualified := Qualify(name)
+		if read, ok := storedTextComponentReaders[qualified]; ok {
+			if id, named := ComponentID(qualified); named {
+				stack.NotePatch(id)
+			}
+			return read(stack, value, lookup.lenientTextOf)
+		}
+	}
+	return lookup.ReadComponent(stack, name, value)
+}
+
+func readItemName(stack *protocol.ItemStack, value nbt.Tag, textOf func(nbt.Tag) (protocol.Text, bool)) bool {
+	text, ok := textOf(value)
+	if !ok {
+		return false
+	}
+	stack.SetItemName(text)
+	return true
+}
+
+func readCustomName(stack *protocol.ItemStack, value nbt.Tag, textOf func(nbt.Tag) (protocol.Text, bool)) bool {
+	text, ok := textOf(value)
+	if !ok {
+		return false
+	}
+	stack.CustomName = &text
+	return true
+}
+
+func readLore(stack *protocol.ItemStack, value nbt.Tag, textOf func(nbt.Tag) (protocol.Text, bool)) bool {
+	list, ok := value.(nbt.List)
+	if !ok || len(list.Items) > 256 {
+		return false
+	}
+	lines := make([]protocol.Text, 0, len(list.Items))
+	for _, item := range list.Items {
+		line, ok := textOf(nbt.ListElement(item))
+		if !ok {
+			return false
+		}
+		lines = append(lines, line)
+	}
+	stack.SetLore(lines)
+	return true
 }
 
 // ComponentRefused reports whether the stored-stack reader models the named
@@ -800,17 +857,9 @@ func (lookup *TagLookup) readComponentKnown(stack *protocol.ItemStack, name stri
 		stack.Unbreakable = stack.Unbreakable || name == "minecraft:unbreakable"
 		stack.Intangible = stack.Intangible || name == "minecraft:intangible_projectile"
 	case "minecraft:item_name":
-		text, ok := lookup.styledTextOf(value)
-		if !ok {
-			return false, true
-		}
-		stack.SetItemName(text)
+		return readItemName(stack, value, lookup.styledTextOf), true
 	case "minecraft:custom_name":
-		text, ok := lookup.styledTextOf(value)
-		if !ok {
-			return false, true
-		}
-		stack.CustomName = &text
+		return readCustomName(stack, value, lookup.styledTextOf), true
 	case "minecraft:lock":
 		lock, ok := value.(nbt.CompoundTag)
 		if !ok {
@@ -875,19 +924,7 @@ func (lookup *TagLookup) readComponentKnown(stack *protocol.ItemStack, name stri
 	case "minecraft:bundle_contents":
 		return lookup.readBundleContentsComponent(stack, value), true
 	case "minecraft:lore":
-		list, ok := value.(nbt.List)
-		if !ok || len(list.Items) > 256 {
-			return false, true
-		}
-		lines := make([]protocol.Text, 0, len(list.Items))
-		for _, item := range list.Items {
-			line, ok := lookup.styledTextOf(item)
-			if !ok {
-				return false, true
-			}
-			lines = append(lines, line)
-		}
-		stack.SetLore(lines)
+		return readLore(stack, value, lookup.styledTextOf), true
 	case "minecraft:attribute_modifiers":
 		entries, ok := attributeModifiersOf(value)
 		if !ok {

@@ -313,7 +313,7 @@ func (f *fieldSet) putItem(tag nbt.Compound) {
 }
 
 func (f *fieldSet) putText(tag nbt.Compound) {
-	text, ok := protocol.StyledTextOf(tag["text"])
+	text, ok := protocol.LenientTextOf(tag["text"])
 	if !ok {
 		text, _ = protocol.StyledTextOf(nbt.String(""))
 		ok = f.all

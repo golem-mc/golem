@@ -2288,10 +2288,10 @@ func decodeSignText(entry nbt.Compound) SignText {
 		return fresh
 	}
 	for i, item := range messages.Items {
+		item = protocol.CleanStyle(nbt.ListElement(item))
 		if !componentShaped(item) {
 			return fresh
 		}
-		item = nbt.ListElement(item)
 		if line, bare := signLine(item); bare {
 			text.Messages[i] = line
 			continue
@@ -2305,11 +2305,11 @@ func decodeSignText(entry nbt.Compound) SignText {
 		var lines [4]nbt.Tag
 		valid := true
 		for i, item := range filtered.Items {
+			item = protocol.CleanStyle(nbt.ListElement(item))
 			if !componentShaped(item) {
 				valid = false
 				break
 			}
-			item = nbt.ListElement(item)
 			if line, bare := signLine(item); bare {
 				item = nbt.String(line)
 			}

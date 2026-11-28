@@ -169,7 +169,7 @@ var (
 			if !ok {
 				return nil, false
 			}
-			text, ok := protocol.StyledTextOf(tag)
+			text, ok := protocol.LenientTextOf(tag)
 			if !ok {
 				return nil, false
 			}
