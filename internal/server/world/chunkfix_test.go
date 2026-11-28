@@ -671,3 +671,46 @@ func TestSignStackInChestGetsTextAndOpFlag(t *testing.T) {
 		}
 	}
 }
+
+func TestOldPotSherdsUnflatten(t *testing.T) {
+	t.Parallel()
+	names := func(key string, items ...string) nbt.Compound {
+		list := nbt.List{Elem: nbt.TypeString}
+		for _, n := range items {
+			list.Items = append(list.Items, nbt.String(n))
+		}
+		return nbt.Compound{
+			"id": nbt.String("minecraft:decorated_pot"), "x": nbt.Int(16), "y": nbt.Int(64), "z": nbt.Int(32),
+			key: list,
+		}
+	}
+	face := func(id string) nbt.Compound { return nbt.Compound{"id": nbt.String(id)} }
+	four := nbt.Compound{
+		"back": face("minecraft:brick"), "left": face("minecraft:archer_pottery_sherd"),
+		"right": face("minecraft:brick"), "front": face("minecraft:skull_pottery_sherd"),
+	}
+	short := nbt.Compound{
+		"back": face("minecraft:brick"), "left": face("minecraft:archer_pottery_sherd"),
+		"right": face("minecraft:brick"), "front": face("minecraft:brick"),
+	}
+	for _, tc := range []struct {
+		version int32
+		entry   nbt.Compound
+		want    nbt.Compound
+	}{
+		{3465, names("sherds", "minecraft:brick", "minecraft:archer_pottery_sherd", "minecraft:brick", "minecraft:skull_pottery_sherd"), four},
+		{3955, names("sherds", "minecraft:brick", "minecraft:archer_pottery_sherd", "minecraft:brick", "minecraft:skull_pottery_sherd"), four},
+		{4189, names("sherds", "minecraft:brick", "minecraft:archer_pottery_sherd", "minecraft:brick", "minecraft:skull_pottery_sherd"), four},
+		{3337, names("shards", "minecraft:brick", "minecraft:pottery_shard_archer"), short},
+	} {
+		w, pos := oldChunkWorld(t, tc.version, tc.entry)
+		w.Acquire(pos)
+		tag, ok := w.BlockEntityTag(16, 64, 32)
+		if !ok {
+			t.Fatalf("version %d: the pot was not loaded", tc.version)
+		}
+		if !nbt.Equal(tag["sherds"], tc.want) {
+			t.Errorf("version %d: sherds = %v, want %v", tc.version, tag["sherds"], tc.want)
+		}
+	}
+}
