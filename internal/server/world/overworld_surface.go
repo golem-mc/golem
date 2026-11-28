@@ -1,6 +1,7 @@
 package world
 
 import (
+	"container/list"
 	"math/bits"
 	"sync"
 
@@ -9,8 +10,10 @@ import (
 	"github.com/golem-mc/golem/registry"
 )
 
-// cellCacheMax bounds the biome cell grids held under surfaceMu (1536 bytes each).
-const cellCacheMax = 4096
+// cellCacheMax bounds the biome cell grids held under surfaceMu (1536 bytes
+// each, about 25 MB in all). Twenty players in fresh terrain keep about 8800
+// chunks' cells live, and a refill costs 1.3 ms.
+const cellCacheMax = 16384
 
 // biomeCells is a chunk's grid and the set of its biomes, filled once.
 // Never written after the fill, so readers share it.
@@ -18,6 +21,11 @@ type biomeCells struct {
 	once sync.Once
 	grid biomeGrid
 	mask uint64
+	key  [2]int32
+	elem *list.Element // in cellLRU
+	// done is set under surfaceMu once the fill has returned; an entry still
+	// filling is never evicted.
+	done bool
 }
 
 // biomeCellsAt is the chunk's biome cells, filled as vanilla fills a chunk:
@@ -33,16 +41,35 @@ func (g *OverworldGenerator) biomeCellsOf(cx, cz int32) *biomeCells {
 	key := [2]int32{cx, cz}
 	g.surfaceMu.Lock()
 	cells, ok := g.cellCache[key]
-	if !ok {
-		if len(g.cellCache) >= cellCacheMax {
-			clear(g.cellCache)
-		}
-		cells = new(biomeCells)
+	if ok {
+		g.cellLRU.MoveToFront(cells.elem)
+	} else {
+		cells = &biomeCells{key: key}
+		cells.elem = g.cellLRU.PushFront(cells)
 		g.cellCache[key] = cells
+		g.evictCells()
 	}
 	g.surfaceMu.Unlock()
-	cells.once.Do(func() { cells.mask = g.computeBiomes(cx, cz, &cells.grid) })
+	cells.once.Do(func() {
+		cells.mask = g.computeBiomes(cx, cz, &cells.grid)
+		g.surfaceMu.Lock()
+		cells.done = true
+		g.surfaceMu.Unlock()
+	})
 	return cells
+}
+
+// evictCells drops the least recently used filled entries past the cap.
+// Callers hold surfaceMu.
+func (g *OverworldGenerator) evictCells() {
+	for elem := g.cellLRU.Back(); elem != nil && len(g.cellCache) > cellCacheMax; {
+		e := elem.Value.(*biomeCells)
+		elem = elem.Prev()
+		if e.done {
+			delete(g.cellCache, e.key)
+			g.cellLRU.Remove(e.elem)
+		}
+	}
 }
 
 // cellReader reads quart cells for one chunk's surface build, keeping the
@@ -87,6 +114,7 @@ func (g *OverworldGenerator) setSurface(seed int64) {
 	g.zoomSeed = levelgen.BiomeZoomSeed(seed)
 	g.surfaceMu = &sync.Mutex{}
 	g.cellCache = map[[2]int32]*biomeCells{}
+	g.cellLRU = list.New()
 	g.RefreshBiomeClimates()
 	for m := terrain.Air; m <= terrain.Calcite; m++ {
 		state, ok := registry.FindState("minecraft:"+m.Name(), nil)

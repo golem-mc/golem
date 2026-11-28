@@ -1,6 +1,7 @@
 package world
 
 import (
+	"container/list"
 	"crypto/rand"
 	"encoding/binary"
 	"github.com/golem-mc/golem/internal/server/world/terrain"
@@ -154,6 +155,7 @@ type OverworldGenerator struct {
 	// and guarded by surfaceMu.
 	surfaceMu      *sync.Mutex
 	cellCache      map[[2]int32]*biomeCells
+	cellLRU        *list.List // of *biomeCells, front = most recently used
 	biomeClimates  [terrain.OverworldBiomeCount]registry.BiomeClimate
 	materialStates [256]uint16
 	biomeIDs       [terrain.OverworldBiomeCount]int32
