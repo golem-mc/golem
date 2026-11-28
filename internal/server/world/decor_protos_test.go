@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/golem-mc/golem/nbt"
 	"github.com/golem-mc/golem/registry"
@@ -244,5 +245,54 @@ func BenchmarkInflateDecodeProto(b *testing.B) {
 		if _, err := decodeDecorProto(buf.inflate(data)); err != nil {
 			b.Fatal(err)
 		}
+	}
+}
+
+func TestProtoReadBackHoldsNoStoreLock(t *testing.T) {
+	s := &decorProtoStore{dir: t.TempDir()}
+	s.init()
+	a, b := ChunkPos{X: 1, Z: 1}, ChunkPos{X: 5, Z: 5}
+	for _, pos := range []ChunkPos{a, b} {
+		s.ensure(pos).set(1, 2, 3, 7)
+	}
+	s.spill(a)
+	if _, ok := s.spilled[a]; !ok {
+		t.Fatal("proto was not spilled")
+	}
+	entered, release := make(chan struct{}), make(chan struct{})
+	s.readHook = func(ChunkPos) {
+		close(entered)
+		<-release
+	}
+	first := make(chan *decorProto)
+	go func() { first <- s.lookup(a) }()
+	<-entered
+	got := make(chan *decorProto)
+	go func() { got <- s.lookup(b) }()
+	select {
+	case p := <-got:
+		if p == nil {
+			t.Fatal("in-memory proto not found")
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("lookup of another proto waits for the read-back")
+	}
+	if f, ok := s.flags(a); !ok || f.final {
+		t.Fatalf("flags during read-back: %v %v", f, ok)
+	}
+	second := make(chan *decorProto)
+	go func() { second <- s.lookup(a) }()
+	select {
+	case <-second:
+		t.Fatal("second lookup returned before the read finished")
+	case <-time.After(50 * time.Millisecond):
+	}
+	close(release)
+	p1, p2 := <-first, <-second
+	if p1 == nil || p1 != p2 {
+		t.Fatalf("lookups returned %p and %p", p1, p2)
+	}
+	if st, ok := p1.get(1, 2, 3); !ok || st != 7 {
+		t.Fatalf("block after read-back = %d, %v", st, ok)
 	}
 }
