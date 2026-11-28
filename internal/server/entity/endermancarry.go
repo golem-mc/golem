@@ -295,7 +295,7 @@ func (g *mobTargetGoal) CanStart(t *tickView) bool {
 		if Dist2(m.X, m.Y, m.Z, o.X, o.Y, o.Z) > follow2 || o == m || m.alliedToMob(o) || !g.wants(o) || !o.Alive() || o.Invulnerable || g.area != nil && !g.area(o) {
 			continue
 		}
-		if !g.sees(t.w, o) || !g.visible(o) {
+		if !g.visible(o) || !g.sees(t.w, o) {
 			continue
 		}
 		if rank := Dist2(o.X, o.Y, o.Z, m.X, m.Y+m.eyeHeight(), m.Z); rank < best {
@@ -321,8 +321,12 @@ func (g *mobTargetGoal) CanStart(t *tickView) bool {
 // visibility percent (invisible or armourless-headed targets are seen late).
 // vanilla: TargetingConditions.test
 func (g *mobTargetGoal) visible(o *Mob) bool {
-	r := g.m.visibilityRange(&Player{Invisible: o.hasEffect(mobEffectInvisibility), Worn: o.Worn})
-	r = min(r, g.follow())
+	percent := 1.0
+	// Only an invisible or equipped target scales the range; skip copying Worn otherwise.
+	if o.hasEffect(mobEffectInvisibility) || o.wearsAny() {
+		percent = visibilityPercent(g.m, &Player{Invisible: o.hasEffect(mobEffectInvisibility), Worn: o.Worn})
+	}
+	r := max(g.follow()*percent, minVisibilityDistance)
 	return Dist2(g.m.X, g.m.Y, g.m.Z, o.X, o.Y, o.Z) <= r*r
 }
 
@@ -384,3 +388,13 @@ func (g *mobTargetGoal) Stop(*tickView) {
 }
 
 func (g *mobTargetGoal) RequiresEveryTick() bool { return false }
+
+// wearsAny reports whether any armour slot holds an item.
+func (m *Mob) wearsAny() bool {
+	for i := range m.Worn {
+		if !m.Worn[i].Empty() {
+			return true
+		}
+	}
+	return false
+}
