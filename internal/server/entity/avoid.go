@@ -104,11 +104,13 @@ func (g *avoidGoal) nearestThreat(t *tickView) (x, y, z float64, player int32, m
 		return
 	}
 	for _, o := range g.m.herdNear(t, max(g.maxDist, avoidHeight)) {
-		if o == g.m || !o.Alive() || !g.threatens(o) {
+		if o == g.m || !o.Alive() || o.Invulnerable || g.m.alliedToMob(o) || !g.threatens(o) {
 			continue
 		}
 		d := Dist2(g.m.X, g.m.Y, g.m.Z, o.X, o.Y, o.Z)
-		if d > g.maxDist*g.maxDist || d >= best || !g.inBox(o.X, o.Y, o.Z, o.width(), o.height()) ||
+		// vanilla: TargetingConditions.test — max(range * visibility, 2)
+		reach := max(g.maxDist*visibilityPercent(g.m, &Player{Invisible: o.hasEffect(mobEffectInvisibility), Worn: o.Worn}), minVisibilityDistance)
+		if d > reach*reach || d >= best || !g.inBox(o.X, o.Y, o.Z, o.width(), o.height()) ||
 			!g.m.seesPlayer(t.w, o.X, o.Y+o.eyeHeight()-playerEyeHeight, o.Z) {
 			continue
 		}
