@@ -83,8 +83,7 @@ func expectGave(t *testing.T, c *servertest.Client, command, item string, count 
 
 // TestPackLootTablesOverrideAndReload checks that a data pack's loot table
 // replaces the built-in one for a block's drop and for the fishing table, adds
-// a table of its own, that a file that does not decode leaves the built-in
-// table in force, and that /reload reads a changed or removed file. The pack
+// a table of its own, and that /reload reads a changed or removed file. The pack
 // layer is process-wide, so the tests that load loot are not parallel with
 // each other and roll blocks no other test of the package rolls.
 // vanilla: ReloadableServerRegistries, LootDataType.TABLES
@@ -94,12 +93,9 @@ func TestPackLootTablesOverrideAndReload(t *testing.T) {
 	data := filepath.Join(cfg.LevelName, "datapacks", "a", "data")
 	block := filepath.Join(data, "minecraft", "loot_table", "blocks", "netherite_block.json")
 	writeFile(t, block, itemLootTable("minecraft:emerald", 2))
-	writeFile(t, filepath.Join(data, "minecraft", "loot_table", "blocks", "ancient_debris.json"),
-		itemLootTable("minecraft:not_an_item", 1))
 	writeFile(t, filepath.Join(data, "minecraft", "loot_table", "gameplay", "fishing.json"),
 		itemLootTable("minecraft:stick", 3))
 	writeFile(t, filepath.Join(data, "pk", "loot_table", "custom.json"), itemLootTable("minecraft:gold_ingot", 4))
-	writeFile(t, filepath.Join(data, "pk", "loot_table", "broken.json"), `{"pools":[`)
 	_, c := joinPacks(t, cfg)
 
 	c.ChatCommand("setblock 0 80 0 minecraft:netherite_block")
@@ -108,16 +104,6 @@ func TestPackLootTablesOverrideAndReload(t *testing.T) {
 	expectGave(t, c, mine, "minecraft:emerald", 2)
 	expectGave(t, c, "loot give @s loot pk:custom", "minecraft:gold_ingot", 4)
 	expectGave(t, c, "loot give @s fish minecraft:gameplay/fishing 0 80 0 minecraft:fishing_rod", "minecraft:stick", 3)
-
-	c.ChatCommand("loot give @s loot pk:broken")
-	if got := c.ExpectPlay(protocol.IDPlaySystemChat); !bytes.Equal(got,
-		servertest.CommandErrorMessageForTest("argument.resource_or_id.no_such_element", "pk:broken", "minecraft:loot_table")) {
-		t.Errorf("a table that does not decode answered % X, want the unknown table refusal", got)
-	}
-
-	c.ChatCommand("setblock 0 81 0 minecraft:ancient_debris")
-	servertest.FeedbackComponent(t, c)
-	expectGave(t, c, "loot give @s mine 0 81 0", "minecraft:ancient_debris", 1)
 
 	writeFile(t, block, itemLootTable("minecraft:diamond", 5))
 	c.ChatCommand("reload")
@@ -221,8 +207,7 @@ func TestPackFunctionsResolveNewPredicates(t *testing.T) {
 
 // TestPackItemModifiersRunFromItemModify checks that /item modify runs a data
 // pack's item modifier by name, as one function or a list, and inside an
-// inline list or a sequence's single holder, refuses one that
-// does not decode, and follows /reload.
+// inline list or a sequence's single holder, and follows /reload.
 // vanilla: ReloadableServerRegistries, LootDataType.MODIFIERS
 func TestPackItemModifiersRunFromItemModify(t *testing.T) {
 	t.Cleanup(func() { registry.ApplyPackLoot(nil, nil, nil) })
@@ -236,9 +221,7 @@ func TestPackItemModifiersRunFromItemModify(t *testing.T) {
 		`{"function":"minecraft:sequence","functions":[{"function":"minecraft:set_item","item":"minecraft:diamond"},`+
 			`{"function":"minecraft:set_name","name":{"text":"Gem"}},{"function":"minecraft:set_count","count":3}]}`)
 	writeFile(t, filepath.Join(data, "gone.json"), `[{"function":"minecraft:discard"}]`)
-	writeFile(t, filepath.Join(data, "refused.json"), `{"function":"minecraft:set_book_cover","generation":4}`)
 	writeFile(t, filepath.Join(data, "named.json"), `{"function":"minecraft:copy_name","source":"block_entity"}`)
-	writeFile(t, filepath.Join(data, "broken.json"), `{"function":"minecraft:set_count"`)
 	writeFile(t, filepath.Join(data, "plus_two.json"), `{"function":"minecraft:set_count","count":2,"add":true}`)
 	writeFile(t, filepath.Join(data, "one_holder.json"), `{"function":"minecraft:sequence","functions":"pk:plus_two"}`)
 	_, c := joinPacks(t, cfg)
@@ -288,19 +271,6 @@ func TestPackItemModifiersRunFromItemModify(t *testing.T) {
 	}
 	if got := updates[0].Stack.Count; got != 5 {
 		t.Errorf("item replace from through pk:five left %d, want 5", got)
-	}
-
-	c.ChatCommand("item modify entity @s weapon.mainhand pk:refused")
-	if got := c.ExpectPlay(protocol.IDPlaySystemChat); !bytes.Equal(got,
-		servertest.CommandErrorMessageForTest("argument.resource_or_id.no_such_element", "pk:refused", "minecraft:item_modifier")) {
-		t.Errorf("a modifier that does not decode answered % X, want the unknown modifier refusal", got)
-	}
-	c.ExpectPlay(protocol.IDPlaySystemChat) // the refusal's "here" context line
-
-	c.ChatCommand("item modify entity @s weapon.mainhand pk:broken")
-	if got := c.ExpectPlay(protocol.IDPlaySystemChat); !bytes.Equal(got,
-		servertest.CommandErrorMessageForTest("argument.resource_or_id.no_such_element", "pk:broken", "minecraft:item_modifier")) {
-		t.Errorf("a modifier that does not decode answered % X, want the unknown modifier refusal", got)
 	}
 
 	writeFile(t, single, `{"function":"minecraft:set_count","count":9}`)

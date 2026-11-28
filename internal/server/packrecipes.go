@@ -10,10 +10,10 @@ import (
 	"github.com/golem-mc/golem/registry"
 )
 
-// loadPackRecipes reads the enabled packs' recipes; a file that fails to
-// decode is logged and skipped, and its ID's built-in recipe is dropped.
+// loadPackRecipes reads the enabled packs' recipes; a file vanilla's codec
+// refuses is added to bad, and its ID's built-in recipe is dropped.
 // vanilla: RecipeManager.prepare
-func loadPackRecipes(dirs []string, decoder datapack.ResourceDecoder, skip func(file string, err error)) (registry.PackRecipes, error) {
+func loadPackRecipes(dirs []string, decoder datapack.ResourceDecoder, skip func(file string, err error), bad *packErrors) (registry.PackRecipes, error) {
 	var recipes registry.PackRecipes
 	raw, err := datapack.LoadResources(dirs, "recipe", skip)
 	if err != nil {
@@ -28,10 +28,12 @@ func loadPackRecipes(dirs []string, decoder datapack.ResourceDecoder, skip func(
 	slices.Sort(ids)
 	for _, id := range ids {
 		if err := decoder.DecodeRecipe(id, raw[id], &recipes); err != nil {
-			slog.Error("Couldn't parse element recipe/" + id + ": " + err.Error())
-			if !errors.Is(err, datapack.ErrBuiltInRecipeType) {
-				recipes.Dropped = append(recipes.Dropped, id)
+			if errors.Is(err, datapack.ErrBuiltInRecipeType) {
+				slog.Error("Couldn't parse element recipe/" + id + ": " + err.Error())
+				continue
 			}
+			bad.add("recipe", id, err)
+			recipes.Dropped = append(recipes.Dropped, id)
 		}
 	}
 	if filters := datapack.LoadFilters(dirs); filters.Any() {

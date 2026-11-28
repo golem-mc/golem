@@ -4,10 +4,12 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"testing"
 
 	"github.com/golem-mc/golem/internal/protocol"
+	"github.com/golem-mc/golem/internal/server"
 	"github.com/golem-mc/golem/internal/server/servertest"
 )
 
@@ -137,4 +139,64 @@ func TestReloadFailureKeepsOldState(t *testing.T) {
 	servertest.CheckCommandFeedback(t, c.ExpectWithinTicks(srv, 0, protocol.IDPlaySystemChat), "command.compute.result.named.exact", protocol.Text{Text: "x:keep"}, protocol.Text{Number: new(int64(17))})
 	c.ChatCommand("datapack list enabled")
 	checkPackList(t, c.ExpectWithinTicks(srv, 0, protocol.IDPlaySystemChat), "commands.datapack.list.enabled.success", "vanilla", "file/a", "file/b")
+}
+
+// badPackRecipes are recipe files vanilla's codecs refuse.
+// vanilla: ItemStackTemplate.CODEC, Recipe.CODEC
+var badPackRecipes = map[string]string{
+	"air":    `{"type":"minecraft:crafting_shapeless","ingredients":["minecraft:stick"],"result":{"id":"minecraft:air"}}`,
+	"zero":   `{"type":"minecraft:crafting_shapeless","ingredients":["minecraft:stick"],"result":{"id":"minecraft:stone","count":0}}`,
+	"stone":  `{"type":"minecraft:stonecutting","ingredient":"minecraft:stone","result":{"id":"minecraft:stone_slab","count":200}}`,
+	"smelt":  `{"type":"minecraft:smelting","ingredient":"minecraft:sand","result":{"id":"minecraft:air"}}`,
+	"hover":  `{"type":"minecraft:crafting_shapeless","ingredients":["minecraft:stick"],"result":{"id":"minecraft:stone","components":{"minecraft:custom_name":{"text":"x","hover_event":{"action":"show_text"}}}}}`,
+	"nowhat": `{"type":"minecraft:crafting_shapeless","ingredients":["minecraft:stick"]}`,
+}
+
+const (
+	goodPackRecipe = `{"type":"minecraft:crafting_shapeless","ingredients":["minecraft:stick"],"result":{"id":"minecraft:stone"}}`
+	goodPackAdv    = `{"criteria":{"c":{"trigger":"minecraft:tick"}}}`
+	badPackAdv     = `{"display":{"icon":{"id":"minecraft:stone"},"title":{"text":"x","hover_event":{"action":"show_text"}},"description":"d"},"criteria":{"c":{"trigger":"minecraft:tick"}}}`
+)
+
+// TestReloadRefusedPackElementFailsTheReload checks that a pack holding one
+// recipe or advancement vanilla's codec refuses fails /reload as a whole:
+// the pack's good recipe or advancement stays unknown.
+// vanilla: RegistryDataLoader.load, MinecraftServer.reloadResources
+func TestReloadRefusedPackElementFailsTheReload(t *testing.T) {
+	// Not parallel: the pack layers are process-wide.
+	for _, tc := range []struct{ kind, good, bad, cmd, notFound string }{
+		{"recipe", goodPackRecipe, badPackRecipes["air"], "recipe give @s zz:good", "recipe.notFound"},
+		{"recipe", goodPackRecipe, badPackRecipes["zero"], "recipe give @s zz:good", "recipe.notFound"},
+		{"recipe", goodPackRecipe, badPackRecipes["stone"], "recipe give @s zz:good", "recipe.notFound"},
+		{"recipe", goodPackRecipe, badPackRecipes["smelt"], "recipe give @s zz:good", "recipe.notFound"},
+		{"recipe", goodPackRecipe, badPackRecipes["hover"], "recipe give @s zz:good", "recipe.notFound"},
+		{"recipe", goodPackRecipe, badPackRecipes["nowhat"], "recipe give @s zz:good", "recipe.notFound"},
+		{"advancement", goodPackAdv, badPackAdv, "advancement grant @s only zz:good", "advancement.advancementNotFound"},
+	} {
+		cfg := packWorld(t)
+		_, c := joinPacks(t, cfg)
+		pack := filepath.Join(cfg.LevelName, "datapacks", "zzrec")
+		writeFile(t, filepath.Join(pack, "pack.mcmeta"), `{"pack":{"description":"zz"}}`)
+		writeFile(t, filepath.Join(pack, "data", "zz", tc.kind, "good.json"), tc.good)
+		writeFile(t, filepath.Join(pack, "data", "zz", tc.kind, "bad.json"), tc.bad)
+		c.ChatCommand("reload")
+		c.ExpectCommandFeedback("commands.reload.success")
+		c.ExpectCommandFailure(servertest.CommandErrorMessageForTest("commands.reload.failure"))
+		c.ChatCommand(tc.cmd)
+		c.ExpectCommandFailure(servertest.CommandErrorMessageForTest(tc.notFound, "zz:good"))
+	}
+}
+
+// TestStartWithRefusedPackElementFails checks that a server whose enabled
+// pack holds an element vanilla's codec refuses does not start, and the
+// error names the element.
+// vanilla: WorldLoader.load, RegistryDataLoader.load
+func TestStartWithRefusedPackElementFails(t *testing.T) {
+	cfg := packWorld(t)
+	pack := filepath.Join(cfg.LevelName, "datapacks", "a")
+	writeFile(t, filepath.Join(pack, "data", "zz", "recipe", "bad.json"), badPackRecipes["air"])
+	_, err := server.NewSeeded(cfg, 1)
+	if err == nil || !strings.Contains(err.Error(), "zz:bad") {
+		t.Fatalf("start with a refused recipe: err = %v, want one naming zz:bad", err)
+	}
 }

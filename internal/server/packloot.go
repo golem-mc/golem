@@ -2,7 +2,6 @@ package server
 
 import (
 	"errors"
-	"log/slog"
 	"strings"
 
 	"github.com/golem-mc/golem/internal/server/datapack"
@@ -10,10 +9,10 @@ import (
 )
 
 // loadPackLoot reads the enabled packs' loot tables, predicates and item modifiers; a file
-// that fails to decode is logged and skipped, leaving the built-in one, except a
+// that vanilla's codec refuses is added to bad, except a
 // weighted list whose total weight overflows, which fails the whole load.
 // vanilla: ReloadableServerRegistries.reload, LootDataType
-func loadPackLoot(layers *registry.PackLayers, dirs []string, skip func(file string, err error)) (map[string]registry.LootTable, map[string]registry.LootCondition, map[string]registry.LootFunction, error) {
+func loadPackLoot(layers *registry.PackLayers, dirs []string, skip func(file string, err error), bad *packErrors) (map[string]registry.LootTable, map[string]registry.LootCondition, map[string]registry.LootFunction, error) {
 	rawTables, err := datapack.LoadResources(dirs, "loot_table", skip)
 	if err != nil {
 		return nil, nil, nil, err
@@ -25,7 +24,7 @@ func loadPackLoot(layers *registry.PackLayers, dirs []string, skip func(file str
 			if errors.Is(err, datapack.ErrWeightOverflow) {
 				return nil, nil, nil, err
 			}
-			slog.Error("Couldn't parse element loot_table/" + id + ": " + err.Error())
+			bad.add("loot_table", id, err)
 			continue
 		}
 		tables[id] = table
@@ -41,7 +40,7 @@ func loadPackLoot(layers *registry.PackLayers, dirs []string, skip func(file str
 			if errors.Is(err, datapack.ErrWeightOverflow) {
 				return nil, nil, nil, err
 			}
-			slog.Error("Couldn't parse element predicate/" + id + ": " + err.Error())
+			bad.add("predicate", id, err)
 			continue
 		}
 		predicates[id] = cond
@@ -57,7 +56,7 @@ func loadPackLoot(layers *registry.PackLayers, dirs []string, skip func(file str
 			if errors.Is(err, datapack.ErrWeightOverflow) {
 				return nil, nil, nil, err
 			}
-			slog.Error("Couldn't parse element item_modifier/" + id + ": " + err.Error())
+			bad.add("item_modifier", id, err)
 			continue
 		}
 		modifiers[id] = fn
@@ -96,11 +95,11 @@ func (s *Server) applyPackLoot(tables map[string]registry.LootTable, predicates 
 }
 
 // loadPackSlotSources stages the enabled packs' slot sources in layers; a
-// file that fails to decode is logged and skipped. A source that names
+// file that fails to decode is added to bad. A source that names
 // another resolves it whatever the files' order, so a pass repeats while it
 // still lets one more decode.
 // vanilla: RegistryDataLoader.RELOADABLE_REGISTRIES
-func loadPackSlotSources(layers *registry.PackLayers, dirs []string, skip func(file string, err error)) error {
+func loadPackSlotSources(layers *registry.PackLayers, dirs []string, skip func(file string, err error), bad *packErrors) error {
 	raws, err := datapack.LoadResources(dirs, "slot_source", skip)
 	if err != nil {
 		return err
@@ -122,7 +121,7 @@ func loadPackSlotSources(layers *registry.PackLayers, dirs []string, skip func(f
 	for id, raw := range raws {
 		if _, done := sources[id]; !done {
 			_, err := datapack.DecodeSlotSource(layers, raw)
-			slog.Error("Couldn't parse element slot_source/" + id + ": " + err.Error())
+			bad.add("slot_source", id, err)
 		}
 	}
 	return nil

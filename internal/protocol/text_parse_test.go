@@ -49,7 +49,7 @@ func TestParseTextJSON(t *testing.T) {
 			nil,
 		},
 		{
-			`{"text":"x","click_event":{"action":"open_url","url":"https://x"},"extra":[{"text":"y","hover_event":{},"click_event":{}}]}`,
+			`{"text":"x","click_event":{"action":"open_url","url":"https://x"},"extra":[{"text":"y","hover_event":{"action":"show_text","value":"h"},"click_event":{"action":"run_command","command":"/x"}}]}`,
 			nbt.Compound{"text": nbt.String("x"), "extra": nbt.List{Elem: nbt.TypeCompound, Items: []nbt.Tag{nbt.Compound{"text": nbt.String("y")}}}},
 			[]string{"click_event", "hover_event"},
 		},
@@ -72,6 +72,7 @@ func TestParseTextJSON(t *testing.T) {
 // fail on, and the content types the parser does not read.
 func TestParseTextJSONRefuses(t *testing.T) {
 	for _, bad := range []string{
+		`{"text":"x","hover_event":{"action":"show_text"}}`, `{"text":"x","hover_event":{}}`, `{"text":"x","click_event":{"action":"open_url"}}`,
 		``, `plain`, `{}`, `[]`, `{"text":1}`, `"a" "b"`, `3`, `{"text":"x","extra":[]}`,
 		`{"text":"x","color":"notacolor"}`, `{"text":"x","color":"#12345"}`, `{"text":"x","color":"#+12345"}`,
 		`{"text":"x","color":1}`, `{"text":"x","bold":"yes"}`, `{"text":"x","font":"Bad Font"}`,

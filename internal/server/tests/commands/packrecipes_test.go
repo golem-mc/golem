@@ -84,19 +84,16 @@ const (
 	clayToPlanks = `{"type":"minecraft:crafting_shapeless","ingredients":["minecraft:clay_ball"],"result":{"id":"minecraft:oak_planks","count":7}}`
 )
 
-// TestPackRecipesCraftOverrideAndSkip checks that a data pack's shaped recipe
+// TestPackRecipesCraftAndOverride checks that a data pack's shaped recipe
 // crafts in the player's grid, that a pack recipe of a built-in recipe's ID
 // replaces it (the built-in one no longer crafts) while the other built-ins
-// stay, and that a recipe file that does not decode adds nothing.
+// stay.
 // vanilla: RecipeManager.prepare
-func TestPackRecipesCraftOverrideAndSkip(t *testing.T) {
+func TestPackRecipesCraftAndOverride(t *testing.T) {
 	t.Cleanup(func() { registry.ApplyPackRecipes(registry.PackRecipes{}) })
 	cfg := packWorld(t)
 	recipeFile(t, cfg.LevelName, "pk:clay_coal", shapedClayCoal)
 	recipeFile(t, cfg.LevelName, "minecraft:oak_planks", clayToPlanks)
-	recipeFile(t, cfg.LevelName, "minecraft:birch_planks", `{"type":"minecraft:crafting_shapeless","ingredients":[`)
-	recipeFile(t, cfg.LevelName, "pk:broken", `{"type":"minecraft:crafting_shaped","pattern":["a"],`)
-	recipeFile(t, cfg.LevelName, "pk:no_item", `{"type":"minecraft:crafting_shapeless","ingredients":["minecraft:gold_nugget"],"result":"minecraft:not_an_item"}`)
 	srv, w := servertest.OpenWindowedOps(t, cfg)
 	for slot, item := range map[int]string{36: "minecraft:clay_ball", 37: "minecraft:coal", 38: "minecraft:oak_log", 39: "minecraft:birch_log", 40: "minecraft:gold_nugget", 41: "minecraft:jungle_log"} {
 		srv.GiveSlot("Testificate", slot, servertest.ItemStack(t, item, 8))
@@ -107,13 +104,8 @@ func TestPackRecipesCraftOverrideAndSkip(t *testing.T) {
 	if got := gridResult(t, w, placement{38, 1}); !got.Empty() {
 		t.Errorf("an oak log crafts %+v although a pack replaced the oak planks recipe", got)
 	}
-	if got := gridResult(t, w, placement{39, 1}); !got.Empty() {
-		t.Errorf("a birch log crafts %+v although its recipe file does not decode", got)
-	}
+	expectCraft(t, "a birch log", gridResult(t, w, placement{39, 1}), "minecraft:birch_planks", 4)
 	expectCraft(t, "a jungle log", gridResult(t, w, placement{41, 1}), "minecraft:jungle_planks", 4)
-	if got := gridResult(t, w, placement{40, 1}); !got.Empty() {
-		t.Errorf("a gold nugget crafts %+v from a recipe that does not decode", got)
-	}
 }
 
 // TestPackRecipesReachTheRecipeBookAndUpdateRecipes checks that /recipe give
