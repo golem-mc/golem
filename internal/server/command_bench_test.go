@@ -59,15 +59,29 @@ func BenchmarkCommandBlockExecute100Silent(b *testing.B) {
 	benchCommandBlockExecute(b, 100, false)
 }
 
+// BenchmarkCommandBlockExecuteAsScore is the loadtest's armor-stand line: a
+// scoreboard add run once per tagged stand, whose tail execute tokenizes for
+// every context.
+func BenchmarkCommandBlockExecuteAsScore(b *testing.B) {
+	benchCommandBlockLine(b, 40, true, "execute as @e[type=armor_stand,tag=mcb] run scoreboard players add @s k 1", "scoreboard objectives add k dummy")
+}
+
 func benchCommandBlockExecute(b *testing.B, stands int, feedback bool) {
+	benchCommandBlockLine(b, stands, feedback, benchExecuteTp)
+}
+
+func benchCommandBlockLine(b *testing.B, stands int, feedback bool, line string, setup ...string) {
 	s, w := newCommandBenchServer(b, stands)
+	for _, l := range setup {
+		s.RunRconLine(l)
+	}
 	if !feedback {
 		s.SetGameRule(world.RuleCommandBlockOutput.String(), false)
 		s.SetGameRule(world.RuleLogAdminCommands.String(), false)
 		s.SetGameRule(world.RuleSendFeedback.String(), false)
 	}
 	y := int32(world.GroundLevel + 2)
-	s.RunRconLine(fmt.Sprintf("setblock 2 %d 2 minecraft:command_block{Command:%q}", y, benchExecuteTp))
+	s.RunRconLine(fmt.Sprintf("setblock 2 %d 2 minecraft:command_block{Command:%q}", y, line))
 	be := w.BlockEntity(2, y, 2)
 	if be == nil || be.Kind != world.KindCommandBlock {
 		b.Fatal("no command block entity")
