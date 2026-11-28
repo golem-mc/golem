@@ -10,9 +10,8 @@ import (
 // container is replaced. Chest halves also watch the partner's chunk, even when that half
 // has no entity yet.
 // vanilla: HopperBlockEntity.getContainerAt; Lithium: cacheInsertBlockInventory
-func hopperRefresh(w *world.World, cache *world.HopperTargetCache, x, y, z int32) {
-	stamp := w.ContainerStamp(x, z)
-	tags := registry.TagsGeneration()
+// stamp is w.ContainerStamp(x, z), which the caller may already hold for the same chunk.
+func hopperRefresh(w *world.World, cache *world.HopperTargetCache, x, y, z int32, stamp world.ContainerStamp, tags uint64) {
 	if !cache.Known || cache.Position != [3]int32{x, y, z} || cache.Stamp != stamp || cache.Tags != tags ||
 		(cache.Paired && cache.PartnerStamp != w.ContainerStamp(cache.Partner[0], cache.Partner[1])) {
 		*cache = world.HopperTargetCache{Known: true, Position: [3]int32{x, y, z}, Stamp: stamp, Tags: tags}
@@ -109,4 +108,18 @@ func cachedVehicleMove[B inventory.Block](move containerMove, slots B, version u
 	cache.Failed = !moved
 	cache.VehicleSlots, cache.SelfVersion, cache.Versions[0] = key, self, version
 	return moved
+}
+
+// hopperSelf returns b's own block state, re-read only when its chunk's stamp
+// moves, with that stamp. The caller holds b's lock.
+func hopperSelf(w *world.World, b *world.BlockEntity) (state uint16, stamp world.ContainerStamp) {
+	if b.HopperTargets == nil {
+		b.HopperTargets = &world.HopperTargets{}
+	}
+	c := b.HopperTargets
+	stamp = w.ContainerStamp(b.X, b.Z)
+	if c.SelfStamp != stamp {
+		c.SelfState, c.SelfStamp = w.BlockAt(b.X, b.Y, b.Z), stamp
+	}
+	return c.SelfState, stamp
 }

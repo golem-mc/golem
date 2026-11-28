@@ -357,11 +357,11 @@ func (s *Server) tickHopper(w *world.World, be *world.BlockEntity, age int64) {
 		if !b.HopperReady(age) {
 			return false
 		}
-		state := w.BlockAt(b.X, b.Y, b.Z)
+		state, stamp := hopperSelf(w, b)
 		if !registry.StateEnabled(state) {
 			return true
 		}
-		s.hopperStep(w, b, state, gate, &turn)
+		s.hopperStep(w, b, state, stamp, gate, &turn)
 		if turn.moved || (gate != nil && gate.vetoed()) {
 			b.Cooldown = world.HopperMoveInterval
 			if !turn.moved {
@@ -405,18 +405,16 @@ type hopperTurn struct {
 
 // hopperStep is one turn's moves under the hopper's lock, recorded in t; a
 // probing gate makes it write nothing.
-func (s *Server) hopperStep(w *world.World, b *world.BlockEntity, state uint16, gate *hopperGate, t *hopperTurn) {
+func (s *Server) hopperStep(w *world.World, b *world.BlockEntity, state uint16, stamp world.ContainerStamp, gate *hopperGate, t *hopperTurn) {
 	self := containerSlots(b, w)
-	if b.HopperTargets == nil {
-		b.HopperTargets = &world.HopperTargets{}
-	}
+	tags := registry.TagsGeneration()
 	if b.FilledSlots() != 0 {
-		t.pushed = s.hopperEject(w, self, stateFacing(state), gate)
+		t.pushed = s.hopperEject(w, self, stateFacing(state), stamp, tags, gate)
 		t.moved = t.pushed != nil
 	}
 	if !b.HopperFull() {
 		var suckMoved bool
-		suckMoved, t.pulled, t.partial, t.taken, t.shrunk = s.hopperSuck(w, self, gate)
+		suckMoved, t.pulled, t.partial, t.taken, t.shrunk = s.hopperSuck(w, self, stamp, tags, gate)
 		t.moved = suckMoved || t.moved
 	}
 }
@@ -424,11 +422,15 @@ func (s *Server) hopperStep(w *world.World, b *world.BlockEntity, state uint16, 
 // hopperEject pushes one item out the spout (vanilla's ejectItems),
 // returning the container it went into, nil if none, for the caller to sync
 // after the hopper's lock.
-func (s *Server) hopperEject(w *world.World, self blockEntitySlots, face int32, gate *hopperGate) containerTarget {
+func (s *Server) hopperEject(w *world.World, self blockEntitySlots, face int32, selfStamp world.ContainerStamp, tags uint64, gate *hopperGate) containerTarget {
 	b := self.be
 	tx, ty, tz := faceOffset(b.X, b.Y, b.Z, face)
 	cache := &b.HopperTargets.Push
-	hopperRefresh(w, cache, tx, ty, tz)
+	stamp := selfStamp
+	if tx>>4 != b.X>>4 || tz>>4 != b.Z>>4 {
+		stamp = w.ContainerStamp(tx, tz)
+	}
+	hopperRefresh(w, cache, tx, ty, tz, stamp, tags)
 	move := containerMove{self: self, face: oppositeFace(face)}
 	var slot *moveGate
 	if gate != nil {
@@ -448,10 +450,10 @@ func (s *Server) hopperEject(w *world.World, self blockEntitySlots, face int32, 
 // entity changed the slots without being a move (a partial take sets no
 // cooldown). taken and shrunk are item entities whose viewers must be told
 // after the lock: removed whole, or kept with their stack resent.
-func (s *Server) hopperSuck(w *world.World, self blockEntitySlots, gate *hopperGate) (moved bool, pulled containerTarget, partial bool, taken, shrunk []*itemEntity) {
+func (s *Server) hopperSuck(w *world.World, self blockEntitySlots, stamp world.ContainerStamp, tags uint64, gate *hopperGate) (moved bool, pulled containerTarget, partial bool, taken, shrunk []*itemEntity) {
 	b := self.be
 	cache := &b.HopperTargets.Pull
-	hopperRefresh(w, cache, b.X, b.Y+1, b.Z)
+	hopperRefresh(w, cache, b.X, b.Y+1, b.Z, stamp, tags)
 	move := containerMove{self: self, pull: true}
 	var slot *moveGate
 	if gate != nil {

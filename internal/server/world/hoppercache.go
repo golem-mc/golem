@@ -34,6 +34,9 @@ func (b *BlockEntity) InventoryVersion() uint64 { return b.inventoryVersion.Load
 // HopperTargets caches a hopper's push and pull lookups; it is never saved.
 type HopperTargets struct {
 	Push, Pull HopperTargetCache
+	// SelfState is the hopper's own block state as of SelfStamp.
+	SelfStamp ContainerStamp
+	SelfState uint16
 	// FullKnown, FullVersion and Full cache the hopper's own slots-full result per inventory version.
 	FullKnown   bool
 	FullVersion uint64
