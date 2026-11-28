@@ -1066,6 +1066,9 @@ func javaFixed(v float64, prec int) string {
 // the tag's pretty text, to the runner only: a get never informs operators.
 // vanilla: DataAccessor.getPrintSuccess(Tag)
 func dataQuery(src Source, target dataTarget, tag nbt.Tag) error {
+	if !wantsFeedback(src) {
+		return nil
+	}
 	switch target.kind {
 	case dataTargetBlock:
 		return src.Feedback(dataBlockQueryKey, append(coordinates(target), prettyText(tag))...)
@@ -1079,6 +1082,9 @@ func dataQuery(src Source, target dataTarget, tag nbt.Tag) error {
 // own way, the scale at two decimals and the floored product.
 // vanilla: DataAccessor.getPrintSuccess(NbtPath, double, int)
 func dataGetScaled(src Source, target dataTarget, path string, scale float64, value int64) error {
+	if !wantsFeedback(src) {
+		return nil
+	}
 	scaleText := protocol.Text{Text: javaFixed(scale, 2)}
 	valueText := protocol.Text{Number: &value}
 	pathText := protocol.Text{Text: path}
@@ -1097,7 +1103,7 @@ func dataGetScaled(src Source, target dataTarget, path string, scale float64, va
 // server also broadcasts to the other operators.
 // vanilla: DataAccessor.getModifiedSuccess
 func dataModified(src Source, target dataTarget) error {
-	if src.Silent() {
+	if !wantsFeedback(src) {
 		return nil
 	}
 	switch target.kind {
