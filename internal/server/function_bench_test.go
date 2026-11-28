@@ -25,9 +25,10 @@ func BenchmarkFunctionLines(b *testing.B) {
 		"execute_as_store_data":      "execute as @e[type=marker,tag=t] store result score @s x run data get entity @s Pos[0]",
 		"macro_call":                 `execute as @e[type=marker,tag=t] run function zz:m {x:1,o:"x"}`,
 		"execute_as_setblock_toggle": "execute as @e[type=marker,tag=t] at @s run setblock ~ ~3 ~ stone\nexecute as @e[type=marker,tag=t] at @s run setblock ~ ~3 ~ air",
+		"execute_as_if_items":        "execute as @e[type=armor_stand,tag=t] if items entity @s armor.head minecraft:diamond_helmet run scoreboard players add @s x 1",
 		"summon_kill":                "summon marker ~ ~ ~ {Tags:[\"z\"]}\nkill @e[type=marker,tag=z]",
 	}
-	for _, name := range []string{"score", "execute_if_score", "execute_as_tp", "execute_as_score", "execute_as_particle", "execute_as_store_data", "execute_if_block_tag", "execute_as_setblock_toggle", "summon_kill", "macro_call"} {
+	for _, name := range []string{"score", "execute_if_score", "execute_as_tp", "execute_as_score", "execute_as_particle", "execute_as_store_data", "execute_if_block_tag", "execute_as_if_items", "execute_as_setblock_toggle", "summon_kill", "macro_call"} {
 		b.Run(name, func(b *testing.B) {
 			s, _ := newTrackerBenchServer(b)
 			s.mu.Lock()
@@ -70,7 +71,12 @@ func BenchmarkFunctionLines(b *testing.B) {
 			for _, c := range []string{"scoreboard objectives add x dummy", "scoreboard players set #c x 1", "reload"} {
 				s.RunRconLine(c)
 			}
-			if strings.HasPrefix(name, "execute_as") || name == "execute_if_block_tag" || name == "macro_call" {
+			if name == "execute_as_if_items" {
+				for i := range 20 {
+					s.RunRconLine(fmt.Sprintf("summon armor_stand %d -60 0 {Tags:[\"t\"]}", i))
+				}
+				s.RunRconLine("item replace entity @e[type=armor_stand] armor.head with diamond_helmet")
+			} else if strings.HasPrefix(name, "execute_as") || name == "execute_if_block_tag" || name == "macro_call" {
 				for i := range 20 {
 					s.RunRconLine(fmt.Sprintf("summon marker %d -60 0 {Tags:[\"t\"]}", i))
 				}
