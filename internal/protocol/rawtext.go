@@ -108,14 +108,15 @@ func LenientTextWithDialog(tag nbt.Tag, validDialog func(nbt.Tag) bool) (Text, b
 		return Text{}, false
 	}
 	cleaned, _ := cleanTextStyles(tag, validDialog)
-	if text, ok := StyledTextWithDialog(cleaned, validDialog); ok {
-		return text, true
-	}
-	if !hasValidContent(cleaned) {
+	if ComponentDecodes == nil || !ComponentDecodes(cleaned) {
 		return Text{}, false
 	}
-	return RawTextOf(cleaned)
+	return ComponentTextOf(cleaned)
 }
+
+// ComponentDecodes is the registry's full component codec check, which
+// LenientTextOf runs on the style-cleaned tag for the content rules.
+var ComponentDecodes func(nbt.Tag) bool
 
 // stripStyle returns tag without the style keys the model has no field for,
 // whether it held any, and false where one of them is a value the codec
@@ -181,17 +182,16 @@ func stripStyle(tag nbt.Tag, validDialog func(nbt.Tag) bool) (nbt.Tag, bool, boo
 					set(key, nil, true)
 				}
 			case "bold", "italic", "underlined", "strikethrough", "obfuscated":
-				var flag bool
-				if !booleanTag(value, &flag) {
+				if !validStyleField(key, value, validDialog) {
 					return nil, false, false
 				}
-				if (key != "italic" && key != "underlined") || !flag {
+				if (key != "italic" && key != "underlined") || !FlagOn(value) {
 					set(key, nil, true)
 				}
 			case "keybind":
 				// The model has no keybind content; the tag is kept and the
 				// rest validated as empty text.
-				if _, ok := value.(nbt.String); !ok {
+				if !validStyleField("fallback", value, validDialog) {
 					return nil, false, false
 				}
 				if _, has := compoundFields["text"]; has {
@@ -361,65 +361,6 @@ func cleanHoverEvent(value nbt.Tag, validDialog func(nbt.Tag) bool) (nbt.Tag, bo
 		return nil, false, false
 	}
 	return cleaned, changed, true
-}
-
-// hasValidContent reports whether a style-cleaned tag has readable content,
-// including unmodelled types (selector, score, nbt, object) that TextOf refuses.
-func hasValidContent(tag nbt.Tag) bool {
-	switch v := tag.(type) {
-	case *nbt.OrderedCompound:
-		return hasValidContent(v.Entries())
-	case nbt.String:
-		return true
-	case nbt.List:
-		if len(v.Items) == 0 {
-			return false
-		}
-		for _, item := range v.Items {
-			if !hasValidContent(listElementOf(item)) {
-				return false
-			}
-		}
-		return true
-	case nbt.CompoundTag:
-		c := v.Entries()
-		if extra, has := c["extra"]; has {
-			if _, ok := extra.(nbt.List); !ok || !hasValidContent(extra) {
-				return false
-			}
-		}
-		if with, has := c["with"]; has {
-			list, ok := with.(nbt.List)
-			if !ok {
-				return false
-			}
-			for _, item := range list.Items {
-				el := listElementOf(item)
-				if _, num := nbt.NumberValue(el); !num && !hasValidContent(el) {
-					return false
-				}
-			}
-		}
-		if sep, has := c["separator"]; has && !hasValidContent(sep) {
-			return false
-		}
-		switch kind := ComponentContent(c); kind {
-		case "text", "translate", "keybind", "selector", "nbt":
-			_, ok := c[kind].(nbt.String)
-			return ok
-		case "score":
-			score, ok := nbt.CompoundView(c["score"])
-			_, nameOK := score["name"].(nbt.String)
-			_, objOK := score["objective"].(nbt.String)
-			return ok && nameOK && objOK
-		}
-		if sprite, ok := c["sprite"].(nbt.String); ok && ValidIdentifier(string(sprite)) {
-			return true
-		}
-		_, ok := nbt.CompoundView(c["player"])
-		return ok
-	}
-	return false
 }
 
 // rewrapListElement restores the {"": inner} wrapper when orig was a

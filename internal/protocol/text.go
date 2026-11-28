@@ -1180,7 +1180,8 @@ func parseClickEvent(value nbt.Tag, t *Text) bool {
 }
 
 // validClickEvent reports whether value is a click_event compound the client
-// decodes, including unmodelled show_dialog and custom actions.
+// decodes: parseClickEvent's actions plus the unmodelled show_dialog and
+// custom, which parseClickEvent refuses.
 // vanilla: ClickEvent.CODEC
 func validClickEvent(value nbt.Tag, validDialog func(nbt.Tag) bool) bool {
 	var scratch Text

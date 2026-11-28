@@ -1,8 +1,9 @@
-package protocol
+package registry
 
 import (
 	"testing"
 
+	"github.com/golem-mc/golem/internal/protocol"
 	"github.com/golem-mc/golem/nbt"
 )
 
@@ -136,14 +137,14 @@ func TestLenientTextOfDropsUnreadableStyleFields(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got, ok := LenientTextOf(tc.tag)
+			got, ok := protocol.LenientTextOf(tc.tag)
 			if !ok {
 				t.Fatalf("LenientTextOf(%v) = _, false, want true", tc.tag)
 			}
-			gotSNBT := nbt.Stringify(TextTag(got))
+			gotSNBT := nbt.Stringify(protocol.TextTag(got))
 			wantSNBT := nbt.Stringify(tc.want)
 			if gotSNBT != wantSNBT {
-				t.Errorf("TextTag(LenientTextOf) = %s, want %s", gotSNBT, wantSNBT)
+				t.Errorf("protocol.TextTag(LenientTextOf) = %s, want %s", gotSNBT, wantSNBT)
 			}
 		})
 	}
@@ -167,7 +168,7 @@ func TestLenientTextOfRefusesUnreadableContent(t *testing.T) {
 		},
 	}
 	for _, tag := range bad {
-		if got, ok := LenientTextOf(tag); ok {
+		if got, ok := protocol.LenientTextOf(tag); ok {
 			t.Errorf("LenientTextOf(%v) = %+v, true, want false", tag, got)
 		}
 	}

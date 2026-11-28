@@ -13,6 +13,7 @@ import (
 )
 
 func init() {
+	protocol.ComponentDecodes = ComponentDecodes
 	protocol.DialogRefValid = func(tag nbt.Tag) bool { return DialogRefMalformed(tag) == "" }
 }
 
