@@ -211,8 +211,8 @@ func (g *villagerBreedGoal) CanStart(t *tickView) bool {
 	}
 	g.target = nil
 	best := float64(villagerBreedScan)
-	for _, o := range t.others {
-		if o == m || o.Type != TypeVillager || !o.Alive() || !o.villagerCanBreed() {
+	for _, o := range t.villagerMobs() {
+		if o == m || !o.Alive() || !o.villagerCanBreed() {
 			continue
 		}
 		if d := Dist2(m.X, m.Y, m.Z, o.X, o.Y, o.Z); d <= best && m.sees(t, o) {
