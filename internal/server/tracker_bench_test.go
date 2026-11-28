@@ -393,3 +393,32 @@ func BenchmarkStaticTracking(b *testing.B) {
 		})
 	}
 }
+
+// BenchmarkObstructedCrowded places a block on an empty cell while 58 players
+// and 1000 armor stands stand elsewhere in the world.
+func BenchmarkObstructedCrowded(b *testing.B) {
+	s, w := newTrackerBenchServer(b)
+	dim := s.allDims()[0]
+	s.mu.Lock()
+	for i := range 50 {
+		p := &player.Player{UUID: uuid.New(), EntityID: s.nextEntity()}
+		p.SetPosition(player.Position{X: float64(i%8)*8 - 28, Y: float64(world.GroundLevel), Z: float64(i/8)*8 - 28})
+		c := &client{srv: s, player: p}
+		c.dim.Store(dim)
+		c.worldScope = worldScope{srv: s, in: c.dimension, by: c.Profile}
+		s.assignPlayerSlot(c)
+		s.clients[p.UUID] = c
+	}
+	s.mu.Unlock()
+	for i := range 1000 {
+		s.registerArmorStand(s.newArmorStandEntity(w, float64(i%40)*2-39.5, float64(world.GroundLevel), float64(i/40)*2-24.5))
+	}
+	stone := registry.BlockStone.DefaultState()
+	b.ReportAllocs()
+	b.ResetTimer()
+	for range b.N {
+		if s.obstructed(w, 40, world.GroundLevel+3, 40, stone) {
+			b.Fatal("empty cell obstructed")
+		}
+	}
+}
