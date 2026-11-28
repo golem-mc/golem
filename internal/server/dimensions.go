@@ -95,9 +95,14 @@ type dimension struct {
 	randomTickPositions []world.ChunkPos
 	// randomTickKey is what randomTickPositions was gathered from; the sorted
 	// list is reused while it holds.
-	randomTickKey      randomTickKey
-	spawningPositions  []world.ChunkPos
-	spawnablePositions []entity.ChunkPos
+	randomTickKey     randomTickKey
+	spawningPositions []world.ChunkPos
+	// sortedLoaded is the loaded chunks in (X, Z) order as of World.ChunkSetVersion
+	// sortedLoadedVersion.
+	sortedLoaded        []world.ChunkPos
+	sortedLoadedVersion uint64
+	sortedLoadedValid   bool
+	spawnablePositions  []entity.ChunkPos
 	// spawnBodies is the natural spawning pass's obstruction list, reused across ticks.
 	spawnBodies entity.SpawnBodies
 	// phantoms is the dimension's insomnia spawner, ticked on the main loop;
