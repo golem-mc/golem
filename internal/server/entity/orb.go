@@ -431,7 +431,7 @@ func (o *Orb) insideEffects(w World, move bodyMove, events *[]OrbEvent) {
 		switch {
 		case fluid == fluidWater:
 			o.fireTicks = 0
-		case fluid == fluidLava:
+		case fluid == fluidLava || sweptLavaCauldron(x, y, z, state, from, dx, dy, dz):
 			if o.fireTicks < fireTicksLava {
 				o.fireTicks = fireTicksLava
 			}
