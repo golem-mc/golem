@@ -454,11 +454,10 @@ func (s *Server) tickBoats() {
 			}
 			fx.splashes = append(fx.splashes, projectileSplash{w: it.w, x: sp.X, y: sp.Y, z: sp.Z, volume: sp.Volume, pitch: sp.Pitch})
 		}
-		for _, ps := range it.boat.Paddles {
-			if it.look.silent {
-				continue
+		if !it.look.silent {
+			for _, ps := range it.boat.Paddles {
+				fx.paddles = append(fx.paddles, boatPaddle{w: it.w, sound: ps})
 			}
-			fx.paddles = append(fx.paddles, boatPaddle{w: it.w, sound: ps})
 		}
 		moveX, moveZ := it.boat.VX, it.boat.VZ
 		if driver != nil {
