@@ -291,10 +291,10 @@ func (s *Server) tickItems() {
 	s.mu.RUnlock()
 	// Where everyone is, read before the item lock: positions belong to
 	// the player's lock.
+	tick, pct := s.trackingTick(), s.entityBroadcastRange.Load()
 	watchers := make([]trackingWatcher, len(clients))
 	for i, c := range clients {
-		pos := c.player.Position()
-		watchers[i] = trackingWatcher{c: c, x: pos.X, z: pos.Z, chunkRadius: c.chunkRadius()}
+		watchers[i] = newTrackingWatcher(c, tick, pct)
 	}
 
 	pickups := newPickupIndex(clients)
@@ -447,13 +447,14 @@ func (s *Server) tickItems() {
 		if mt.gate && it.motionDue(it.item.VX, it.item.VY, it.item.VZ, true) {
 			motion = entityVelocityPayload(it.item.ID, it.item.VX, it.item.VY, it.item.VZ)
 		}
+		still, prevTick := body.stillSince(tick)
 		for _, i := range body.watchers(near) {
 			wh := watchers[i]
 			c := wh.c
 			if c.theWorld() != it.w {
 				continue // a player of another dimension never sees it move
 			}
-			was, seen := body.settle(c, wh.x, wh.z, wh.chunkRadius, &out)
+			was, seen := body.settleOrTold(wh, still, prevTick, &out)
 			if !seen || !mt.gate {
 				continue
 			}

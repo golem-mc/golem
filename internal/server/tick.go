@@ -599,14 +599,20 @@ func (s *Server) trackingWatchersLocked() []trackingWatcher {
 		if c.player == nil {
 			continue
 		}
-		pos := c.player.Position()
-		radius := c.chunkRadius()
-		watchers = append(watchers, trackingWatcher{
-			c: c, x: pos.X, z: pos.Z, chunkRadius: radius,
-			changedAt: c.tracking.read(c.theWorld(), pos.X, pos.Y, pos.Z, radius, c.hidden.Load(), pct, tick),
-		})
+		watchers = append(watchers, newTrackingWatcher(c, tick, pct))
 	}
 	return watchers
+}
+
+// newTrackingWatcher reads where a player stands and how far it sees, and
+// stamps the inputs for the pair skip.
+func newTrackingWatcher(c *client, tick uint64, pct int32) trackingWatcher {
+	pos := c.player.Position()
+	radius := c.chunkRadius()
+	return trackingWatcher{
+		c: c, x: pos.X, z: pos.Z, chunkRadius: radius,
+		changedAt: c.tracking.read(c.theWorld(), pos.X, pos.Y, pos.Z, radius, c.hidden.Load(), pct, tick),
+	}
 }
 
 // trackingWatchers reads where every player stands, taking the player list's

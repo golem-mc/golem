@@ -168,13 +168,13 @@ func (s *Server) tickFallingBlocks() {
 	clients := s.clientsLocked()
 	s.mu.RUnlock()
 
+	tick, pct := s.trackingTick(), s.entityBroadcastRange.Load()
 	watchers := make(map[*world.World][]trackingWatcher)
 	for _, c := range clients {
 		if c.player == nil {
 			continue
 		}
-		pos := c.player.Position()
-		watchers[c.theWorld()] = append(watchers[c.theWorld()], trackingWatcher{c: c, x: pos.X, z: pos.Z, chunkRadius: c.chunkRadius()})
+		watchers[c.theWorld()] = append(watchers[c.theWorld()], newTrackingWatcher(c, tick, pct))
 	}
 	near := nearbyWorlds(watchers, func(w trackingWatcher) trackingWatcher { return w })
 	defer releaseNearbyWorlds(near)
@@ -294,13 +294,14 @@ func (s *Server) tickFallingBlocks() {
 
 		body := fallingTracker.body(it)
 		mt := body.schedule(false)
+		still, prevTick := body.stillSince(tick)
 		for _, i := range body.watchers(near[it.w]) {
 			wh := watchers[it.w][i]
 			c := wh.c
 			if c.theWorld() != it.w {
 				continue // crossed to another dimension since the snapshot
 			}
-			if was, seen := body.settle(c, wh.x, wh.z, wh.chunkRadius, &out); seen && mt.gate {
+			if was, seen := body.settleOrTold(wh, still, prevTick, &out); seen && mt.gate {
 				body.moveTold(was, c, mt, &out)
 			}
 		}

@@ -15,6 +15,7 @@ func (s *Server) tickMinecartTracking() {
 		return
 	}
 	watchers := s.trackingWatchers()
+	tick := s.trackingTick()
 	near := nearbyTracking(watchers)
 	defer near.release()
 	var out trackSends
@@ -31,13 +32,14 @@ func (s *Server) tickMinecartTracking() {
 		pending := it.cart.TakeBounce() || synced || it.teleported
 		mt := body.schedule(pending)
 		now := minecartMetaOf(it)
+		still, prevTick := body.stillSince(tick)
 		for _, i := range body.watchers(near) {
 			watcher := watchers[i]
 			c := watcher.c
 			if c.theWorld() != it.w {
 				continue // crossed to another dimension since the snapshot
 			}
-			was, seen := body.settle(c, watcher.x, watcher.z, watcher.chunkRadius, &out)
+			was, seen := body.settleOrTold(watcher, still, prevTick, &out)
 			if !seen {
 				continue
 			}

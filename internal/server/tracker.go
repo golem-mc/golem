@@ -594,6 +594,14 @@ func (v *trackedBody[B, S]) stillSince(tick uint64) (still bool, prevTick uint64
 // so the pair's record stands.
 func unchanged(still bool, changedAt, prevTick uint64) bool { return still && changedAt < prevTick }
 
+// settleOrTold is settleBody's per-pair step for a kind with its own loop.
+func (v *trackedBody[B, S]) settleOrTold(wt trackingWatcher, still bool, prevTick uint64, out *trackSends) (*toldBody[S], bool) {
+	if unchanged(still, wt.changedAt, prevTick) {
+		return v.t.tracked.get(wt.c)
+	}
+	return v.settle(wt.c, wt.x, wt.z, wt.chunkRadius, out)
+}
+
 // settle pairs the body with a client standing at (x, z) that the range has
 // brought in and unpairs it from one the range has left. It reports whether
 // the client sees the body, and its record if so.

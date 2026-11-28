@@ -847,7 +847,8 @@ func trackStand(ent *armorStandEntity, watchers []trackingWatcher, near *nearbyP
 	now := armorStandMetaOf(ent)
 	// A changed synched value asks for a movement tick off the period.
 	// vanilla: ServerEntity.sendChanges (SynchedEntityData.isDirty)
-	if ent.metaSeen != nil && ent.metaSeen != now {
+	metaChanged := ent.metaSeen != now
+	if ent.metaSeen != nil && metaChanged {
 		ent.needsSync = true
 	}
 	ent.metaSeen = now
@@ -857,6 +858,11 @@ func trackStand(ent *armorStandEntity, watchers []trackingWatcher, near *nearbyP
 		attributes = attributesPayload(body.id, dirty)
 	}
 	still, prevTick := body.stillSince(tick)
+	// Every shown watcher already holds this metadata and position, and no
+	// movement is due: nothing is left to tell or settle.
+	if still && !metaChanged && !mt.gate && attributes == nil && !watchersChanged(watchers, body.watchers(near), prevTick) {
+		return
+	}
 	for _, i := range body.watchers(near) {
 		wh := watchers[i]
 		if wh.c.theWorld() != ent.w {
@@ -883,6 +889,17 @@ func trackStand(ent *armorStandEntity, watchers []trackingWatcher, near *nearbyP
 			}
 		}
 	}
+}
+
+// watchersChanged reports whether any listed watcher read different inputs
+// since the pass of tick prevTick.
+func watchersChanged(watchers []trackingWatcher, listed []int, prevTick uint64) bool {
+	for _, i := range listed {
+		if !unchanged(true, watchers[i].changedAt, prevTick) {
+			return true
+		}
+	}
+	return false
 }
 
 // standMove tells one watcher where the stand went: a relative move when the
