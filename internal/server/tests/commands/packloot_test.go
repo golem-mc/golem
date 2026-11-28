@@ -207,8 +207,7 @@ func TestPackFunctionsResolveNewPredicates(t *testing.T) {
 
 // TestPackItemModifiersRunFromItemModify checks that /item modify runs a data
 // pack's item modifier by name, as one function or a list, and inside an
-// inline list or a sequence's single holder, refuses one that
-// does not decode, and follows /reload.
+// inline list or a sequence's single holder, and follows /reload.
 // vanilla: ReloadableServerRegistries, LootDataType.MODIFIERS
 func TestPackItemModifiersRunFromItemModify(t *testing.T) {
 	t.Cleanup(func() { registry.ApplyPackLoot(nil, nil, nil) })

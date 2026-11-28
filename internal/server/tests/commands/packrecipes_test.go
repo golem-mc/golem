@@ -89,7 +89,7 @@ const (
 // replaces it (the built-in one no longer crafts) while the other built-ins
 // stay.
 // vanilla: RecipeManager.prepare
-func TestPackRecipesCraftOverrideAndSkip(t *testing.T) {
+func TestPackRecipesCraftAndOverride(t *testing.T) {
 	t.Cleanup(func() { registry.ApplyPackRecipes(registry.PackRecipes{}) })
 	cfg := packWorld(t)
 	recipeFile(t, cfg.LevelName, "pk:clay_coal", shapedClayCoal)
