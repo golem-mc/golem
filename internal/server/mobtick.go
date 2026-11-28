@@ -123,6 +123,10 @@ type mobTickInputs struct {
 	// holderSpans is every leash holder with its world, before the per-world
 	// copies in holders.
 	holderSpans []holderSpan
+	// heldIDs is addVehicleHolders' herd walk for addMobHolders; nil when
+	// it made none.
+	heldIDs    map[int32]bool
+	heldWalked bool
 	// stands is each world's visible armor stands, a goat's ram targets.
 	stands map[*world.World][]entity.StandTarget
 }
@@ -1106,16 +1110,10 @@ func (s *Server) addVehicleHolders(in *mobTickInputs) {
 	if nb+nc == 0 {
 		return
 	}
-	held := map[int32]bool{}
 	s.lockTick(&s.mobsMu)
-	for _, dim := range s.allDims() {
-		for _, m := range dim.mobs.herd {
-			if m.LeashHolderID != 0 {
-				held[m.LeashHolderID] = true
-			}
-		}
-	}
+	held := s.heldHolderIDs()
 	s.unlockTick(&s.mobsMu)
+	in.heldIDs, in.heldWalked = held, true
 	if len(held) == 0 {
 		return
 	}
@@ -1135,13 +1133,12 @@ func (s *Server) addVehicleHolders(in *mobTickInputs) {
 	s.minecartsMu.Unlock()
 }
 
-// addMobHolders offers every wandering trader and every mob that holds a
-// lead to every herd as a leash holder. Called under the mob lock.
-func (s *Server) addMobHolders(in *mobTickInputs) {
-	// held is the IDs of the bodies some mob's lead is tied to.
+// heldHolderIDs is the IDs of the bodies some mob's lead is tied to, nil if
+// none. Called under the mob lock.
+func (s *Server) heldHolderIDs() map[int32]bool {
 	var held map[int32]bool
-	for _, src := range s.allDims() {
-		for _, m := range src.mobs.herd {
+	for _, dim := range s.allDims() {
+		for _, m := range dim.mobs.herd {
 			if m.LeashHolderID != 0 {
 				if held == nil {
 					held = map[int32]bool{}
@@ -1150,6 +1147,20 @@ func (s *Server) addMobHolders(in *mobTickInputs) {
 			}
 		}
 	}
+	return held
+}
+
+// addMobHolders offers every wandering trader and every mob that holds a
+// lead to every herd as a leash holder. Called under the mob lock.
+func (s *Server) addMobHolders(in *mobTickInputs) {
+	// held is the IDs of the bodies some mob's lead is tied to; the walk
+	// addVehicleHolders made this tick is reused, since the tick is the only
+	// writer of a lead.
+	held := in.heldIDs
+	if !in.heldWalked {
+		held = s.heldHolderIDs()
+	}
+	in.heldIDs, in.heldWalked = nil, false
 	for _, src := range s.allDims() {
 		for _, m := range src.mobs.herd {
 			trader := m.Type == entity.TypeWanderingTrader
