@@ -27,7 +27,9 @@ import (
 // cloudEntity is one cloud: entity.Cloud plus dimension, UUID and
 // tracking.
 type cloudEntity struct {
-	flame bool
+	// vx, vy, vz is the saved Motion; a cloud never moves on it.
+	vx, vy, vz float64
+	flame      bool
 	// ownerDragon caches the resolved owner type, as AreaEffectCloud.getOwner does.
 	ownerDragon bool
 	cloud       *entity.Cloud
@@ -250,6 +252,7 @@ func applyCloudTag(it *cloudEntity, compound nbt.Compound) {
 
 func applyCloudTagWith(it *cloudEntity, compound nbt.Compound, upgradeLegacy bool) {
 	it.look = entityLookOf(compound)
+	it.vx, it.vy, it.vz = entityMotionOfTag(compound)
 	if x, y, z, ok := entityPositionOfTag(compound); ok {
 		it.cloud.SetPos(x, y, z)
 	}

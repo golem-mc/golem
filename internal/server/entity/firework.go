@@ -409,3 +409,21 @@ func (f *Firework) Box() AABB {
 	return AABB{f.X - FireworkHalfWidth, f.Y, f.Z - FireworkHalfWidth,
 		f.X + FireworkHalfWidth, f.Y + FireworkHeight, f.Z + FireworkHalfWidth}
 }
+
+// BlastBox is the rocket's box for ServerExplosion.getSeenPercent.
+func (f *Firework) BlastBox() (minX, minY, minZ, maxX, maxY, maxZ float64) {
+	b := f.Box()
+	return b.Corners()
+}
+
+// EyePosition is getEyePosition at the default eye height, 0.85 of the box.
+func (f *Firework) EyePosition() (x, y, z float64) {
+	return f.X, f.Y + float64(float32(FireworkHeight)*0.85), f.Z
+}
+
+// Push is Entity.push for an explosion's knockback.
+func (f *Firework) Push(vx, vy, vz float64) {
+	f.VX += vx
+	f.VY += vy
+	f.VZ += vz
+}

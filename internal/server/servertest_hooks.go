@@ -3973,6 +3973,18 @@ func (s *Server) EyeCount() int {
 	return len(s.eyes)
 }
 
+// FireworkPosition is the x coordinate of the rocket, false once it is gone.
+func (s *Server) FireworkPosition(id uuid.UUID) (x float64, ok bool) {
+	s.fireworksMu.Lock()
+	defer s.fireworksMu.Unlock()
+	for _, it := range s.fireworks {
+		if it.uuid == id && !it.rocket.Dead {
+			return it.rocket.X, true
+		}
+	}
+	return 0, false
+}
+
 // SpawnFireworkEntity flies a rocket from where the tests put it, unowned and
 // without a flight attached to a glider.
 func (s *Server) SpawnFireworkEntity(x, y, z float64) TestTrackedBody {
