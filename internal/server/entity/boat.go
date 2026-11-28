@@ -158,6 +158,8 @@ type Boat struct {
 	Dead   bool
 	// LavaHurts and Extinguishes count this tick's sounds.
 	LavaHurts, Extinguishes int
+	// Slides counts this tick's honey block slides, each owed the slide effects.
+	Slides int
 	// FireTicks is the burn left, 0 for none; Burning is the on-fire flag the
 	// clients are shown, set as of this tick's start.
 	// vanilla: Entity.remainingFireTicks, Entity.setSharedFlagOnFire
@@ -649,6 +651,7 @@ func (b *Boat) groundFriction(w World) (float64, bool) {
 // vanilla: Entity.baseTick
 func (b *Boat) burnTick() {
 	b.LavaHurts, b.Extinguishes = 0, 0
+	b.Slides = 0
 	if b.FireTicks > 0 {
 		if b.FireTicks%20 == 0 && b.lava.height <= 0 {
 			b.Hurt(float64(onFireDamage), rules.DamageTypeOnFire, false)
