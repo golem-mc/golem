@@ -1397,6 +1397,9 @@ func (s *Server) cauldronDoused(w *world.World, x, y, z int32) {
 	}
 }
 
+// douseCellCauldron lowers the cauldron a burning body was put out in.
+func (s *Server) douseCellCauldron(c cellSpot) { s.cauldronDoused(c.w, c.x, c.y, c.z) }
+
 // mobDousedCauldron lowers the cauldron a burning mob doused itself in.
 func (s *Server) mobDousedCauldron(g mobGraze) {
 	s.cauldronDoused(g.w, g.x, g.y, g.z)

@@ -87,6 +87,9 @@ const (
 	// OrbSteppedOnRedstoneOre: the orb rests on the unlit redstone ore at
 	// X, Y, Z.
 	OrbSteppedOnRedstoneOre
+	// OrbDousedCauldron: a burning orb was put out in the layered cauldron
+	// at X, Y, Z, which drops a level.
+	OrbDousedCauldron
 )
 
 // OrbEvent is one event out of an orb's tick. The Collector rides only an
@@ -423,12 +426,17 @@ func (o *Orb) insideEffects(w World, move bodyMove, events *[]OrbEvent) {
 	// held the orb from the tick before.
 	sideways := o.VX != 0 || o.VZ != 0
 	rel := AABB{-orbHalfSize, 0, -orbHalfSize, orbHalfSize, orbHeight, orbHalfSize}
+	var cauldrons [][3]int32
 	walkInside(w, []bodyMove{move}, rel, func(x, y, z int32, state uint16, _ int, from AABB, dx, dy, dz float64) bool {
 		if insideNonLiving(state, sideways, &o.stuck) {
 			*events = append(*events, OrbEvent{Kind: OrbSnowflake, Y: y})
 		}
 		fluid := sweptFluid(w, x, y, z, state, from, dx, dy, dz)
 		switch {
+		case rules.IsLayeredCauldron(state):
+			cauldrons = append(cauldrons, [3]int32{x, y, z})
+		case rules.IsPowderSnow(state):
+			o.fireTicks = 0 // vanilla: PowderSnowBlock.entityInside
 		case fluid == fluidWater:
 			o.fireTicks = 0
 		case fluid == fluidLava:
@@ -451,6 +459,13 @@ func (o *Orb) insideEffects(w World, move bodyMove, events *[]OrbEvent) {
 		}
 		return !o.Dead // vanilla: the walk stops for a body no longer alive
 	})
+	// vanilla: LayeredCauldronBlock.entityInside
+	if o.fireTicks > 0 {
+		for _, c := range cauldrons {
+			o.fireTicks = 0
+			*events = append(*events, OrbEvent{Kind: OrbDousedCauldron, X: c[0], Y: c[1], Z: c[2]})
+		}
+	}
 	if rainLandsOn(w, o.X, o.Y, o.Z, orbHeight) {
 		o.fireTicks = 0
 	}
@@ -458,6 +473,12 @@ func (o *Orb) insideEffects(w World, move bodyMove, events *[]OrbEvent) {
 		*events = append(*events, OrbEvent{Kind: OrbExtinguished})
 	}
 }
+
+// FireTicks is the burn the orb still has to run.
+func (o *Orb) FireTicks() int { return o.fireTicks }
+
+// SetFire sets the burn, vanilla's remainingFireTicks.
+func (o *Orb) SetFire(ticks int) { o.fireTicks = ticks }
 
 // followNearbyPlayer is vanilla's followNearbyPlayer. The current player is
 // kept unless a spectator or more than 8 blocks feet to feet (64 squared; a

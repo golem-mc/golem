@@ -47,6 +47,7 @@ type boatEffects struct {
 	movements vehicleMovements
 	burns     []burnSpot
 	fizzles   []burnSpot
+	cauldrons []cellSpot
 	paddles   []boatPaddle
 	gateways  []gatewayTouch
 	travels   []boatPortalTravel
@@ -73,6 +74,7 @@ func (fx *boatEffects) apply(s *Server) {
 	applyEach(s, fx.splashes, (*Server).splashProjectile)
 	applyEach(s, fx.burns, (*Server).burnVehicle)
 	applyEach(s, fx.fizzles, (*Server).fizzleVehicle)
+	applyEach(s, fx.cauldrons, (*Server).douseCellCauldron)
 	applyEach(s, fx.paddles, (*Server).playPaddle)
 	s.applyMobShares(fx.mobShares)
 	// The seats the tick leaves mobs in, written under the mob lock alone.

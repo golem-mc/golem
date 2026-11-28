@@ -153,10 +153,11 @@ func (s *Server) tickOrbs() {
 	}
 
 	var (
-		out    trackSends
-		sounds []orbSound
-		flakes []snowflakeSpot
-		ores   []cellSpot
+		out       trackSends
+		sounds    []orbSound
+		flakes    []snowflakeSpot
+		ores      []cellSpot
+		cauldrons []cellSpot
 		// removals is the orbs the tick itself ended, per world.
 		removals = make(map[*world.World][]int32)
 		takes    []orbTake
@@ -300,6 +301,8 @@ func (s *Server) tickOrbs() {
 			case entity.OrbExtinguished:
 				sounds = append(sounds, orbSound{w: it.w, id: protocol.IDPlaySoundEffect,
 					data: s.extinguishSound(protocol.SoundCategoryAmbient, it.orb.X, it.orb.Y, it.orb.Z)})
+			case entity.OrbDousedCauldron:
+				cauldrons = append(cauldrons, cellSpot{it.w, ev.X, ev.Y, ev.Z})
 			case entity.OrbSteppedOnRedstoneOre:
 				ores = append(ores, cellSpot{it.w, ev.X, ev.Y, ev.Z})
 			case entity.OrbSnowflake:
@@ -335,6 +338,7 @@ func (s *Server) tickOrbs() {
 	for _, sound := range sounds {
 		s.broadcastWorld(sound.w, sound.id, sound.data)
 	}
+	applyEach(s, cauldrons, (*Server).douseCellCauldron)
 	for _, o := range ores {
 		s.lightRedstoneOre(o.w, o.x, o.y, o.z)
 	}

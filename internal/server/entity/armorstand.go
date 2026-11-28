@@ -130,6 +130,9 @@ const (
 	// per EnchEquipment piece whose stack changed, and LocatedMoved for a new
 	// cell or a landing.
 	ArmorStandLocated
+	// ArmorStandDousedCauldron: a burning stand was put out in the layered
+	// cauldron at X, Y, Z, which drops a level.
+	ArmorStandDousedCauldron
 )
 
 // ArmorStandEvent is one event out of an armor stand's tick.
@@ -268,6 +271,8 @@ func (s *ArmorStand) Step(w World) []ArmorStandEvent {
 	if !s.NoGravity {
 		s.VY, _ = bubbleColumnDrift(w, s.Box(), s.VY)
 		var broke bool
+		var cauldrons [][3]int32
+		extinguish := false
 		s.Box().insideCells(func(x, y, z int32) {
 			switch {
 			case rules.IsFire(w.BlockAt(x, y, z)):
@@ -278,6 +283,11 @@ func (s *ArmorStand) Step(w World) []ArmorStandEvent {
 				}
 			case rules.IsLava(w.BlockAt(x, y, z)), rules.IsLavaCauldron(w.BlockAt(x, y, z)):
 				s.igniteFor(fireTicksLava)
+			case rules.IsPowderSnow(w.BlockAt(x, y, z)):
+				extinguish = true
+			case rules.IsLayeredCauldron(w.BlockAt(x, y, z)):
+				cauldrons = append(cauldrons, [3]int32{x, y, z})
+				extinguish = true
 			}
 		})
 		if broke {
@@ -287,6 +297,15 @@ func (s *ArmorStand) Step(w World) []ArmorStandEvent {
 		// Rain (only where the sky reaches the stand) and water extinguish it,
 		// after the move and the inside-block effects.
 		// vanilla: Entity.applyEffectsFromBlocks
+		// vanilla: LayeredCauldronBlock.entityInside, PowderSnowBlock.entityInside
+		if extinguish {
+			if s.FireTicks > 0 {
+				for _, c := range cauldrons {
+					events = append(events, ArmorStandEvent{Kind: ArmorStandDousedCauldron, X: float64(c[0]), Y: float64(c[1]), Z: float64(c[2])})
+				}
+			}
+			s.FireTicks = 0
+		}
 		if s.inRain(w) || rules.IsWater(w.BlockAt(int32(math.Floor(s.X)), int32(math.Floor(s.Y)), int32(math.Floor(s.Z)))) {
 			s.FireTicks = 0
 		}

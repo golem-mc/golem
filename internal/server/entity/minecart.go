@@ -138,7 +138,9 @@ type Minecart struct {
 	FireTicks int
 	// LavaHurts and Extinguishes count this tick's sounds.
 	LavaHurts, Extinguishes int
-	burnHurt                func(float64, registry.DamageType, bool) bool
+	// DousedCauldrons are the layered cauldrons a burning cart was put out in.
+	DousedCauldrons [][3]int32
+	burnHurt        func(float64, registry.DamageType, bool) bool
 
 	// vanilla: Entity.isNoGravity
 	NoGravity bool
@@ -313,6 +315,7 @@ func (m *Minecart) contactHurt(amount float64, damageType registry.DamageType, c
 // vanilla: AbstractMinecart.tick, OldMinecartBehavior.tick
 func (m *Minecart) Step(w World, ridden bool) {
 	m.LavaHurts, m.Extinguishes = 0, 0
+	m.DousedCauldrons = m.DousedCauldrons[:0]
 	m.Snowflakes = m.Snowflakes[:0]
 	m.Splash = nil
 	m.Movement = MovementEvent{}
@@ -407,7 +410,7 @@ func (m *Minecart) blockEffects(w World) {
 			m.Snowflakes = append(m.Snowflakes, y)
 		}
 		return true
-	})
+	}, &m.DousedCauldrons)
 	m.LavaHurts += burns
 	m.Extinguishes += fizzles
 }

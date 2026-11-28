@@ -64,7 +64,7 @@ func (b *Boat) InsideBlocks(w World, fx, fy, fz, moveX, moveZ float64, pads []Li
 				flakes = append(flakes, y)
 			}
 			return true
-		})
+		}, &b.DousedCauldrons)
 		b.LavaHurts += burns
 		b.Extinguishes += fizzles
 	}
