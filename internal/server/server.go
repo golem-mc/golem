@@ -2743,11 +2743,23 @@ func (s *Server) obstructed(w *world.World, x, y, z int32, state uint16) bool {
 	s.mu.RLock()
 	clients := s.clientsLocked()
 	s.mu.RUnlock()
+	// Most players are far from the cell: test the position alone before
+	// reading the mode, pose and scale, which each take the player's lock.
+	// A scaled player's box reaches at most playerReachWidth/2 sideways and
+	// playerReachHeight up from its position.
 	for _, c := range clients {
-		if c.theWorld() != w || c.player.GameMode() == protocol.GameModeSpectator {
+		if c.theWorld() != w {
 			continue
 		}
 		pos := c.player.Position()
+		if pos.X < float64(x)-playerReachWidth/2 || pos.X > float64(x+1)+playerReachWidth/2 ||
+			pos.Z < float64(z)-playerReachWidth/2 || pos.Z > float64(z+1)+playerReachWidth/2 ||
+			pos.Y > float64(y+1) || pos.Y+playerReachHeight < float64(y) {
+			continue
+		}
+		if c.player.GameMode() == protocol.GameModeSpectator {
+			continue
+		}
 		d := c.dims(c.player.Appearance().Pose)
 		if boxOverlapsPlaced(x, y, z, state,
 			pos.X-d.Width/2, pos.Y, pos.Z-d.Width/2,
@@ -2758,7 +2770,7 @@ func (s *Server) obstructed(w *world.World, x, y, z int32, state uint16) bool {
 
 	s.mobsMu.Lock()
 	herd := s.herdOf(w)
-	// The index files a mob by its position; the margin covers its half
+	// The index files a body by its position; the margin covers its half
 	// width.
 	box := [6]float64{float64(x) - mobIndexMargin, float64(y), float64(z) - mobIndexMargin,
 		float64(x) + 1 + mobIndexMargin, float64(y) + 1, float64(z) + 1 + mobIndexMargin}
@@ -2782,102 +2794,121 @@ func (s *Server) obstructed(w *world.World, x, y, z int32, state uint16) bool {
 	}
 	s.mobsMu.Unlock()
 
-	s.tntMu.Lock()
-	for _, it := range s.tnts {
-		if it.w != w || it.tnt.Dead {
-			continue
-		}
-		minX, minZ := it.tnt.X-entity.TNTHalfWidth, it.tnt.Z-entity.TNTHalfWidth
-		if boxOverlapsPlaced(x, y, z, state, minX, it.tnt.Y, minZ,
-			it.tnt.X+entity.TNTHalfWidth, it.tnt.Y+entity.TNTHeight, it.tnt.Z+entity.TNTHalfWidth) {
-			s.tntMu.Unlock()
-			return true
-		}
+	overlaps := func(minX, minY, minZ, maxX, maxY, maxZ float64) bool {
+		return boxOverlapsPlaced(x, y, z, state, minX, minY, minZ, maxX, maxY, maxZ)
 	}
+
+	s.tntMu.Lock()
+	hit = anyBody(&s.tntChunks, s.tnts, &area, indexed, func(it *tntEntity) bool {
+		return it.w == w && !it.tnt.Dead && overlaps(it.tnt.X-entity.TNTHalfWidth, it.tnt.Y, it.tnt.Z-entity.TNTHalfWidth,
+			it.tnt.X+entity.TNTHalfWidth, it.tnt.Y+entity.TNTHeight, it.tnt.Z+entity.TNTHalfWidth)
+	})
 	s.tntMu.Unlock()
+	if hit {
+		return true
+	}
 
 	s.fallingMu.Lock()
-	for _, it := range s.fallings {
-		if it.w != w || it.fb.Dead {
-			continue
-		}
-		minX, minZ := it.fb.X-entity.FallingHalfWidth, it.fb.Z-entity.FallingHalfWidth
-		if boxOverlapsPlaced(x, y, z, state, minX, it.fb.Y, minZ,
-			it.fb.X+entity.FallingHalfWidth, it.fb.Y+entity.FallingHeight, it.fb.Z+entity.FallingHalfWidth) {
-			s.fallingMu.Unlock()
-			return true
-		}
-	}
+	hit = anyBody(&s.fallingChunks, s.fallings, &area, indexed, func(it *fallingEntity) bool {
+		return it.w == w && !it.fb.Dead && overlaps(it.fb.X-entity.FallingHalfWidth, it.fb.Y, it.fb.Z-entity.FallingHalfWidth,
+			it.fb.X+entity.FallingHalfWidth, it.fb.Y+entity.FallingHeight, it.fb.Z+entity.FallingHalfWidth)
+	})
 	s.fallingMu.Unlock()
+	if hit {
+		return true
+	}
 
 	s.boatsMu.Lock()
-	for _, it := range s.boats {
-		if it.w != w || it.boat.Dead {
-			continue
-		}
-		minX, minZ := it.boat.X-entity.BoatHalfWidth, it.boat.Z-entity.BoatHalfWidth
-		if boxOverlapsPlaced(x, y, z, state, minX, it.boat.Y, minZ,
-			it.boat.X+entity.BoatHalfWidth, it.boat.Y+entity.BoatHeight, it.boat.Z+entity.BoatHalfWidth) {
-			s.boatsMu.Unlock()
-			return true
-		}
-	}
+	hit = anyBody(&s.boatChunks, s.boats, &area, indexed, func(it *boatEntity) bool {
+		return it.w == w && !it.boat.Dead && overlaps(it.boat.X-entity.BoatHalfWidth, it.boat.Y, it.boat.Z-entity.BoatHalfWidth,
+			it.boat.X+entity.BoatHalfWidth, it.boat.Y+entity.BoatHeight, it.boat.Z+entity.BoatHalfWidth)
+	})
 	s.boatsMu.Unlock()
+	if hit {
+		return true
+	}
 
 	s.minecartsMu.Lock()
-	for _, it := range s.minecarts {
+	hit = anyBody(&s.minecartChunks, s.minecarts, &area, indexed, func(it *minecartEntity) bool {
 		if it.w != w || it.cart.Dead {
-			continue
+			return false
 		}
 		minX, minY, minZ, maxX, maxY, maxZ := it.cart.Box()
-		if boxOverlapsPlaced(x, y, z, state, minX, minY, minZ, maxX, maxY, maxZ) {
-			s.minecartsMu.Unlock()
-			return true
-		}
-	}
+		return overlaps(minX, minY, minZ, maxX, maxY, maxZ)
+	})
 	s.minecartsMu.Unlock()
+	if hit {
+		return true
+	}
 
 	s.endCrystalsMu.Lock()
-	for _, ent := range s.endCrystals {
+	hit = anyBody(&s.crystalChunks, s.endCrystals, &area, indexed, func(ent *endCrystalEntity) bool {
 		if ent.w != w || ent.crystal.Dead {
-			continue
+			return false
 		}
 		minX, minY, minZ, maxX, maxY, maxZ := ent.crystal.BlastBox()
-		if boxOverlapsPlaced(x, y, z, state, minX, minY, minZ, maxX, maxY, maxZ) {
-			s.endCrystalsMu.Unlock()
-			return true
-		}
-	}
+		return overlaps(minX, minY, minZ, maxX, maxY, maxZ)
+	})
 	s.endCrystalsMu.Unlock()
+	if hit {
+		return true
+	}
 
 	// A marker stand lets blocks through. vanilla: ArmorStand's
 	// blocksBuilding = !isMarker()
 	s.armorStandsMu.Lock()
-	for _, ent := range s.armorStands {
+	hit = anyBody(&s.standChunks, s.armorStands, &area, indexed, func(ent *armorStandEntity) bool {
 		if ent.w != w || ent.stand.Dead || ent.stand.Marker {
-			continue
+			return false
 		}
 		minX, minY, minZ, maxX, maxY, maxZ := ent.stand.Box().Corners()
-		if boxOverlapsPlaced(x, y, z, state, minX, minY, minZ, maxX, maxY, maxZ) {
-			s.armorStandsMu.Unlock()
-			return true
-		}
-	}
+		return overlaps(minX, minY, minZ, maxX, maxY, maxZ)
+	})
 	s.armorStandsMu.Unlock()
+	if hit {
+		return true
+	}
 
 	s.mannequinsMu.Lock()
 	defer s.mannequinsMu.Unlock()
-	for _, ent := range s.mannequins {
+	return anyBody(&s.mannequinChunks, s.mannequins, &area, indexed, func(ent *mannequinEntity) bool {
 		if ent.w != w || ent.mannequin.Dead {
-			continue
+			return false
 		}
 		minX, minY, minZ, maxX, maxY, maxZ := ent.mannequin.BlastBox()
-		if boxOverlapsPlaced(x, y, z, state, minX, minY, minZ, maxX, maxY, maxZ) {
-			return true
+		return overlaps(minX, minY, minZ, maxX, maxY, maxZ)
+	})
+}
+
+// anyBody reports whether hit holds for a body of one kind: those filed in
+// the area's chunks, or all of them when the area is too large to index. The
+// caller holds the kind's lock.
+func anyBody[E any](ix *entity.ChunkIndex[E], all []E, area *chunkArea, indexed bool, hit func(E) bool) bool {
+	found := false
+	test := func(e E) bool {
+		found = hit(e)
+		return !found
+	}
+	if indexed {
+		bodiesInChunks(ix, nil, area, test)
+		return found
+	}
+	for _, e := range all {
+		if !test(e) {
+			break
 		}
 	}
-	return false
+	return found
 }
+
+// playerReachWidth and playerReachHeight bound a player's box at the largest
+// scale attribute: the standing box times that maximum, plus a block of slack
+// for the float32 narrowing.
+// vanilla: Attributes.SCALE (maximum 16)
+var (
+	playerReachWidth  = 0.6*registry.Attributes[registry.AttributeScale].Max + 1
+	playerReachHeight = 1.8*registry.Attributes[registry.AttributeScale].Max + 1
+)
 
 // mobIndexMargin is how far past a query box a mob's position may sit while
 // its box still reaches in: above the widest half width of any indexed mob.
