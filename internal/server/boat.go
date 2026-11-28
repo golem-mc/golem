@@ -441,9 +441,14 @@ func (s *Server) tickBoats() {
 		from := entity.NewAABB(entity.BoatBoxAt(sx, sy, sz))
 		it.boat.Step(bw, driver != nil)
 		fx.movements.add(it.w, it.uuid, it.boat.Movement)
+		moveX, moveZ := it.boat.VX, it.boat.VZ
+		var known player.Velocity
+		if driver != nil {
+			known = driver.player.KnownMovement()
+			moveX, moveZ = known.X, known.Z
+		}
 		if sp := it.boat.Splash; sp != nil {
 			if driver != nil {
-				known := driver.player.KnownMovement()
 				sp.Ridden(known.X, known.Y, known.Z)
 			}
 			fx.splashes = append(fx.splashes, projectileSplash{w: it.w, x: sp.X, y: sp.Y, z: sp.Z, volume: sp.Volume, pitch: sp.Pitch})
@@ -453,11 +458,6 @@ func (s *Server) tickBoats() {
 				continue
 			}
 			fx.paddles = append(fx.paddles, boatPaddle{w: it.w, sound: ps})
-		}
-		moveX, moveZ := it.boat.VX, it.boat.VZ
-		if driver != nil {
-			known := driver.player.KnownMovement()
-			moveX, moveZ = known.X, known.Z
 		}
 		padBuf, flakeBuf = it.boat.InsideBlocks(it.w, sx, sy, sz, moveX, moveZ, padBuf, flakeBuf)
 		for range it.boat.LavaHurts {
