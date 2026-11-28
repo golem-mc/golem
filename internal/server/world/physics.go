@@ -1530,8 +1530,10 @@ func (p *Physics) bookTick(x, y, z int32, typ fluidType, due int64, priority int
 	// A fluid booking first reserves the saved fluid bookings, so a new one
 	// cannot take their place.
 	// vanilla: LevelChunkTicks.<init>
-	p.adoptTicks(p.w.prepareTick(x, z, true, typ != 0))
-	p.insertTick(blockKey{x, y, z}, typ, due, priority)
+	p.adoptTicks(p.w.prepareTick(x, z, false, typ != 0))
+	if p.insertTick(blockKey{x, y, z}, typ, due, priority) {
+		p.w.touchContainerChunk(ChunkPos{X: x >> 4, Z: z >> 4})
+	}
 }
 
 // dropTickIndex forgets the chunk index after a queue mutation. The stores are
@@ -1560,23 +1562,23 @@ func (p *Physics) setTicks(kept tickQueue) {
 }
 
 // insertTick queues a visit unless one is waiting for the same key and fluid
-// type. Runs under p.mu.
-func (p *Physics) insertTick(key blockKey, typ fluidType, due int64, priority int) {
+// type, reporting whether it queued one. Runs under p.mu.
+func (p *Physics) insertTick(key blockKey, typ fluidType, due int64, priority int) bool {
 	if typ != 0 {
 		book := fluidBook{key, typ}
 		if _, ok := p.fluidBooked[book]; ok {
-			return
+			return false
 		}
 		p.fluidBooked[book] = struct{}{}
 	} else if priority == tickPriorityFinalize {
 		// A landing is a block-entity tick: it neither waits behind nor holds
 		// back an ordinary block tick of the cell.
 		if _, ok := p.finalizeSeq[key]; ok {
-			return
+			return false
 		}
 	} else {
 		if p.pending[key] {
-			return
+			return false
 		}
 		p.pending[key] = true
 	}
@@ -1589,6 +1591,7 @@ func (p *Physics) insertTick(key blockKey, typ fluidType, due int64, priority in
 	if priority == tickPriorityFinalize && typ == 0 {
 		p.finalizeSeq[key] = p.seq
 	}
+	return true
 }
 
 // BlockTicks is the block ticks pending in a box when taken, each with the

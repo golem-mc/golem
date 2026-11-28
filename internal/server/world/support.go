@@ -794,7 +794,7 @@ func (p *Physics) scheduleBooked(booked map[blockKey]bool, x, y, z int32, due in
 // is booked for (BlockAir for the cell's block, read once the tick is known to
 // be new).
 func (p *Physics) scheduleBookedFor(booked map[blockKey]bool, x, y, z int32, due int64, priority int, event uint8, block registry.Block) {
-	_, unloaded := p.w.prepareTick(x, z, true, false)
+	_, unloaded := p.w.prepareTick(x, z, false, false)
 	p.discardUnloadedTicks(unloaded)
 	key := blockKey{x, y, z}
 	if booked[key] {
@@ -808,6 +808,7 @@ func (p *Physics) scheduleBookedFor(booked map[blockKey]bool, x, y, z int32, due
 	p.pushTick(scheduledTick{
 		pos: key, due: due, priority: priority, seq: p.seq, event: event, block: block,
 	})
+	p.w.touchContainerChunk(ChunkPos{X: x >> 4, Z: z >> 4})
 }
 
 // survivalTick runs supportCheck's booked tick, reporting whether the block

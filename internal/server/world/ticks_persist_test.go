@@ -714,3 +714,29 @@ func TestScheduleBookedForTakesUnloads(t *testing.T) {
 		t.Errorf("queue %d -> %d; want the stale tick replaced by the new one", before, after)
 	}
 }
+
+// TestDuplicateBookingLeavesChunkClean checks a booking that deduplicates does
+// not flag its chunk for a save, and a new one does.
+func TestDuplicateBookingLeavesChunkClean(t *testing.T) {
+	w, p, _ := newSavedWorldAround(t, 0, 0)
+	t.Cleanup(func() { w.Close() })
+	water := fluidTypeNamed("minecraft:water")
+	home := ChunkPos{}
+	for _, book := range []func(){
+		func() { p.bookTick(8, GroundLevel, 8, water, 5, tickPriorityNormal) },
+		func() { p.bookTick(9, GroundLevel, 8, 0, 5, tickPriorityNormal) },
+		func() { p.scheduleSurvival(10, GroundLevel, 8, 5) },
+	} {
+		p.mu.Lock()
+		cleanChunk(w, home)
+		book()
+		dirty := w.ChunkDirty(home)
+		cleanChunk(w, home)
+		book()
+		dup := w.ChunkDirty(home)
+		p.mu.Unlock()
+		if !dirty || dup {
+			t.Errorf("new booking dirty %v, duplicate dirty %v; want true, false", dirty, dup)
+		}
+	}
+}
