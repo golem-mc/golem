@@ -32,6 +32,7 @@ func (s *Server) publishPacks(dirs []string) (*loadedFunctions, error) {
 		slog.Warn("Skipping data pack file " + file + ": " + err.Error())
 	}
 	layers := registry.StagePackLayers()
+	var bad packErrors
 	packTags, err := loadPackTags(dirs, skip)
 	if err != nil {
 		return nil, err
@@ -49,22 +50,26 @@ func (s *Server) publishPacks(dirs []string) (*loadedFunctions, error) {
 		return nil, err
 	}
 	// Before the loot: a slots entry's source names resolve against them.
-	if err := loadPackSlotSources(layers, dirs, skip); err != nil {
+	if err := loadPackSlotSources(layers, dirs, skip, &bad); err != nil {
 		return nil, err
 	}
 	// Advancement criteria resolve item tags and context providers.
-	packAdvancements, hiddenAdvancements, err := loadPackAdvancements(layers, dirs, skip)
+	packAdvancements, hiddenAdvancements, err := loadPackAdvancements(layers, dirs, skip, &bad)
 	if err != nil {
 		return nil, err
 	}
 	// After the tags: a table's tag entries resolve against the loaded tags.
-	tables, predicates, modifiers, err := loadPackLoot(layers, dirs, skip)
+	tables, predicates, modifiers, err := loadPackLoot(layers, dirs, skip, &bad)
 	if err != nil {
 		return nil, err
 	}
 	// After the tags too: an ingredient's tag resolves against the loaded tags.
-	recipes, err := loadPackRecipes(dirs, datapack.NewResourceDecoder(layers), skip)
+	recipes, err := loadPackRecipes(dirs, datapack.NewResourceDecoder(layers), skip, &bad)
 	if err != nil {
+		return nil, err
+	}
+	// Before anything is published: one refused element fails the whole load.
+	if err := bad.err(); err != nil {
 		return nil, err
 	}
 	layers.SetPredicates(predicates)

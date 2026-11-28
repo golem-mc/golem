@@ -71,8 +71,6 @@ func give(srv *server.Server, t *testing.T, name, item string) {
 func TestPackAdvancementIsGrantedByItsTrigger(t *testing.T) {
 	cfg, data := packConfig(t)
 	writePackFile(t, filepath.Join(data, "pk", "advancement", "stick.json"), packAdvancement("stick"))
-	// A file that does not decode is skipped, not the whole load.
-	writePackFile(t, filepath.Join(data, "pk", "advancement", "broken.json"), `{"criteria":`)
 	srv, c := joinOp(t, cfg, "Packer")
 
 	give(srv, t, "Packer", "dirt")

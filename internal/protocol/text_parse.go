@@ -204,7 +204,7 @@ func (p *jsonTextParser) object(o map[string]any, depth int) (nbt.Tag, error) {
 		out["extra"] = componentList(extra)
 	}
 
-	if err := p.style(o, out); err != nil {
+	if err := p.style(o, out, depth); err != nil {
 		return nil, err
 	}
 	return out, nil
@@ -329,7 +329,7 @@ func (p *jsonTextParser) argument(v any, depth int) (nbt.Tag, error) {
 
 // style reads the style fields of o into out.
 // vanilla: Style.Serializer.MAP_CODEC
-func (p *jsonTextParser) style(o map[string]any, out nbt.Compound) error {
+func (p *jsonTextParser) style(o map[string]any, out nbt.Compound, depth int) error {
 	if raw, ok := o["color"]; ok {
 		color, ok := raw.(string)
 		// Narrower than TextColor.parseColor, which also takes forms like
@@ -373,8 +373,56 @@ func (p *jsonTextParser) style(o map[string]any, out nbt.Compound) error {
 		out["font"] = nbt.String(font)
 	}
 	for _, key := range []string{"click_event", "hover_event"} {
+		if raw, ok := o[key]; ok {
+			if err := p.event(key, raw, depth); err != nil {
+				return err
+			}
+		}
 		if _, ok := o[key]; ok && !slices.Contains(p.dropped, key) {
 			p.dropped = append(p.dropped, key)
+		}
+	}
+	return nil
+}
+
+// clickFields and hoverFields are the fields an event of each action must
+// carry, by action.
+// vanilla: ClickEvent.CODEC, HoverEvent.CODEC
+var (
+	clickFields = map[string][]string{
+		"open_url": {"url"}, "run_command": {"command"}, "suggest_command": {"command"},
+		"change_page": {"page"}, "copy_to_clipboard": {"value"}, "show_dialog": {"dialog"}, "custom": {"id"},
+	}
+	hoverFields = map[string][]string{
+		"show_text": {"value"}, "show_item": {"id"}, "show_entity": {"id", "uuid"},
+	}
+)
+
+// event checks that a click or hover event names a known action and holds
+// its required fields; the event itself is dropped, but a text it holds must
+// decode.
+func (p *jsonTextParser) event(key string, raw any, depth int) error {
+	o, ok := raw.(map[string]any)
+	if !ok {
+		return fmt.Errorf("%s is not an object", key)
+	}
+	fields := clickFields
+	if key == "hover_event" {
+		fields = hoverFields
+	}
+	action, _ := o["action"].(string)
+	required, ok := fields[action]
+	if !ok {
+		return fmt.Errorf("unknown %s action %s", key, jsonValue(o["action"]))
+	}
+	for _, field := range required {
+		if _, ok := o[field]; !ok {
+			return fmt.Errorf("%s %s has no %s", key, action, field)
+		}
+	}
+	if action == "show_text" {
+		if _, err := p.component(o["value"], depth+1); err != nil {
+			return err
 		}
 	}
 	return nil

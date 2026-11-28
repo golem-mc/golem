@@ -1,7 +1,6 @@
 package server
 
 import (
-	"log/slog"
 	"maps"
 	"slices"
 	"strings"
@@ -12,9 +11,9 @@ import (
 )
 
 // loadPackAdvancements reads the enabled packs' advancements; a file that
-// fails to decode is logged and skipped, leaving the built-in one.
+// vanilla's codec refuses is added to bad.
 // vanilla: ServerAdvancementManager.apply
-func loadPackAdvancements(layers *registry.PackLayers, dirs []string, skip func(file string, err error)) (packed []registry.Advancement, hidden map[string]bool, err error) {
+func loadPackAdvancements(layers *registry.PackLayers, dirs []string, skip func(file string, err error), bad *packErrors) (packed []registry.Advancement, hidden map[string]bool, err error) {
 	raw, err := datapack.LoadResources(dirs, "advancement", skip)
 	if err != nil {
 		return nil, nil, err
@@ -32,7 +31,7 @@ func loadPackAdvancements(layers *registry.PackLayers, dirs []string, skip func(
 	for _, id := range slices.Sorted(maps.Keys(raw)) {
 		adv, err := datapack.DecodeAdvancement(layers, id, raw[id])
 		if err != nil {
-			slog.Error("Couldn't parse element advancement/" + id + ": " + err.Error())
+			bad.add("advancement", id, err)
 			continue
 		}
 		out = append(out, adv)
