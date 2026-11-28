@@ -3795,17 +3795,19 @@ func (s *Server) FallingBlockPosition(id int32) (x, y, z float64, ok bool) {
 	return 0, 0, 0, false
 }
 
-// FallingBlockVelocityY is the vertical velocity of a live falling block
-// with the given ID.
-func (s *Server) FallingBlockVelocityY(id int32) (vy float64, ok bool) {
+// FallingBlockVelocityY is the vertical velocity of the single live falling
+// block, or false when there is not exactly one.
+func (s *Server) FallingBlockVelocityY() (vy float64, ok bool) {
 	s.fallingMu.Lock()
 	defer s.fallingMu.Unlock()
+	n := 0
 	for _, it := range s.fallings {
-		if it.fb.ID == id && !it.fb.Dead {
-			return it.fb.VY, true
+		if !it.fb.Dead {
+			vy = it.fb.VY
+			n++
 		}
 	}
-	return 0, false
+	return vy, n == 1
 }
 
 func (s *Server) PaintingCount() int {

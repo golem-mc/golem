@@ -71,18 +71,8 @@ func TestBodiesMovingSidewaysAreMovedByEachBubbleColumnLeg(t *testing.T) {
 	if n := srv.FallingCount(); n != 1 {
 		t.Fatalf("falling blocks = %d, want one", n)
 	}
-	// Entity IDs are not known here; probe the ID range of the live block.
-	found := false
-	for id := int32(1); id < 200 && !found; id++ {
-		if vy, ok := srv.FallingBlockVelocityY(id); ok {
-			found = true
-			if math.Abs(vy-0.60172) > 1e-4 {
-				t.Errorf("falling block after 2 ticks Motion[1] = %v, want 0.60172", vy)
-			}
-		}
-	}
-	if !found {
-		t.Error("falling block not found")
+	if vy, ok := srv.FallingBlockVelocityY(); !ok || math.Abs(vy-0.60172) > 1e-4 {
+		t.Errorf("falling block after 2 ticks Motion[1] = %v (ok %v), want 0.60172", vy, ok)
 	}
 	tnts := srv.TNTsInDimension("minecraft:overworld")
 	if len(tnts) != 1 || math.Abs(tnts[0].VY-0.60172) > 1e-4 {
