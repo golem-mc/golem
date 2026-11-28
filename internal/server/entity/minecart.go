@@ -181,7 +181,7 @@ type Minecart struct {
 	// rolls each for a snowflake.
 	Snowflakes []int32
 
-	water fluidTracker
+	water, lava fluidTracker
 	// stuck is the multiplier the cells the cart's last block check found
 	// leave for the next move.
 	stuck stuckFactor
@@ -364,8 +364,8 @@ func (m *Minecart) Step(w World, ridden bool) {
 	m.VY, _ = bubbleColumnDrift(w, m.cartBox(), m.VY)
 	m.blockEffects(w)
 	m.Splash = m.step(w, m.cartBox(), m.VX, m.VY, m.VZ)
-	var lava fluidTracker
-	updateFluid(w, m.cartBox(), m.X, m.Y+MinecartHeight, m.Z, false, &m.water, &lava)
+	updateFluid(w, m.cartBox(), m.X, m.Y+MinecartHeight, m.Z, true, &m.water, &m.lava)
+	m.VX, m.VY, m.VZ = applyCurrents(w, &m.water, &m.lava, m.VX, m.VY, m.VZ)
 	// The explicit lava hurt still succeeds after block effects removed the cart.
 	// vanilla: AbstractMinecart.tick, VehicleEntity.hurtServer
 	if BoxInLava(w, m.X, m.Y, m.Z, MinecartHalfWidth*2, MinecartHeight) {

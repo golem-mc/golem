@@ -471,3 +471,24 @@ func (b AABB) insideCells(yield func(x, y, z int32)) {
 		}
 	}
 }
+
+// applyCurrents adds the water and lava currents a tracker pair accumulated
+// to a velocity.
+// vanilla: Entity.updateFluidInteraction
+func applyCurrents(w World, water, lava *fluidTracker, vx, vy, vz float64) (float64, float64, float64) {
+	if water.height > 0 {
+		if dx, dy, dz, any := water.currentImpulse(waterCurrent, vx, vz); any {
+			vx, vy, vz = vx+dx, vy+dy, vz+dz
+		}
+	}
+	if lava.height > 0 {
+		scale := lavaCurrent
+		if w.FastLava() {
+			scale = fastLavaCurrent
+		}
+		if dx, dy, dz, any := lava.currentImpulse(scale, vx, vz); any {
+			vx, vy, vz = vx+dx, vy+dy, vz+dz
+		}
+	}
+	return vx, vy, vz
+}
