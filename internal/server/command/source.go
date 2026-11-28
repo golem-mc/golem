@@ -65,19 +65,29 @@ func (q *EntityQuery) RejectsTags(size int, contains func(string) bool) bool {
 // box and the identity cannot match. A nil query rejects nothing. The box
 // test is Selector.predicate's, strict on every side.
 func (q *EntityQuery) Rejects(typ, dim string, box [6]float64, id uuid.UUID) bool {
+	return q.RejectsHead(typ, dim, id) || q.RejectsBox(box)
+}
+
+// RejectsHead is Rejects without the box test, for a caller that builds the
+// box only when q.Box is set.
+func (q *EntityQuery) RejectsHead(typ, dim string, id uuid.UUID) bool {
 	if q == nil {
 		return false
 	}
 	if q.Type != "" && typ != q.Type || q.Dimension != "" && dim != q.Dimension {
 		return true
 	}
-	if q.UUID != nil && id != *q.UUID {
-		return true
+	return q.UUID != nil && id != *q.UUID
+}
+
+// RejectsBox reports whether box misses the query's box; a query without
+// one rejects nothing.
+func (q *EntityQuery) RejectsBox(box [6]float64) bool {
+	if q == nil || q.Box == nil {
+		return false
 	}
-	if b := q.Box; b != nil {
-		return !(box[3] > b[0] && box[0] < b[3] && box[4] > b[1] && box[1] < b[4] && box[5] > b[2] && box[2] < b[5])
-	}
-	return false
+	b := q.Box
+	return !(box[3] > b[0] && box[0] < b[3] && box[4] > b[1] && box[1] < b[4] && box[5] > b[2] && box[2] < b[5])
 }
 
 // ItemFilter reports whether a stack is one the command asks for; nil means

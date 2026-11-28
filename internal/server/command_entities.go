@@ -1475,8 +1475,23 @@ func (ws worldScope) query(q entityQuery) []command.Entity {
 		}()
 	}
 	entities := make([]command.Entity, 0, 16)
-	for _, c := range s.playerClients() {
-		if q.Rejects(c.EntityType(), c.DimensionName(), box6(c.Box()), c.UUID()) {
+	// A fixed non-player type rules every player out; a UUID names one.
+	// vanilla: EntitySelector.findEntities
+	var players []*client
+	switch {
+	case q.Type != "" && !fixedPlayerType(q.Type):
+	case q.UUID != nil:
+		if c := s.clientByUUID(*q.UUID); c != nil {
+			players = []*client{c}
+		}
+	default:
+		players = s.playerClients()
+	}
+	for _, c := range players {
+		if q.RejectsHead(c.EntityType(), c.DimensionName(), c.UUID()) {
+			continue
+		}
+		if q.Box != nil && q.RejectsBox(box6(c.Box())) {
 			continue
 		}
 		if len(q.Tags) != 0 {
@@ -2143,6 +2158,12 @@ func (s *Server) frameSnapshot(it *frameEntity, q *entityQuery) *entitySnapshot 
 	e.bind(&s.framesMu, &it.tags, &frameEntityOps)
 	e.setCustomName(it.custom.tag())
 	return e
+}
+
+// fixedPlayerType reports whether name is the player entity type.
+func fixedPlayerType(name string) bool {
+	t, ok := registry.EntityTypeByName(name)
+	return ok && t == registry.EntityTypePlayer
 }
 
 // entityDisplayName is Entity.getDisplayName: the custom name, or the type's
