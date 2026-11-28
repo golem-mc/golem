@@ -55,6 +55,9 @@ func runKill(src Source, input string, args []string) (int32, error) {
 		target.Kill()
 	}
 
+	if !wantsFeedback(src) {
+		return int32(len(targets)), nil
+	}
 	key := "commands.kill.success.single"
 	with := []protocol.Text{formatDisplayNames(targets)}
 	if len(targets) > 1 {

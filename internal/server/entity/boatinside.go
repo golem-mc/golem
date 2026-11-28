@@ -55,7 +55,7 @@ func (b *Boat) InsideBlocks(w World, fx, fy, fz, moveX, moveZ float64, pads []Li
 	}
 	rel := AABB{-BoatHalfWidth, 0, -BoatHalfWidth, BoatHalfWidth, BoatHeight, BoatHalfWidth}
 	for _, m := range [2]bodyMove{first, second} {
-		burns, fizzles := vehicleBurnPass(w, m, rel, &b.FireTicks, &b.Dead, b.Hurt, func(x, y, z int32, state uint16, _ int, _ AABB, _, _, _ float64) bool {
+		burns, fizzles := vehicleBurnPass(w, m, rel, &b.FireTicks, &b.TicksFrozen, &b.Dead, b.Hurt, func(x, y, z int32, state uint16, _ int, _ AABB, _, _, _ float64) bool {
 			// The first pass breaks a pad, so the second finds air there.
 			if state == lilyPadState && !slices.Contains(pads, LilyPadCell{x, y, z}) {
 				pads = append(pads, LilyPadCell{x, y, z})

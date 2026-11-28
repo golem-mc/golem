@@ -64,7 +64,6 @@ func (m *Mob) baseTick(w World, scan *contactScan, players []Player, events []Mo
 	events = m.witherRoseContact(w, scan, events)
 	events = m.eyeblossomContact(w, scan, events)
 	events = m.cropContact(w, scan, events)
-	events = m.bubbleColumnContact(w, scan, events)
 	events = m.packLocatedStep(events)
 
 	// The lead runs at the end of baseTick, before goals and walk, so its

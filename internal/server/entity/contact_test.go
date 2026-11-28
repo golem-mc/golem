@@ -51,7 +51,6 @@ func TestBaseTickContactEvents(t *testing.T) {
 		{"minecraft:powder_snow", true, MobMeltedSnow},
 		{"minecraft:water_cauldron", true, MobDousedCauldron},
 		{"minecraft:wither_rose", false, MobEffectChanged},
-		{"minecraft:bubble_column", false, MobBubbleSurface},
 		{"minecraft:grass_block", false, 0},
 	} {
 		t.Run(c.block, func(t *testing.T) {

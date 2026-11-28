@@ -52,6 +52,8 @@ type minecartMeta struct {
 	// hurtTime, hurtDir and hurtDamage are the vehicle's rocking: the ticks
 	// left, the direction count and the damage the blows laid.
 	hurtTime, hurtDir int32
+	// frozen is the powder snow count.
+	frozen int32
 	// state is the custom display block state ID, 0 for the kind's own;
 	// offset is how far the block sits down in the cart.
 	state, offset int32
@@ -65,7 +67,8 @@ func minecartMetaOf(it *minecartEntity) minecartMeta {
 		name: it.custom.wire, nameShown: it.custom.visible,
 		silent: it.look.silent, noGravity: m.NoGravity, flags: it.look.glowFlags(),
 		hurtTime: m.HurtTime, hurtDir: m.HurtDir, hurtDamage: m.HurtDamage,
-		state: it.displayState, offset: it.displayOffset,
+		frozen: int32(m.TicksFrozen),
+		state:  it.displayState, offset: it.displayOffset,
 		lit: m.Furnace != nil && m.Furnace.Lit,
 	}
 	if c := it.command; c != nil {
@@ -104,9 +107,10 @@ const (
 	minecartMetaOutput
 	minecartMetaFlags
 	minecartMetaSilent
+	minecartMetaFrozen
 
 	minecartMetaRocking = minecartMetaHurtTime | minecartMetaHurtDir | minecartMetaHurtDamage
-	minecartMetaAll     = minecartMetaNoGravity | minecartMetaRocking | minecartMetaState | minecartMetaOffset | minecartMetaLit | minecartMetaName | minecartMetaCommand | minecartMetaOutput | minecartMetaFlags | minecartMetaSilent
+	minecartMetaAll     = minecartMetaNoGravity | minecartMetaRocking | minecartMetaState | minecartMetaOffset | minecartMetaLit | minecartMetaName | minecartMetaCommand | minecartMetaOutput | minecartMetaFlags | minecartMetaSilent | minecartMetaFrozen
 )
 
 // minecartMetaWalk is one walk of minecartMetadataTable: the fields it
@@ -167,6 +171,10 @@ func minecartMetadataTable(b *protocol.Buffer, walk minecartMetaWalk, now, was *
 	if walk.tells(minecartMetaNoGravity, now.noGravity != was.noGravity) {
 		b.PutMetadata(protocol.MetadataIndexNoGravity, protocol.MetadataBoolean)
 		b.PutBool(now.noGravity)
+	}
+	if walk.tells(minecartMetaFrozen, now.frozen != was.frozen) {
+		b.PutMetadata(protocol.MetadataIndexTicksFrozen, protocol.MetadataVarInt)
+		b.PutVarInt(now.frozen)
 	}
 	if walk.tells(minecartMetaHurtTime, now.hurtTime != was.hurtTime) {
 		b.PutMetadata(protocol.MetadataIndexVehicleShake, protocol.MetadataVarInt)

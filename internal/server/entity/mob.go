@@ -2170,11 +2170,6 @@ type Mob struct {
 	// horizontalCollision is Entity.horizontalCollision: the last move was
 	// stopped sideways. The spider's climbing reads it.
 	horizontalCollision bool
-	// bubbleFrom is where the last base tick found the mob, the start of the
-	// move the next one walks for bubble columns; bubbleFromSet is false
-	// before the first tick.
-	bubbleFrom    [3]float64
-	bubbleFromSet bool
 
 	// swell is Creeper.swell, wound by SwellDir each tick; it explodes at the
 	// max.
@@ -5492,6 +5487,7 @@ func (m *Mob) tickInto(out []MobEvent, tick *tickView, w World, players []Player
 		m.cube.wasOnGround = m.OnGround
 	}
 	events = m.berryBushContact(w, &scan, seated, m.X-startX, m.Z-startZ, events)
+	events = m.bubbleColumnContact(w, &scan, startX, startY, startZ, events)
 	// vanilla: LivingEntity.pushEntities
 	events = m.pushStep(w, players, others, events)
 	m.bodyRotationStep(startX, startZ)

@@ -304,6 +304,10 @@ type Arrow struct {
 	// FireTicks is remainingFireTicks (read through isOnFire), saved as the
 	// base entity's Fire.
 	FireTicks int
+	// TicksFrozen is the powder snow count, up to rules.FullyFrozenTicks; only
+	// lava and fire take it down.
+	// vanilla: Entity.setTicksFrozen
+	TicksFrozen int
 	// Effect is what the shot gives the body it hits.
 	Effect ArrowEffect
 	// GlowTicks is a spectral arrow's SpectralArrow.duration.
@@ -711,8 +715,11 @@ func (a *Arrow) insideBlocks(w World, fx, fy, fz float64, events []ArrowEvent) [
 	}
 	var before []ArrowEvent
 	extinguish, fireIgnite, lavaIgnite, lastStep := false, false, false, -1
+	freeze, clearFreeze := false, false
 	flush := func() {
-		// vanilla: InsideBlockEffectType order, FIRE_IGNITE, LAVA_IGNITE, EXTINGUISH
+		// vanilla: InsideBlockEffectType order, FREEZE, CLEAR_FREEZE, FIRE_IGNITE, LAVA_IGNITE, EXTINGUISH
+		applyFreeze(&a.TicksFrozen, freeze, clearFreeze)
+		freeze, clearFreeze = false, false
 		if fireIgnite {
 			a.fireIgnite()
 			fireIgnite = false
@@ -759,6 +766,7 @@ func (a *Arrow) insideBlocks(w World, fx, fy, fz float64, events []ArrowEvent) [
 		switch {
 		case snow:
 			// vanilla: PowderSnowBlock.entityInside
+			freeze = true
 			if a.VX != 0 || a.VZ != 0 {
 				events = append(events, ArrowEvent{Kind: ArrowSnowflake, X: a.X, Y: float64(y + 1), Z: a.Z})
 			}
@@ -768,10 +776,10 @@ func (a *Arrow) insideBlocks(w World, fx, fy, fz float64, events []ArrowEvent) [
 			before = append(before, ArrowEvent{Kind: ArrowDousedCauldron, X: float64(x), Y: float64(y), Z: float64(z)})
 		case fire:
 			// vanilla: BaseFireBlock.entityInside
-			fireIgnite = true
+			fireIgnite, clearFreeze = true, true
 		case lava:
 			// vanilla: LavaFluid.entityInside
-			lavaIgnite = true
+			lavaIgnite, clearFreeze = true, true
 		}
 		if !fire && !lava {
 			extinguish = true

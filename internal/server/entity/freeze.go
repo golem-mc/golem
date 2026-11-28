@@ -225,3 +225,33 @@ func (m *Mob) collideCtx() collideCtx {
 	}
 	return collideCtx{fallDistance: m.FallDistance, walker: walker, lavaWalker: m.kind().walksOnLava}
 }
+
+// applyFreeze is the FREEZE and CLEAR_FREEZE effects of one pass over a
+// non-living body's cells: one more frozen tick however many powder snow
+// cells it met, then the clear a lava cell asks for. No non-living entity
+// type is in freeze_immune_entity_types.
+// vanilla: InsideBlockEffectType.FREEZE, InsideBlockEffectType.CLEAR_FREEZE
+func applyFreeze(frozen *int, snow, lava bool) {
+	if snow {
+		*frozen = min(rules.FullyFrozenTicks, *frozen+1)
+	}
+	if lava {
+		*frozen = 0
+	}
+}
+
+// freezeInside runs a pass over the cells a move swept for a body that
+// reacts to nothing else in them.
+// vanilla: Entity.applyEffectsFromBlocks
+func freezeInside(w World, move bodyMove, rel AABB, frozen *int) {
+	snow, lava := false, false
+	walkInside(w, []bodyMove{move}, rel, func(x, y, z int32, state uint16, _ int, from AABB, dx, dy, dz float64) bool {
+		if rules.IsPowderSnow(state) {
+			snow = true
+		} else if sweptFluid(w, x, y, z, state, from, dx, dy, dz) == fluidLava {
+			lava = true
+		}
+		return true
+	})
+	applyFreeze(frozen, snow, lava)
+}

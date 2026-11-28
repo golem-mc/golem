@@ -1,8 +1,6 @@
 package entity
 
 import (
-	"math"
-
 	"github.com/golem-mc/golem/internal/server/rules"
 )
 
@@ -44,6 +42,19 @@ func bubbleSurfaceAt(w World, x, y, z int32) bool {
 // vanilla: Entity.checkInsideBlocks, Mth.square(0.9999900000002526)
 const movedFarSqr = 0.9999900000002526 * 0.9999900000002526
 
+// preciseContact reports whether the cell (x, y, z), met on an inside walk's
+// leg from box from with travel d, is a precise contact: a leg of about a
+// block or more, or a cell the box at the leg's end overlaps.
+// vanilla: Entity.checkInsideBlocks
+func preciseContact(x, y, z int32, from AABB, dx, dy, dz float64) bool {
+	to := from.moved(dx, dy, dz)
+	to.deflate(insideShave)
+	return dx*dx+dy*dy+dz*dz > movedFarSqr ||
+		to.minX < float64(x+1) && to.maxX > float64(x) &&
+			to.minY < float64(y+1) && to.maxY > float64(y) &&
+			to.minZ < float64(z+1) && to.maxZ > float64(z)
+}
+
 // projectileBubblePush applies the column cell (x, y, z), met on an inside
 // walk's leg from box from with travel d, to a projectile's vertical speed.
 // Only a precise contact counts: a leg of about a block or more, or a cell
@@ -58,12 +69,7 @@ func projectileBubblePush(w World, x, y, z int32, state uint16, from AABB, dx, d
 	if !ok {
 		return vy, false
 	}
-	to := from.moved(dx, dy, dz)
-	to.deflate(insideShave)
-	precise := dx*dx+dy*dy+dz*dz > movedFarSqr ||
-		to.minX < float64(x+1) && to.maxX > float64(x) &&
-			to.minY < float64(y+1) && to.maxY > float64(y) &&
-			to.minZ < float64(z+1) && to.maxZ > float64(z)
+	precise := preciseContact(x, y, z, from, dx, dy, dz)
 	if !precise {
 		return vy, true
 	}
@@ -95,52 +101,35 @@ func projectileBubbleSpeed(w World, x, y, z int32, drag bool, vy float64, clampe
 // bubbleSpot is the cell of a column whose surface a body rides.
 type bubbleSpot struct{ x, y, z int32 }
 
-// bubbleTeleportSqr is the squared distance between two base ticks past
-// which the mob is taken to have been teleported, not walked, so no leg is
-// walked.
-const bubbleTeleportSqr = 8 * 8
-
-// bubbleColumnContact moves the mob with the columns its last move's cells
-// crossed (the straight way from where the previous base tick found it);
-// inside one below the surface its fall is cleared.
-// vanilla: Entity.checkInsideBlocks, Entity.onInsideBubbleColumn, Entity.onAboveBubbleColumn
-func (m *Mob) bubbleColumnContact(w World, scan *contactScan, events []MobEvent) []MobEvent {
-	fx, fy, fz := m.X, m.Y, m.Z
-	if m.bubbleFromSet {
-		dx, dy, dz := m.X-m.bubbleFrom[0], m.Y-m.bubbleFrom[1], m.Z-m.bubbleFrom[2]
-		if dx*dx+dy*dy+dz*dz <= bubbleTeleportSqr {
-			fx, fy, fz = m.bubbleFrom[0], m.bubbleFrom[1], m.bubbleFrom[2]
-		}
-	}
-	m.bubbleFrom, m.bubbleFromSet = [3]float64{m.X, m.Y, m.Z}, true
-	rel := m.mobBox().moved(-m.X, -m.Y, -m.Z)
-	box := rel.moved(m.X, m.Y, m.Z)
-	if fx != m.X || fy != m.Y || fz != m.Z {
-		// The box swept: the start's and the end's together.
-		start := rel.moved(fx, fy, fz)
-		box = AABB{math.Min(box.minX, start.minX), math.Min(box.minY, start.minY), math.Min(box.minZ, start.minZ),
-			math.Max(box.maxX, start.maxX), math.Max(box.maxY, start.maxY), math.Max(box.maxZ, start.maxZ)}
-	}
-	if !scan.touches(w, box, contactBubbleColumn) {
+// bubbleColumnContact moves the mob with the columns its move from (fx, fy,
+// fz) swept; inside one below the surface its fall is cleared. Only a
+// precise contact counts, and it lands on the speed the move left.
+// vanilla: Entity.applyEffectsFromBlocks, BubbleColumnBlock.entityInside
+func (m *Mob) bubbleColumnContact(w World, scan *contactScan, fx, fy, fz float64, events []MobEvent) []MobEvent {
+	end := m.mobBox()
+	reach := end.Union(end.moved(fx-m.X, fy-m.Y, fz-m.Z))
+	if !scan.touches(w, reach, contactBubbleColumn) {
 		return events
 	}
+	hw := m.width() / 2
+	rel := AABB{-hw, 0, -hw, hw, m.height(), hw}
+	move := bodyMove{fx: fx, fy: fy, fz: fz, tx: m.X, ty: m.Y, tz: m.Z, ax: m.X - fx, az: m.Z - fz, axisSplit: true}
 	var spots []bubbleSpot
-	walkInside(w, []bodyMove{{fx, fy, fz, m.X, m.Y, m.Z, m.X - fx, m.Z - fz, true}}, rel,
-		func(x, y, z int32, state uint16, _ int, from AABB, dx, dy, dz float64) bool {
-			vy, ok := projectileBubblePush(w, x, y, z, state, from, dx, dy, dz, m.VY, true, &spots)
-			if !ok {
-				return true
-			}
-			m.VY = vy
-			if len(spots) == 0 {
-				m.FallDistance = 0
-			}
-			for _, p := range spots {
-				events = append(events, MobEvent{Mob: m, Kind: MobBubbleSurface, X: float64(p.x), Y: float64(p.y), Z: float64(p.z)})
-			}
-			spots = spots[:0]
+	walkInside(w, []bodyMove{move}, rel, func(x, y, z int32, state uint16, _ int, from AABB, dx, dy, dz float64) bool {
+		vy, ok := projectileBubblePush(w, x, y, z, state, from, dx, dy, dz, m.VY, true, &spots)
+		if !ok {
 			return true
-		})
+		}
+		m.VY = vy
+		if len(spots) == 0 {
+			m.FallDistance = 0
+		}
+		for _, p := range spots {
+			events = append(events, MobEvent{Mob: m, Kind: MobBubbleSurface, X: float64(p.x), Y: float64(p.y), Z: float64(p.z)})
+		}
+		spots = spots[:0]
+		return true
+	})
 	return events
 }
 
