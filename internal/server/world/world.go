@@ -172,14 +172,17 @@ type World struct {
 	// joined the world, the order Level.blockEntityTickers ticks them: one list
 	// per level, appended on add and on chunk load, dropped on unload. Guarded
 	// by mu.
-	blockEntityOrder    []*BlockEntity
+	blockEntityOrder    blockEntityList
 	nextEntityTickOrder uint64
 	// tickingBlockEntities is the subset of blockEntityOrder whose kind
 	// blockEntityTicks, in the same order. Guarded by mu (TickingBlockEntities).
-	tickingBlockEntities []*BlockEntity
+	tickingBlockEntities blockEntityList
 	// sculkBlockEntities is the subset of blockEntityOrder that keeps a
 	// listener or is a catalyst, in the same order. Guarded by mu.
-	sculkBlockEntities []*BlockEntity
+	sculkBlockEntities blockEntityList
+	// removedInLists counts the cleared slots in the three lists above;
+	// readers skip them. Guarded by mu.
+	removedInLists int
 
 	// changed is the cells told to the players since the tick's last flush.
 	changed SectionChanges
