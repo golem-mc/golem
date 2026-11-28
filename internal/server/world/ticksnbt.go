@@ -293,10 +293,11 @@ func (p *Physics) adoptLoadedTicks() {
 	p.adoptTicksAt(p.now-1, loaded, unloaded)
 }
 
-// adoptTicks discards the unloaded chunks' ticks and then queues loaded.
+// adoptTicks discards the unloaded chunks' ticks and then queues loaded,
+// for a load between game ticks, when p.now is still the previous tick's time.
 // Runs under p.mu.
 func (p *Physics) adoptTicks(loaded []loadedTick, unloaded []ChunkPos) {
-	p.adoptTicksAt(p.now-1, loaded, unloaded)
+	p.adoptTicksAt(p.now, loaded, unloaded)
 }
 
 // adoptTicksAt queues loaded ticks relative to the game time base. A chunk
