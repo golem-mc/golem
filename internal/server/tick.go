@@ -3,6 +3,7 @@ package server
 import (
 	"fmt"
 	"log/slog"
+	"math"
 	"runtime/debug"
 	"slices"
 	"sync"
@@ -555,7 +556,7 @@ type trackingStamp struct {
 	mu          sync.Mutex
 	set         bool
 	w           *world.World
-	x, z        float64
+	sx, sy, sz  int32 // the player's section
 	chunkRadius int32
 	hidden      *map[int32]struct{}
 	pct         int32
@@ -566,12 +567,15 @@ type trackingStamp struct {
 // takes when the tick ends, the same for every pass of a tick.
 func (s *Server) trackingTick() uint64 { return s.ticksRun.Load() + 1 }
 
-// read stores the inputs and returns the tick they last changed in.
-func (t *trackingStamp) read(w *world.World, x, z float64, chunkRadius int32, hidden *map[int32]struct{}, pct int32, tick uint64) uint64 {
+// read stores the inputs, the position as its section, and returns the tick they last changed in.
+func (t *trackingStamp) read(w *world.World, x, y, z float64, chunkRadius int32, hidden *map[int32]struct{}, pct int32, tick uint64) uint64 {
+	// A walk inside one section changes nothing.
+	// vanilla: ChunkMap.tick (movedPlayers)
+	sx, sy, sz := int32(math.Floor(x))>>4, int32(math.Floor(y))>>4, int32(math.Floor(z))>>4
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	if !t.set || t.w != w || t.x != x || t.z != z || t.chunkRadius != chunkRadius || t.hidden != hidden || t.pct != pct {
-		t.set, t.w, t.x, t.z, t.chunkRadius, t.hidden, t.pct = true, w, x, z, chunkRadius, hidden, pct
+	if !t.set || t.w != w || t.sx != sx || t.sy != sy || t.sz != sz || t.chunkRadius != chunkRadius || t.hidden != hidden || t.pct != pct {
+		t.set, t.w, t.sx, t.sy, t.sz, t.chunkRadius, t.hidden, t.pct = true, w, sx, sy, sz, chunkRadius, hidden, pct
 		t.changedAt = tick
 	}
 	return t.changedAt
@@ -599,7 +603,7 @@ func (s *Server) trackingWatchersLocked() []trackingWatcher {
 		radius := c.chunkRadius()
 		watchers = append(watchers, trackingWatcher{
 			c: c, x: pos.X, z: pos.Z, chunkRadius: radius,
-			changedAt: c.tracking.read(c.theWorld(), pos.X, pos.Z, radius, c.hidden.Load(), pct, tick),
+			changedAt: c.tracking.read(c.theWorld(), pos.X, pos.Y, pos.Z, radius, c.hidden.Load(), pct, tick),
 		})
 	}
 	return watchers

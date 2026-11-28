@@ -579,6 +579,26 @@ func (l *sendList) send() {
 	l.b = nil
 }
 
+// stillSince records the body-side inputs of this tick's range checks and
+// reports whether they equal those of the previous tick's pass, and the tick
+// of that pass.
+func (v *trackedBody[B, S]) stillSince(tick uint64) (still bool, prevTick uint64) {
+	now := settledBody{tick: tick, w: v.w, x: v.p.x, z: v.p.z, reach: v.k.effectiveRange(v.b)}
+	prev := v.t.settled
+	v.t.settled = now
+	return prev.tick+1 == tick && prev.w == now.w && prev.x == now.x && prev.z == now.z && prev.reach == now.reach, prev.tick
+}
+
+// settleOrTold settles the watcher, or, when the body is still and the
+// watcher changed nothing since the previous pass, returns the record the
+// pair already has.
+func (v *trackedBody[B, S]) settleOrTold(wt trackingWatcher, still bool, prevTick uint64, out *trackSends) (*toldBody[S], bool) {
+	if still && wt.changedAt < prevTick {
+		return v.t.tracked.get(wt.c)
+	}
+	return v.settle(wt.c, wt.x, wt.z, wt.chunkRadius, out)
+}
+
 // settle pairs the body with a client standing at (x, z) that the range has
 // brought in and unpairs it from one the range has left. It reports whether
 // the client sees the body, and its record if so.
@@ -1016,25 +1036,14 @@ func (k *trackedKind[B, S]) settleBody(b B, watchers []trackingWatcher, near *ne
 	}
 	// A pair whose inputs the previous tick's pass already read has the
 	// same answer, so only a watcher told of the body has anything left to do.
-	now := settledBody{tick: tick, w: v.w, x: v.p.x, z: v.p.z, reach: k.effectiveRange(b)}
-	prev := v.t.settled
-	still := prev.tick+1 == tick && prev.w == now.w && prev.x == now.x && prev.z == now.z && prev.reach == now.reach
-	v.t.settled = now
+	still, prevTick := v.stillSince(tick)
 	for _, i := range v.watchers(near) {
 		wt := watchers[i]
 		if wt.c.theWorld() != v.w {
 			continue // crossed to another dimension since the snapshot
 		}
 		paired := len(out.showTos)
-		var was *toldBody[S]
-		var seen bool
-		if still && wt.changedAt < prev.tick {
-			if was, seen = v.t.tracked.get(wt.c); !seen {
-				continue
-			}
-		} else {
-			was, seen = v.settle(wt.c, wt.x, wt.z, wt.chunkRadius, out)
-		}
+		was, seen := v.settleOrTold(wt, still, prevTick, out)
 		if !seen {
 			continue
 		}

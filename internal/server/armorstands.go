@@ -842,7 +842,7 @@ func (o *standSends) send() {
 
 // trackStand settles every watcher's view of one stand and tells each one
 // already shown where it went and which metadata changed. The stands lock is held.
-func trackStand(ent *armorStandEntity, watchers []trackingWatcher, near *nearbyPlayers, out *standSends) {
+func trackStand(ent *armorStandEntity, watchers []trackingWatcher, near *nearbyPlayers, tick uint64, out *standSends) {
 	body := standTracker.body(ent)
 	now := armorStandMetaOf(ent)
 	// A changed synched value asks for a movement tick off the period.
@@ -856,13 +856,14 @@ func trackStand(ent *armorStandEntity, watchers []trackingWatcher, near *nearbyP
 	if dirty := ent.stand.Attributes().TakeDirty(); len(dirty) != 0 {
 		attributes = attributesPayload(body.id, dirty)
 	}
+	still, prevTick := body.stillSince(tick)
 	for _, i := range body.watchers(near) {
 		wh := watchers[i]
 		if wh.c.theWorld() != ent.w {
 			continue
 		}
 		_, shown := ent.tracked.get(wh.c)
-		if told, seen := body.settle(wh.c, wh.x, wh.z, wh.chunkRadius, &out.trackSends); seen && shown {
+		if told, seen := body.settleOrTold(wh, still, prevTick, &out.trackSends); seen && shown {
 			if mt.gate {
 				standMove(&body, told, wh.c, mt, out)
 			}
@@ -902,7 +903,7 @@ func (s *Server) tickArmorStandTracking(watchers []trackingWatcher) {
 	s.lockTick(&s.armorStandsMu)
 	for _, ent := range s.armorStands {
 		if !ent.stand.Dead {
-			trackStand(ent, watchers, near, &out)
+			trackStand(ent, watchers, near, s.trackingTick(), &out)
 		}
 	}
 	s.unlockTick(&s.armorStandsMu)
@@ -943,7 +944,7 @@ func (s *Server) tickArmorStands() {
 		// Tracking runs before the step, so a gate tells the pose the last
 		// tick left, a /tp's included.
 		// vanilla: ServerChunkCache.tick, ServerLevel.tick
-		trackStand(ent, watchers, near, &out)
+		trackStand(ent, watchers, near, s.trackingTick(), &out)
 		// The portal pass runs ahead of the step, as for items; only a stand
 		// with physics is inside a block. vanilla: ArmorStand.hasPhysics
 		state := airBlockState
