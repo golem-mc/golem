@@ -829,9 +829,11 @@ type pushGrid struct {
 	rect    denseRect
 	// present marks the types in the snapshot, set by build.
 	present [registry.EntityTypeCount]bool
-	// byID is the snapshot by entity ID, the first mob filed winning a
-	// shared ID; kept between ticks like cells.
-	byID map[int32]*Mob
+	// byID is the snapshot by entity ID, populated lazily on first lookup
+	// from mobs; the first mob filed wins a shared ID.
+	byID      map[int32]*Mob
+	mobs      []*Mob
+	byIDReady bool
 	// wide bounds the half-width of every box filed this tick, shellWide
 	// that of every shulker's.
 	wide, shellWide float64
@@ -863,23 +865,30 @@ type pushBucket struct {
 // build files the snapshot in order, using at most four cell heads per mob.
 func (g *pushGrid) build(mobs []*Mob) {
 	g.present = [registry.EntityTypeCount]bool{}
-	for _, m := range mobs {
-		g.present[m.Type] = true
+	if g.byIDReady {
+		clear(g.byID)
+		g.byIDReady = false
 	}
+	g.mobs = mobs
 	if len(mobs) == 0 {
 		return
 	}
-	minX, minZ := cellCoords(mobs[0].X, mobs[0].Z)
+	m0 := mobs[0]
+	g.present[m0.Type] = true
+	minX, minZ := cellCoords(m0.X, m0.Z)
 	maxX, maxZ := minX, minZ
+	m0.pushCell = cellKey(minX, minZ)
 	for _, m := range mobs[1:] {
+		g.present[m.Type] = true
 		x, z := cellCoords(m.X, m.Z)
+		m.pushCell = cellKey(x, z)
 		minX, minZ = min(minX, x), min(minZ, z)
 		maxX, maxZ = max(maxX, x), max(maxZ, z)
 	}
 	if total, ok := g.rect.set(minX, maxX, minZ, maxZ, 4*len(mobs)); ok {
 		g.dense = slices.Grow(g.dense, total)[:total]
 		for _, m := range mobs {
-			x, z := cellCoords(m.X, m.Z)
+			x, z := keyCoords(m.pushCell)
 			g.dense[g.rect.row(x)+z-g.rect.minZ].count++
 		}
 		g.entries = slices.Grow(g.entries, len(mobs))[:len(mobs)]
@@ -895,7 +904,7 @@ func (g *pushGrid) build(mobs []*Mob) {
 		}
 	}
 	for i, m := range mobs {
-		g.add(m, i)
+		g.addFiled(m, i)
 	}
 }
 
@@ -926,7 +935,7 @@ var pushGrids sync.Pool
 func takePushGrid(n int, gathered *int) *pushGrid {
 	g, _ := pushGrids.Get().(*pushGrid)
 	if g == nil {
-		g = &pushGrid{cells: make(map[pushCellKey][]pushEntry, n), byID: make(map[int32]*Mob, n)}
+		g = &pushGrid{cells: make(map[pushCellKey][]pushEntry, n)}
 	}
 	g.gathered = gathered
 	return g
@@ -956,7 +965,11 @@ func (g *pushGrid) reset() {
 	clear(g.entries)
 	g.entries = g.entries[:0]
 	g.rect.reset()
-	clear(g.byID)
+	if g.byIDReady {
+		clear(g.byID)
+		g.byIDReady = false
+	}
+	g.mobs = nil
 	clear(g.near[:cap(g.near)])
 	g.near = g.near[:0]
 	clear(g.shove[:cap(g.shove)])
@@ -993,15 +1006,34 @@ func (g *pushGrid) file(cell pushCellKey, e pushEntry) int {
 
 // add buckets a snapshot mob with its index.
 func (g *pushGrid) add(m *Mob, idx int) {
-	m.pushIdx = idx
 	m.pushCell = cellOf(m.X, m.Z)
+	g.addFiled(m, idx)
+}
+
+// addFiled buckets a snapshot mob whose pushCell is already set.
+func (g *pushGrid) addFiled(m *Mob, idx int) {
+	m.pushIdx = idx
 	m.pushSlot = g.file(m.pushCell, g.entryOf(m))
-	if (m.inCaravan() || m.leashed()) && IsLlama(m.Type) {
+	if IsLlama(m.Type) && (m.inCaravan() || m.leashed()) {
 		g.caravan = append(g.caravan, m)
 	}
-	if _, ok := g.byID[m.ID]; !ok {
-		g.byID[m.ID] = m
+}
+
+// lookupByID resolves an entity ID in the tick's snapshot, indexing byID once
+// on the first lookup of the tick. The first mob filed wins a shared ID.
+func (g *pushGrid) lookupByID(id int32) *Mob {
+	if !g.byIDReady {
+		if g.byID == nil {
+			g.byID = make(map[int32]*Mob, len(g.mobs))
+		}
+		for _, m := range g.mobs {
+			if _, ok := g.byID[m.ID]; !ok {
+				g.byID[m.ID] = m
+			}
+		}
+		g.byIDReady = true
 	}
+	return g.byID[id]
 }
 
 // moved re-files a mob that crossed a cell boundary this tick (a knockback

@@ -233,6 +233,9 @@ func (t *tickView) canAttackPlayer(p *Player) bool {
 // mobByID finds the mob of the tick's herd with the entity ID; the caller
 // checks it is alive.
 func (t *tickView) mobByID(id int32) *Mob {
+	if t.push != nil {
+		return t.push.lookupByID(id)
+	}
 	if t.byID != nil {
 		return t.byID[id]
 	}

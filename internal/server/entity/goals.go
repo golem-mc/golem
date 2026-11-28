@@ -58,7 +58,9 @@ type tickView struct {
 	// others is the herd beside this mob, which a grudge may target and an
 	// alert reaches.
 	others []*Mob
-	// byID indexes others by entity ID when the tick has a push grid.
+	// push is the tick's push grid when one is active, serving lazy by-ID lookups.
+	push *pushGrid
+	// byID indexes others by entity ID when a test provides a map without a push grid.
 	byID map[int32]*Mob
 	// prey is the part of others a zombie's mob targets can match, when preyKnown.
 	prey      []*Mob

@@ -5326,10 +5326,7 @@ func (m *Mob) tickInto(out []MobEvent, tick *tickView, w World, players []Player
 	if m.Type == TypeFox {
 		events = m.foxStep(w, events)
 	}
-	*tick = tickView{w: w, players: players, others: others, prey: m.prey, preyKnown: m.preyKnown, villagers: m.villagers, villagersKnown: m.villagersKnown, stands: m.stands, corpses: m.corpses, events: tick.events[:0]}
-	if m.push != nil {
-		tick.byID = m.push.byID
-	}
+	*tick = tickView{w: w, players: players, others: others, push: m.push, prey: m.prey, preyKnown: m.preyKnown, villagers: m.villagers, villagersKnown: m.villagersKnown, stands: m.stands, corpses: m.corpses, events: tick.events[:0]}
 	wardenHeld := m.Type == TypeWarden && m.wardenStep(tick)
 	if m.isPiglin() && !m.NoAI {
 		if into := m.piglinStep(tick); into != NoMobType {
