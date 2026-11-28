@@ -81,7 +81,7 @@ func unwrapLevelChunk(root nbt.Compound, version int32) error {
 		if !ok {
 			continue
 		}
-		y, _ := nbt.Get[nbt.Byte](sec, "Y")
+		y, _ := nbt.ByteField(sec, "Y")
 		done[int32(y)] = true
 		if idx := int(y) - newMinSectionY; idx >= 0 && idx < len(biomes) && biomes[idx] != nil {
 			sec["biomes"] = biomes[idx]

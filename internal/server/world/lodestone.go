@@ -300,17 +300,14 @@ func (w *World) savedLodestones(pos ChunkPos, ps []LodestonePos) (map[LodestoneP
 		if full, err := chunkIsFull(root); !full {
 			return err
 		}
-		dataVersion := int32(0)
-		if v, ok := nbt.Get[nbt.Int](root, "DataVersion"); ok {
-			dataVersion = int32(v)
-		}
+		dataVersion, _ := nbt.IntField(root, "DataVersion")
 		sections, _ := nbt.Get[nbt.List](root, "sections")
 		for _, item := range sections.Items {
 			sec, ok := nbt.CompoundView(item)
 			if !ok {
 				continue
 			}
-			sy, _ := nbt.Get[nbt.Byte](sec, "Y")
+			sy, _ := nbt.ByteField(sec, "Y")
 			var asked []LodestonePos
 			for _, p := range ps {
 				if p.Y>>4 == int32(sy) {

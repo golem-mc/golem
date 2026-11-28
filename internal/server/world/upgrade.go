@@ -145,7 +145,7 @@ func stampVersion(root nbt.Compound) error {
 
 // upgradeEntityRecord moves a chunk's stored entities to the current shape.
 func upgradeEntityRecord(root nbt.Compound, _ bool) error {
-	version, _ := nbt.Get[nbt.Int](root, "DataVersion")
+	version, _ := nbt.IntField(root, "DataVersion")
 	if version != 0 && version < entityDataVersionFloor {
 		return fmt.Errorf("data version %d is below %d", version, entityDataVersionFloor)
 	}
@@ -168,7 +168,7 @@ func upgradeChunkRecord(root nbt.Compound, erase bool) error {
 		return errors.New("chunk still holds its entities in the layout before 1.18")
 	}
 	fixOldChunkRoot(root)
-	version, _ := nbt.Get[nbt.Int](root, "DataVersion")
+	version, _ := nbt.IntField(root, "DataVersion")
 	sections, _ := nbt.Get[nbt.List](root, "sections")
 	for _, item := range sections.Items {
 		sec, ok := nbt.CompoundView(item)

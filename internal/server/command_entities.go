@@ -243,6 +243,7 @@ func (e *entitySnapshot) SetDataTag(tag nbt.CompoundTag) bool {
 		held, waited := body.mob.LeashHolderID, body.waitingLeash()
 		applyMobTag(body.mob, body, data)
 		e.srv.herdOf(body.w).pistonGrid.built = false
+		e.srv.herdOf(body.w).portalAtRest = false
 		// A mob already waiting is on the list once; a second entry would
 		// count its grace twice a tick.
 		if !waited && body.waitingLeash() {

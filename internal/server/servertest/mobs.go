@@ -964,7 +964,7 @@ func RelabelChunkGround(t *testing.T, level string, pos world.ChunkPos, fromY, t
 			if !ok {
 				continue
 			}
-			y, _ := nbt.Get[nbt.Byte](sec, "Y")
+			y, _ := nbt.ByteField(sec, "Y")
 			if int8(y) < fromY || int8(y) > toY {
 				continue
 			}

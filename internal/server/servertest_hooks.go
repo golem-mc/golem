@@ -6882,6 +6882,19 @@ func (s *Server) SetMobLeashHolder(id, holder int32) {
 	}
 }
 
+// SetMobPortalCooldown sets the portal cooldown of the overworld mob.
+func (s *Server) SetMobPortalCooldown(id int32, ticks int) {
+	s.mobsMu.Lock()
+	defer s.mobsMu.Unlock()
+	h := s.herdOf(s.world)
+	for m, ent := range h.book {
+		if m.ID == id {
+			ent.portal.Cooldown = ticks
+			h.portalAtRest = false
+		}
+	}
+}
+
 // MobPortalCooldown is the portal cooldown, in ticks, of the overworld mob.
 func (s *Server) MobPortalCooldown(id int32) int {
 	s.mobsMu.Lock()

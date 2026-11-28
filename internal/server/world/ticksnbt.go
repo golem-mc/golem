@@ -35,17 +35,17 @@ func decodeSavedTicks(root nbt.Compound, key string) []savedTick {
 			continue
 		}
 		id, okID := nbt.Get[nbt.String](e, "i")
-		x, okX := nbt.Get[nbt.Int](e, "x")
-		y, okY := nbt.Get[nbt.Int](e, "y")
-		z, okZ := nbt.Get[nbt.Int](e, "z")
+		x, okX := nbt.IntValue(e["x"])
+		y, okY := nbt.IntValue(e["y"])
+		z, okZ := nbt.IntValue(e["z"])
 		if !okID || !okX || !okY || !okZ {
 			continue
 		}
-		t, _ := nbt.Get[nbt.Int](e, "t")
-		pr, _ := nbt.Get[nbt.Int](e, "p")
+		t, _ := nbt.IntValue(e["t"])
+		pr, _ := nbt.IntValue(e["p"])
 		out = append(out, savedTick{
-			id: string(id), x: int32(x), y: int32(y), z: int32(z),
-			delay: max(int32(t), 0), priority: int32(pr),
+			id: string(id), x: x, y: y, z: z,
+			delay: max(t, 0), priority: pr,
 		})
 	}
 	return out
@@ -289,15 +289,25 @@ func fluidTypeNamed(name string) fluidType {
 // find another block. Runs under p.mu.
 // vanilla: ServerLevel.tickBlock
 func (p *Physics) adoptLoadedTicks() {
-	p.adoptTicks(p.w.takeLoadedTicks())
+	loaded, unloaded := p.w.takeLoadedTicks()
+	p.adoptTicksAt(p.now-1, loaded, unloaded)
 }
 
-// adoptTicks discards the unloaded chunks' ticks and then queues loaded.
+// adoptTicks discards the unloaded chunks' ticks and then queues loaded,
+// for a load between game ticks, when p.now is still the previous tick's time.
 // Runs under p.mu.
 func (p *Physics) adoptTicks(loaded []loadedTick, unloaded []ChunkPos) {
+	p.adoptTicksAt(p.now, loaded, unloaded)
+}
+
+// adoptTicksAt queues loaded ticks relative to the game time base. A chunk
+// loaded between game ticks is based on the previous tick's time, which is
+// one before p.now once Tick has advanced it.
+// vanilla: LevelChunkTicks.unpack
+func (p *Physics) adoptTicksAt(base int64, loaded []loadedTick, unloaded []ChunkPos) {
 	p.discardUnloadedTicks(unloaded)
 	for _, t := range loaded {
-		due := p.now + int64(t.delay)
+		due := base + int64(t.delay)
 		if t.fluid {
 			// The booking keeps its saved type whatever the cell holds now;
 			// dispatch checks the cell.

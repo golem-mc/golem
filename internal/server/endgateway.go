@@ -234,7 +234,9 @@ func (s *Server) gatewayMoveMob(ent *mobEntity, to player.Position) {
 	s.mobsMu.Lock()
 	ent.mob.SetPos(to.X, to.Y, to.Z)
 	ent.teleported = true
-	s.herdOf(ent.w).pistonGrid.built = false
+	h := s.herdOf(ent.w)
+	h.pistonGrid.built = false
+	h.portalAtRest = false
 	s.mobsMu.Unlock()
 }
 
