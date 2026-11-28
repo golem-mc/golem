@@ -107,30 +107,7 @@ func renameOldItem(name string, version int32) string {
 	if version < shardRenameVersion && strings.HasSuffix(name, "_pottery_shard") {
 		name = strings.TrimSuffix(name, "_pottery_shard") + "_pottery_sherd"
 	}
-	if version < fungusRenameVersion {
-		name = strings.Replace(name, "_fungi", "_fungus", 1)
-	}
-	if version < soulFireRenameVersion {
-		switch name {
-		case "minecraft:soul_fire_torch":
-			name = "minecraft:soul_torch"
-		case "minecraft:soul_fire_lantern":
-			name = "minecraft:soul_lantern"
-		}
-	}
-	if name == "minecraft:zombie_pigman_spawn_egg" && version < zombifiedPiglinVersion {
-		name = "minecraft:zombified_piglin_spawn_egg"
-	}
-	if name == "minecraft:grass_path" && version < grassPathRenameVersion {
-		name = "minecraft:dirt_path"
-	}
-	if name == "minecraft:grass" && version < grassRenameVersion {
-		name = "minecraft:short_grass"
-	}
-	if name == "minecraft:scute" && version < scuteRenameVersion {
-		name = "minecraft:turtle_scute"
-	}
-	return name
+	return RenameOldItem(name, version)
 }
 
 // potShardRenames are the pottery shard item names of before 3447 and their

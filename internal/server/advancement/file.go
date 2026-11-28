@@ -71,16 +71,22 @@ func Parse(tree *Tree, data []byte) (*Progress, error) {
 		if json.Unmarshal(raw, &saved) != nil {
 			continue
 		}
-		for name, when := range saved.Criteria {
-			name = RenameCriterion(id, name, version)
-			at, err := time.Parse(timeLayout, when)
-			if err != nil || !hasCriterion(n, name) {
-				continue
+		// A criterion already current wins over a renamed old one.
+		for _, renamed := range []bool{true, false} {
+			for old, when := range saved.Criteria {
+				name := RenameCriterion(id, old, version)
+				if (name != old) != renamed {
+					continue
+				}
+				at, err := time.Parse(timeLayout, when)
+				if err != nil || !hasCriterion(n, name) {
+					continue
+				}
+				if p.obtained[n.index] == nil {
+					p.obtained[n.index] = map[string]time.Time{}
+				}
+				p.obtained[n.index][name] = at
 			}
-			if p.obtained[n.index] == nil {
-				p.obtained[n.index] = map[string]time.Time{}
-			}
-			p.obtained[n.index][name] = at
 		}
 		p.changed[n] = struct{}{}
 		p.rootsToUpdate[n.Root()] = struct{}{}
