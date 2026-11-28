@@ -265,7 +265,13 @@ func (s *Server) boltStrikeBlocks(it *boltEffect) {
 func (s *Server) boltFire(it *boltEffect, extra int) {
 	b, w := it, it.w
 	x, y, z := rules.BlockOf(b.x), rules.BlockOf(b.y), rules.BlockOf(b.z)
-	if b.visualOnly || !(fireSpreadChecker{s: s, dim: s.dimensionOfWorld(w)}).FireCanSpread(x, y, z) {
+	if b.visualOnly {
+		return
+	}
+	dim := s.dimensionOfWorld(w)
+	age, _ := s.world.Time()
+	s.refreshFireSpreadPlayers(dim, age)
+	if !(fireSpreadChecker{s: s, dim: dim}).FireCanSpread(x, y, z) {
 		return
 	}
 	light := func(x, y, z int32) {

@@ -3,7 +3,6 @@ package server
 import (
 	"github.com/golem-mc/golem/internal/server/pluginruntime"
 	"log/slog"
-	"maps"
 	"math"
 	"math/rand/v2"
 	"slices"
@@ -344,6 +343,7 @@ func (s *Server) tickPhysics() {
 	defer s.endTouchWindows()
 	gate := s.newEntityGate()
 	for _, dim := range s.allDims() {
+		s.refreshFireSpreadPlayers(dim, age)
 		// A debug level runs no scheduled or random ticks.
 		// vanilla: ServerLevel.tick, ServerChunkCache.tickChunks
 		if dim.w.IsDebug() {
@@ -1292,22 +1292,46 @@ type fireSpreadChecker struct {
 	dim *dimension
 }
 
+// fireSpreadView holds the feet of the dimension's non-spectator players as
+// of world age age. Players do not move during the level tick, so one read
+// per tick is what vanilla's per-call loop sees.
+type fireSpreadView struct {
+	pts   []fireSpreadPoint
+	age   int64
+	valid bool
+}
+
+type fireSpreadPoint struct{ x, y, z float64 }
+
+// refreshFireSpreadPlayers rereads the players unless the view is already
+// from this world age.
+func (s *Server) refreshFireSpreadPlayers(dim *dimension, age int64) {
+	v := &dim.fireSpread
+	if v.valid && v.age == age {
+		return
+	}
+	v.pts, v.age, v.valid = v.pts[:0], age, true
+	s.mu.RLock()
+	for _, c := range s.clients {
+		if c.theWorld() != dim.w || c.player.GameMode() == protocol.GameModeSpectator {
+			continue
+		}
+		pos := c.player.Position()
+		v.pts = append(v.pts, fireSpreadPoint{pos.X, pos.Y, pos.Z})
+	}
+	s.mu.RUnlock()
+}
+
 func (t fireSpreadChecker) FireCanSpread(x, y, z int32) bool {
 	radius := t.dim.w.IntRule(world.RuleFireSpread)
 	if radius < 0 {
 		// -1 means fire ticks everywhere.
 		return true
 	}
-	t.s.mu.RLock()
-	clients := slices.Collect(maps.Values(t.s.clients))
-	t.s.mu.RUnlock()
-	for _, c := range clients {
-		if c.theWorld() != t.dim.w || c.player.GameMode() == protocol.GameModeSpectator {
-			continue
-		}
-		pos := c.player.Position()
-		dx, dy, dz := pos.X-float64(x), pos.Y-float64(y), pos.Z-float64(z)
-		if dx*dx+dy*dy+dz*dz < float64(radius)*float64(radius) {
+	r2 := float64(radius) * float64(radius)
+	for _, p := range t.dim.fireSpread.pts {
+		dx, dy, dz := p.x-float64(x), p.y-float64(y), p.z-float64(z)
+		if dx*dx+dy*dy+dz*dz < r2 {
 			return true
 		}
 	}
