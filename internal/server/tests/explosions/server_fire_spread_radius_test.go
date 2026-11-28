@@ -33,6 +33,9 @@ func TestFireSpreadRadiusAroundPlayer(t *testing.T) {
 			srv.SetGameRuleValue("fire_spread_radius_around_player", 8)
 			srv.SetGameRuleValue("random_tick_speed", 1000)
 			srv.SetPlayerGameMode("Tester", tc.mode)
+			// A tick the join left running may have read the mode before it
+			// changed and the position after the move below.
+			servertest.RunTicks(t, srv, 1)
 
 			planks := servertest.BlockState(t, "minecraft:oak_planks")
 			lava := servertest.BlockState(t, "minecraft:lava")
