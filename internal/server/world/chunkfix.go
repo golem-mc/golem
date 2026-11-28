@@ -188,6 +188,9 @@ func fixOldBlockEntity(entry nbt.CompoundTag, version int32) bool {
 			fixBlockEntityUUIDs(string(id), tag)
 		}
 	}
+	if kind == KindBanner && version < customNameOverrideVersion {
+		fixBannerOverride(tag)
+	}
 	fixStoredComponents(entry, version)
 	fixBlockEntityFields(string(id), kind, tag, version)
 	switch {
@@ -242,7 +245,6 @@ func fixBlockEntityFields(id string, kind BlockEntityKind, tag nbt.Compound, ver
 		if version < bannerPatternVersion {
 			fixBannerPatterns(tag)
 		}
-		fixBannerOverride(tag, version)
 	case KindSkull:
 		if version < playerHeadProfileVersion {
 			fixSkullProfile(tag)

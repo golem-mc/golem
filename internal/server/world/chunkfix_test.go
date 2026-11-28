@@ -757,6 +757,22 @@ func TestOldBannerBlockEntityOminousName(t *testing.T) {
 		!nbt.Equal(c["minecraft:item_name"], nbt.Compound{"translate": nbt.String("block.minecraft.ominous_banner")}) {
 		t.Errorf("banner = %v", tag)
 	}
+	if c["minecraft:hide_additional_tooltip"] != nil {
+		t.Errorf("banner keeps hide_additional_tooltip: %v", c)
+	}
+
+	modern := nbt.Compound{
+		"id": nbt.String("minecraft:banner"), "x": nbt.Int(16), "y": nbt.Int(64), "z": nbt.Int(32),
+		"components": nbt.Compound{"minecraft:item_name": nbt.String(`{"color":"gold","translate":"block.minecraft.ominous_banner"}`)},
+	}
+	w, pos = oldChunkWorld(t, 3839, modern)
+	w.Acquire(pos)
+	tag, _ = w.BlockEntityTag(16, 64, 32)
+	c, _ = nbt.Get[nbt.Compound](tag, "components")
+	if c["minecraft:rarity"] != nbt.String("uncommon") ||
+		!nbt.Equal(c["minecraft:item_name"], nbt.Compound{"translate": nbt.String("block.minecraft.ominous_banner")}) {
+		t.Errorf("v3839 banner = %v", tag)
+	}
 }
 
 func TestSignStackInChestGetsTextAndOpFlag(t *testing.T) {

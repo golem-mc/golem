@@ -73,7 +73,7 @@ func fixPreTextComponents(components nbt.CompoundTag, id string, version int32) 
 		components.Delete("minecraft:custom_name")
 		components.Set("minecraft:item_name", name)
 	}
-	if version < ominousBannerRarityVersion && item == registry.ItemWhiteBanner {
+	if version < ominousBannerRarityVersion && (item == registry.ItemWhiteBanner || id == "minecraft:banner") {
 		fixOminousBannerRarity(components)
 	}
 	if version < damageResistantVersion {

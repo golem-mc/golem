@@ -167,21 +167,11 @@ func lockPredicate(name string) nbt.Compound {
 }
 
 // fixBannerOverride moves an ominous banner's custom name into its item name
-// component and gives it the uncommon rarity.
-// vanilla: BannerEntityCustomNameToOverrideComponentFix, OminousBannerRarityFix
-func fixBannerOverride(tag nbt.Compound, version int32) {
-	if version < customNameOverrideVersion {
-		if key, ok := jsonTranslationKey(tag["CustomName"]); ok && key == ominousBannerKey {
-			tag["components"] = nbt.Compound{"minecraft:item_name": tag["CustomName"], "minecraft:hide_additional_tooltip": nbt.Compound{}}
-			delete(tag, "CustomName")
-		}
-	}
-	if version < ominousBannerRarityVersion {
-		if c, ok := tag["components"].(nbt.CompoundTag); ok {
-			fixOminousBannerRarity(c)
-			if version < textComponentVersion {
-				unflattenText(c.Entries(), "minecraft:item_name")
-			}
-		}
+// component; fixStoredComponents then gives it the uncommon rarity.
+// vanilla: BannerEntityCustomNameToOverrideComponentFix
+func fixBannerOverride(tag nbt.Compound) {
+	if key, ok := jsonTranslationKey(tag["CustomName"]); ok && key == ominousBannerKey {
+		tag["components"] = nbt.Compound{"minecraft:item_name": tag["CustomName"], "minecraft:hide_additional_tooltip": nbt.Compound{}}
+		delete(tag, "CustomName")
 	}
 }
