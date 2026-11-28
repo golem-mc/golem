@@ -127,6 +127,7 @@ func fixComponentShapes(c nbt.Compound, id string, version int32) {
 			}
 		}
 	}
+	upgradeComponentEntities(c, id, version)
 	if version < entityVariantVersion {
 		fixEntityVariants(c, itemOrNone(id))
 	}
@@ -184,6 +185,34 @@ func fixOminousBannerRarity(components nbt.CompoundTag) {
 	if key, ok := jsonTranslationKey(components.Entries()["minecraft:item_name"]); ok && key == ominousBannerKey {
 		components.Set("minecraft:item_name", nbt.String(ominousBannerName))
 		components.Set("minecraft:rarity", nbt.String("uncommon"))
+	}
+}
+
+// upgradeComponentEntities upgrades the entities an item's components hold:
+// entity_data, a spawner's SpawnData and SpawnPotentials, and a hive's bees.
+// bucket_entity_data is not typed as an entity by vanilla.
+// vanilla: V3818_3, V3818_5
+func upgradeComponentEntities(c nbt.Compound, id string, version int32) {
+	upgradeEmbeddedEntity(c["minecraft:entity_data"], id, version)
+	if data, ok := nbt.CompoundView(c["minecraft:block_entity_data"]); ok {
+		if spawn, ok := nbt.CompoundView(data["SpawnData"]); ok {
+			upgradeEmbeddedEntity(spawn["entity"], "", version)
+		}
+		potentials, _ := nbt.Get[nbt.List](data, "SpawnPotentials")
+		for _, p := range potentials.Items {
+			if entry, ok := nbt.CompoundView(p); ok {
+				if d, ok := nbt.CompoundView(entry["data"]); ok {
+					upgradeEmbeddedEntity(d["entity"], "", version)
+				}
+			}
+		}
+	}
+	if bees, ok := c["minecraft:bees"].(nbt.List); ok {
+		for _, b := range bees.Items {
+			if bee, ok := nbt.CompoundView(b); ok {
+				upgradeEmbeddedEntity(bee["entity_data"], "", version)
+			}
+		}
 	}
 }
 

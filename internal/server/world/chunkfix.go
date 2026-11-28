@@ -159,6 +159,9 @@ func fixOldBlockEntity(entry nbt.CompoundTag, version int32) bool {
 	if version >= tooltipDisplayVersion {
 		if version < dataVersion {
 			fixStoredComponents(entry, version)
+			if kind == KindBeehive {
+				upgradeBeeEntities(tag, version)
+			}
 			if kind == KindDecoratedPot && version < potDecorationsVersion {
 				// vanilla: PotDecorationsBlockEntityUnflatteningFix
 				v, ok := tag["sherds"]
@@ -232,6 +235,7 @@ func fixBlockEntityFields(id string, kind BlockEntityKind, tag nbt.Compound, ver
 		if version < beehiveRenameVersion {
 			fixBeehive(tag)
 		}
+		upgradeBeeEntities(tag, version)
 	case KindBanner:
 		if version < bannerPatternVersion {
 			fixBannerPatterns(tag)
