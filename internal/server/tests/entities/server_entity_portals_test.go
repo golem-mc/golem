@@ -314,3 +314,23 @@ func TestAThrownEggFliesThroughAPortalToTheNether(t *testing.T) {
 		t.Errorf("removed entity at the arrival = %d, want the arrived egg's %d", got, arrivalID)
 	}
 }
+
+// TestAMobStandingWhereAPortalIsLitCrossesAfterAnIdleStretch lights the
+// portal around a pig that has stood in a dimension with no portal block
+// for a while, so the mob portal pass has been skipped, and checks the pig
+// still crosses.
+func TestAMobStandingWhereAPortalIsLitCrossesAfterAnIdleStretch(t *testing.T) {
+	t.Parallel()
+	const name = "Lighter"
+	cfg := servertest.CrossingTestConfig(t)
+	srv, c, _ := servertest.JoinAs(t, cfg, name, servertest.OpsListing(t, name))
+
+	x, y, z := float64(servertest.PortalInnerX0)+0.5, float64(servertest.PortalFloorY), float64(servertest.PortalInnerZ)+0.5
+	c.ChatCommand(fmt.Sprintf("summon minecraft:pig %v %v %v", x, y, z))
+	c.Settle()
+	servertest.RunTicks(t, srv, 5)
+	servertest.LightPortal(t, srv, c)
+	servertest.UntilTicks(t, srv, 10, "the pig to cross", func() bool {
+		return len(srv.MobsInDimension(world.NetherName)) == 1
+	})
+}

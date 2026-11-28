@@ -291,9 +291,12 @@ type mobHerd struct {
 	// version counts changes to herd's membership, guarded by mobsMu.
 	version uint64
 	// chunks files the live mobs (book) by feet chunk, guarded by mobsMu.
-	chunks        entity.ChunkIndex[*entity.Mob]
-	nearSeen      map[world.ChunkPos]struct{} // scratch of mobsNearBoxes
-	pistonGrid    bodyPistonGrid[*entity.Mob]
+	chunks     entity.ChunkIndex[*entity.Mob]
+	nearSeen   map[world.ChunkPos]struct{} // scratch of mobsNearBoxes
+	pistonGrid bodyPistonGrid[*entity.Mob]
+	// portalAtRest is set by a portal pass that left every body with no
+	// cooldown or standing count; any addition or /data write clears it.
+	portalAtRest  bool
 	pistonVersion uint64
 }
 
@@ -329,6 +332,7 @@ func (h *mobHerd) record(m *entity.Mob) *mobEntity {
 
 // remember indexes a registered body. The caller holds mobsMu.
 func (h *mobHerd) remember(ent *mobEntity) {
+	h.portalAtRest = false
 	slot := ent.mob.RecordSlot()
 	if h.record(ent.mob) == nil {
 		if n := len(h.freeRecords); n > 0 {
@@ -390,6 +394,7 @@ func (h *mobHerd) forget(m *entity.Mob) {
 
 // add puts mobs in the herd. The caller holds mobsMu.
 func (h *mobHerd) add(mobs ...*entity.Mob) {
+	h.portalAtRest = false
 	h.herd = append(h.herd, mobs...)
 	h.version++
 	for _, m := range mobs {
@@ -407,6 +412,7 @@ func (h *mobHerd) remove(mob *entity.Mob) {
 
 // setHerd replaces the herd. The caller holds mobsMu.
 func (h *mobHerd) setHerd(herd entity.Mobs) {
+	h.portalAtRest = false
 	h.herd = herd
 	h.version++
 	h.wardens.Store(0)

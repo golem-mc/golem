@@ -149,6 +149,9 @@ type World struct {
 	// count without it.
 	touchBlocks      int
 	comparatorBlocks atomic.Int64
+	// portalBlocks counts nether portal, end portal and end gateway blocks,
+	// so a mob tick in a dimension with none skips its portal pass.
+	portalBlocks atomic.Int64
 	// tickingChunks holds the loaded chunks with a trial spawner or vault, so a
 	// tick without any walks nothing. Guarded by mu.
 	tickingChunks map[ChunkPos]struct{}
@@ -843,6 +846,7 @@ func (w *World) putChunk(pos ChunkPos, c *Chunk, motion *[16][16]int32, fresh bo
 	w.chunks[pos] = loaded
 	w.lodestones.drop(pos)
 	touches, comparators := c.redstoneBlockCounts()
+	w.portalBlocks.Add(int64(c.crossingBlocks()))
 	w.touchBlocks += touches
 	if comparators != 0 {
 		w.comparatorBlocks.Add(int64(comparators))
@@ -1036,6 +1040,7 @@ func (w *World) removeChunk(pos ChunkPos, loaded *loadedChunk) {
 	w.dropNear(pos, loaded)
 	delete(w.chunks, pos)
 	touches, comparators := loaded.chunk.redstoneBlockCounts()
+	w.portalBlocks.Add(-int64(loaded.chunk.crossingBlocks()))
 	w.touchBlocks -= touches
 	if comparators != 0 {
 		w.comparatorBlocks.Add(-int64(comparators))
@@ -1052,6 +1057,21 @@ func (c *Chunk) redstoneBlockCounts() (touches, comparators int) {
 	}
 	return touches, comparators
 }
+
+func (c *Chunk) crossingBlocks() (n int) {
+	for i := range c.sections {
+		n += int(c.sections[i].crossings)
+	}
+	return n
+}
+
+var isCrossingBlock = registry.BlocksOf(func(b registry.Block) bool {
+	return b == registry.BlockNetherPortal || b == registry.BlockEndPortal || b == registry.BlockEndGateway
+})
+
+// HasPortalBlocks reports whether any loaded chunk holds a nether portal,
+// end portal or end gateway block.
+func (w *World) HasPortalBlocks() bool { return w.portalBlocks.Load() != 0 }
 
 // LoadedChunks is how many chunks are currently in memory and held by players.
 func (w *World) LoadedChunks() int {
@@ -1386,6 +1406,12 @@ func (w *World) updateRedstoneBlockCounts(old, state uint16) {
 		w.touchBlocks++
 	case before && !after:
 		w.touchBlocks--
+	}
+	switch {
+	case isCrossingBlock[block] && !isCrossingBlock[oldBlock]:
+		w.portalBlocks.Add(1)
+	case isCrossingBlock[oldBlock] && !isCrossingBlock[block]:
+		w.portalBlocks.Add(-1)
 	}
 	switch {
 	case block == registry.BlockComparator:
