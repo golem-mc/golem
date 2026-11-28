@@ -427,13 +427,19 @@ func floorDiv(a, b int32) int32 {
 	return q
 }
 
-// lightCtx caches the last chunk touched to skip map lookups: the fill and
-// emitter scan work a chunk at a time and the BFS crosses chunks only at
-// borders, so hits are frequent.
+// lightCtx caches chunks in a 4x4 direct-mapped table to skip map lookups:
+// light spreads at most 15 blocks, so any 4x4 chunk neighborhood (64x64 blocks)
+// fits without collisions, including unloaded nil neighbors.
+// vanilla: LightEngine.lastChunkPos / lastChunk
 type lightCtx struct {
-	w      *World
-	chunk  *Chunk
-	cx, cz int32
+	w *World
+	// cache is indexed by (cx&3)<<2 | (cz&3); cacheValid tracks populated slots
+	// so unloaded (nil) chunks are cached too.
+	cache [16]struct {
+		c      *Chunk
+		cx, cz int32
+	}
+	cacheValid uint16
 	// alone, when set, is the only chunk the engine sees: one not yet in the
 	// world, lit without w.mu with everything around unloaded.
 	alone *Chunk
@@ -513,16 +519,15 @@ func (ctx *lightCtx) chunkAt(cx, cz int32) *Chunk {
 
 func (ctx *lightCtx) resolve(x, z int32) (*Chunk, bool) {
 	cx, cz := x>>4, z>>4 // floorDiv by sectionSize, which is 16
-	if ctx.chunk != nil && cx == ctx.cx && cz == ctx.cz {
-		return ctx.chunk, true
+	slot := uint((cx&3)<<2 | (cz & 3))
+	e := &ctx.cache[slot]
+	if ctx.cacheValid&(1<<slot) != 0 && e.cx == cx && e.cz == cz {
+		return e.c, e.c != nil
 	}
 	c := ctx.chunkAt(cx, cz)
-	if c == nil {
-		return nil, false
-	}
-	ctx.chunk = c
-	ctx.cx, ctx.cz = cx, cz
-	return c, true
+	e.c, e.cx, e.cz = c, cx, cz
+	ctx.cacheValid |= 1 << slot
+	return c, c != nil
 }
 
 func (ctx *lightCtx) blockAt(x, y, z int32) (uint16, bool) {
@@ -1047,12 +1052,12 @@ func shadeOf(a *[lightArrayLen]byte) uint8 {
 // light or an inner side already at 15) is skipped whole. It reads the chunks'
 // own arrays, so it runs before any light is written.
 func (ctx *lightCtx) seedAcross(ox, oz, ix, iz, dir int32, q *lightQueue, shades lightShades) {
-	oc := ctx.chunkAt(floorDiv(ox, sectionSize), floorDiv(oz, sectionSize))
-	if oc == nil {
+	oc, ok := ctx.resolve(ox, oz)
+	if !ok {
 		return
 	}
-	ic := ctx.chunkAt(floorDiv(ix, sectionSize), floorDiv(iz, sectionSize))
-	if ic == nil {
+	ic, ok := ctx.resolve(ix, iz)
+	if !ok {
 		return
 	}
 	olx, olz, ilx, ilz := ox&15, oz&15, ix&15, iz&15
