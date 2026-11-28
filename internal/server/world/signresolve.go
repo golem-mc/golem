@@ -51,21 +51,21 @@ type BookResolver interface {
 // SetBookResolver sets the book resolver before the world is shared.
 func (w *World) SetBookResolver(resolver BookResolver) { w.bookResolver = resolver }
 
-// resolveLecternBook resolves the book a lectern just loaded. No world or
+// ResolveLecternBook resolves the book a lectern just loaded. No world or
 // entity lock may be held: components can read either.
 // vanilla: LecternBlockEntity.loadAdditional, resolveBook
-func (w *World) resolveLecternBook(x, y, z int32) {
+func (w *World) ResolveLecternBook(x, y, z int32) {
 	be := w.BlockEntity(x, y, z)
-	if be == nil || be.Kind != KindLectern {
+	if be == nil || be.Kind != KindLectern || w.bookResolver == nil {
 		return
 	}
 	var book protocol.ItemStack
 	be.Use(func(b *BlockEntity) { book = b.Slots[0] })
-	if _, ok := book.WrittenBookOf(); !ok {
+	if wb, ok := book.WrittenBookOf(); !ok || wb.Resolved {
 		return
 	}
 	resolved := w.bookResolver.ResolveLecternBook(x, y, z, book)
-	be.Use(func(b *BlockEntity) { b.Slots[0] = resolved })
+	be.Use(func(b *BlockEntity) { b.Put(0, resolved) })
 	w.TouchEntity(be)
 }
 
@@ -99,6 +99,6 @@ func (w *World) ResolvePendingLecternBooks() {
 	w.pendingBookCount.Store(0)
 	w.mu.Unlock()
 	for _, p := range pending {
-		w.resolveLecternBook(p[0], p[1], p[2])
+		w.ResolveLecternBook(p[0], p[1], p[2])
 	}
 }

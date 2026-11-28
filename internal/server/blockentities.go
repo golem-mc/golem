@@ -318,6 +318,10 @@ func (c *client) containerPlaced(state uint16, x, y, z int32, stack protocol.Ite
 	if typeID, tag, ok := stack.BlockEntityDataOf(); ok &&
 		(!world.OpOnlyKind(kind) || c.canUseGameMasterBlocks()) {
 		be.Use(func(b *world.BlockEntity) { b.LoadBlockEntityData(typeID, tag) })
+		// vanilla: LecternBlockEntity.loadAdditional
+		if kind == world.KindLectern {
+			c.theWorld().ResolveLecternBook(x, y, z)
+		}
 		// Only the data key counts, flag 2 like vanilla's write.
 		// vanilla: JukeboxBlock.setPlacedBy
 		if _, has := tag["RecordItem"]; has && kind == world.KindJukebox {

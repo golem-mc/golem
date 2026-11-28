@@ -1529,7 +1529,7 @@ func (w *World) TouchEntity(be *BlockEntity) bool {
 func (w *World) SetBlockEntityTag(x, y, z int32, entityType string, data nbt.CompoundTag) (BlockEntityKind, bool) {
 	kind, modelled := w.setBlockEntityTag(x, y, z, entityType, data)
 	if kind == KindLectern && w.bookResolver != nil {
-		w.resolveLecternBook(x, y, z)
+		w.ResolveLecternBook(x, y, z)
 	}
 	return kind, modelled
 }
