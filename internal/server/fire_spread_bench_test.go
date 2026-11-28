@@ -12,7 +12,7 @@ func BenchmarkFireCanSpread(b *testing.B) {
 	s, w := newBlockBenchServer(b, 0)
 	addBlockBenchPlayers(b, s, w, 11, -5, 5)
 	dim := s.dimensionOfWorld(w)
-	s.refreshFireSpreadPlayers(dim, 1)
+	s.refreshFireSpreadPlayers(dim)
 	chk := fireSpreadChecker{s: s, dim: dim}
 	if w.IntRule(world.RuleFireSpread) < 0 {
 		b.Fatal("fire_spread_radius_around_player is unlimited")
