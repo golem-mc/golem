@@ -552,3 +552,39 @@ func TestPlaceTemplateObserverFacingAirPulses(t *testing.T) {
 	wantBlock(t, srv, 10, 70, 10, "minecraft:redstone_lamp", map[string]string{"lit": "false"})
 	c.Disconnect()
 }
+
+// TestPlaceTemplateLoadsLegacyGeneratedStructures checks that a template saved
+// in the pre-26.1 generated/<ns>/structures/ folder is migrated on startup and
+// can be placed with /place template.
+func TestPlaceTemplateLoadsLegacyGeneratedStructures(t *testing.T) {
+	t.Parallel()
+	cfg := config.Default()
+	cfg.OnlineMode = false
+	cfg.GameMode = "creative"
+	cfg.LevelName = t.TempDir()
+	dir := filepath.Join(cfg.LevelName, "generated", "minecraft", "structures")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := nbt.Encode("", smallTemplate())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var zipped bytes.Buffer
+	zw := gzip.NewWriter(&zipped)
+	if _, err := zw.Write(raw); err != nil {
+		t.Fatal(err)
+	}
+	if err := zw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "a.nbt"), zipped.Bytes(), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	srv, c := servertest.Join(t, cfg, "Testificate", servertest.OpsListing(t, "Testificate"))
+	c.ChatCommand("place template minecraft:a 10 70 10")
+	expectPlaced(t, c, "commands.place.template.success", "minecraft:a", 10, 70, 10)
+	wantBlock(t, srv, 10, 70, 10, "minecraft:stone", nil)
+	wantBlock(t, srv, 11, 70, 10, "minecraft:gold_block", nil)
+	c.Disconnect()
+}
