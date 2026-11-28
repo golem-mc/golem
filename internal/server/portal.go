@@ -1026,7 +1026,7 @@ func (s *Server) crossPortalTold(w *world.World, id int32, pos player.Position, 
 // its portal of kind (Server.crossPortal) as the twin twinAt raises from its
 // tag at the arrival, facing at.Yaw: the body's yaw turned by the angle
 // between the portals. register puts the twin into the world, and a body
-// that stays goes back to the list.
+// that stays goes back to the list and the chunk index.
 // vanilla: Entity.teleportCrossDimension, NetherPortalBlock.getExitPortal
 func (k *trackedKind[B, S]) crossPortal(s *Server, b B, kind rules.PortalKind, register func(B),
 	twinAt func(to *world.World, at player.Position) (B, bool), watchers *[]uuid.UUID) {
@@ -1055,6 +1055,8 @@ func (k *trackedKind[B, S]) crossPortal(s *Server, b B, kind rules.PortalKind, r
 			mu := k.lock(s)
 			mu.Lock()
 			*k.list(s) = append(*k.list(s), b)
+			k.unfile(b)
+			k.file(s, b)
 			mu.Unlock()
 		}, watchers)
 }
