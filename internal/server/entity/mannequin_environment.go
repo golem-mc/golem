@@ -31,7 +31,7 @@ func (m *Mannequin) EnvironmentStep(w World, hurt func(float64, registry.DamageT
 		}, hurt)
 	}
 	if m.FireTicks != 0 {
-		extinguished = livingFireTick(&m.FireTicks, rainLandsOn(w, m.X, m.Y, m.Z, height) || m.water.height > 0, false, m.lava.height > 0, hurt)
+		livingFireTick(&m.FireTicks, false, m.lava.height > 0, hurt)
 	}
 	submerged := m.water.eyesIn && !m.water.bubbleAtEyes
 	breathing := m.HasEffect(registry.MobEffectWaterBreathing) || m.HasEffect(registry.MobEffectConduitPower)
@@ -48,6 +48,7 @@ func (m *Mannequin) EnvironmentStep(w World, hurt func(float64, registry.DamageT
 			m.IgniteForTicksBy(ticks, CombustSource{HasBlock: true, X: x, Y: y, Z: z})
 		}, hurt)
 	}
+	extinguished = douseFire(&m.FireTicks, m.water.height > 0 || rainLandsOn(w, m.X, m.Y, m.Z, height))
 	inSnow := scan.touches(w, box, contactPowderSnow)
 	if inSnow && m.FireTicks > 0 {
 		m.FireTicks = 0

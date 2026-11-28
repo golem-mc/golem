@@ -5120,26 +5120,32 @@ func (m *Mob) berryBushContact(w World, scan *contactScan, seated bool, dx, dz f
 	return events
 }
 
-// fireStep runs a tick of standing fire (Entity.baseTick): rain or water
-// puts it out (reported as MobExtinguished); otherwise one fire damage
+// fireStep runs a tick of standing fire (Entity.baseTick): one fire damage
 // lands every 20th tick, sourceless, and not while lava touches the box
-// (isInLava, not just the feet cell), and the counter drops by one. Every
-// kind runs it, whatever lit the fire.
-func (m *Mob) fireStep(w World, events []MobEvent) []MobEvent {
+// (isInLava, not just the feet cell), and the counter drops by one. Water
+// puts it out later, in douseStep. Every kind runs it, whatever lit the fire.
+func (m *Mob) fireStep(events []MobEvent) []MobEvent {
 	if m.FireTicks == 0 {
 		return events
 	}
-	wet := m.inRain(w) || rules.IsWater(w.BlockAt(m.cell().X, m.cell().Y, m.cell().Z))
 	fire := m.FireTicks
-	extinguished := livingFireTick(&fire, wet, m.kind().fireImmune, m.InLava(), func(amount float64, typ registry.DamageType) {
+	livingFireTick(&fire, m.kind().fireImmune, m.InLava(), func(amount float64, typ registry.DamageType) {
 		events = m.burnBite(amount, typ, events)
 		fire = m.FireTicks
 	})
 	m.SetMetadataFireTicks(fire)
-	if extinguished {
-		events = append(events, MobEvent{Mob: m, Kind: MobExtinguished})
-	}
 	return events
+}
+
+// douseStep puts out a burning body whose box touches water, or that stands
+// in rain (reported as MobExtinguished).
+// vanilla: WaterFluid.entityInside, Entity.applyEffectsFromBlocks
+func (m *Mob) douseStep(w World, events []MobEvent) []MobEvent {
+	if m.FireTicks <= 0 || (!m.InWater() && !m.inRain(w)) {
+		return events
+	}
+	m.SetMetadataFireTicks(0)
+	return append(events, MobEvent{Mob: m, Kind: MobExtinguished})
 }
 
 // wallStep is LivingEntity.baseTick's isInWall suffocation: in_wall bypasses
