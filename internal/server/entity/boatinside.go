@@ -60,6 +60,9 @@ func (b *Boat) InsideBlocks(w World, fx, fy, fz, moveX, moveZ float64, pads []Li
 			if state == lilyPadState && !slices.Contains(pads, LilyPadCell{x, y, z}) {
 				pads = append(pads, LilyPadCell{x, y, z})
 			}
+			if honeySlideCell(state, x, y, z, b.X, b.Y, b.Z, 2*BoatHalfWidth, b.OnGround, &b.VX, &b.VY, &b.VZ, &b.fallDistance) {
+				b.Slides++
+			}
 			if insideNonLiving(state, sideways, &b.stuck) {
 				flakes = append(flakes, y)
 			}

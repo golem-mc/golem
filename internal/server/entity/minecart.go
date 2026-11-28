@@ -141,6 +141,8 @@ type Minecart struct {
 	// DousedCauldrons are the layered cauldrons a burning cart was put out in.
 	DousedCauldrons [][3]int32
 	burnHurt        func(float64, registry.DamageType, bool) bool
+	// Slides counts this tick's honey block slides, each owed the slide effects.
+	Slides int
 
 	// vanilla: Entity.isNoGravity
 	NoGravity bool
@@ -314,7 +316,7 @@ func (m *Minecart) contactHurt(amount float64, damageType registry.DamageType, c
 // near-reverse turn swaps the flip so the client's model stays upright.
 // vanilla: AbstractMinecart.tick, OldMinecartBehavior.tick
 func (m *Minecart) Step(w World, ridden bool) {
-	m.LavaHurts, m.Extinguishes = 0, 0
+	m.LavaHurts, m.Extinguishes, m.Slides = 0, 0, 0
 	m.DousedCauldrons = m.DousedCauldrons[:0]
 	m.Snowflakes = m.Snowflakes[:0]
 	m.Splash = nil
@@ -410,6 +412,9 @@ func (m *Minecart) blockEffects(w World) {
 	move := bodyMove{fx: m.X, fy: m.Y, fz: m.Z, tx: m.X, ty: m.Y, tz: m.Z}
 	rel := AABB{-MinecartHalfWidth, 0, -MinecartHalfWidth, MinecartHalfWidth, MinecartHeight, MinecartHalfWidth}
 	burns, fizzles := vehicleBurnPass(w, move, rel, &m.FireTicks, &m.Dead, m.contactHurt, func(x, y, z int32, state uint16, _ int, _ AABB, _, _, _ float64) bool {
+		if honeySlideCell(state, x, y, z, m.X, m.Y, m.Z, 2*MinecartHalfWidth, m.OnGround, &m.VX, &m.VY, &m.VZ, &m.fallDistance) {
+			m.Slides++
+		}
 		if insideNonLiving(state, sideways, &m.stuck) {
 			m.Snowflakes = append(m.Snowflakes, y)
 		}

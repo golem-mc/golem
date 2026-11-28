@@ -160,6 +160,8 @@ type Boat struct {
 	LavaHurts, Extinguishes int
 	// DousedCauldrons are the layered cauldrons a burning boat was put out in.
 	DousedCauldrons [][3]int32
+	// Slides counts this tick's honey block slides, each owed the slide effects.
+	Slides int
 	// FireTicks is the burn left, 0 for none; Burning is the on-fire flag the
 	// clients are shown, set as of this tick's start.
 	// vanilla: Entity.remainingFireTicks, Entity.setSharedFlagOnFire
@@ -648,6 +650,7 @@ func (b *Boat) groundFriction(w World) (float64, bool) {
 func (b *Boat) burnTick() {
 	b.LavaHurts, b.Extinguishes = 0, 0
 	b.DousedCauldrons = b.DousedCauldrons[:0]
+	b.Slides = 0
 	if b.FireTicks > 0 {
 		if b.FireTicks%20 == 0 && b.lava.height <= 0 {
 			b.Hurt(float64(onFireDamage), rules.DamageTypeOnFire, false)

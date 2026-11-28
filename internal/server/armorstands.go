@@ -957,6 +957,7 @@ func (s *Server) tickArmorStands() {
 	var cauldrons []cellSpot
 	var bodyLandings []bodyLanding
 	var groundSteps []groundStep
+	var slides []honeySlide
 
 	s.lockTick(&s.armorStandsMu)
 	alive := s.armorStands[:0]
@@ -996,6 +997,8 @@ func (s *Server) tickArmorStands() {
 					broke, torn = true, true
 				case entity.ArmorStandDousedCauldron:
 					cauldrons = append(cauldrons, cellSpot{ent.w, int32(item.X), int32(item.Y), int32(item.Z)})
+				case entity.ArmorStandSlid:
+					slides = append(slides, honeySlide{ent.w, ent.stand.ID, ent.stand.X, ent.stand.Y, ent.stand.Z})
 				case entity.ArmorStandLocated:
 					located = append(located, standLocated{ent: ent, x: item.X, y: item.Y, z: item.Z, changed: item.Level})
 				}
@@ -1044,6 +1047,7 @@ func (s *Server) tickArmorStands() {
 	out.send()
 	s.runBodyLandings(bodyLandings)
 	s.runGroundSteps(groundSteps)
+	applyEach(s, slides, (*Server).slideHoney)
 
 	var disks []mobDisk
 	for _, l := range located {
