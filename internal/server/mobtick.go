@@ -272,6 +272,7 @@ func (s *Server) readMobTickInputs(in *mobTickInputs) (known map[uuid.UUID]bool)
 		in.holderSpans = append(in.holderSpans, holderSpan{holder: knotHolderSnapshot(k), w: k.w})
 	}
 	s.unlockTick(&s.knotsMu)
+	s.addVehicleHolders(in)
 	holders := in.holders
 	for _, dim := range s.allDims() {
 		for _, hs := range in.holderSpans {
@@ -1090,6 +1091,48 @@ func (t *mobDimTick) countCorpses(fx *mobEffects, dyingCount int) {
 		})
 	}
 	h.dying = append(stillDying, t.corpses...)
+}
+
+// addVehicleHolders offers the boats and minecarts some mob's lead is tied
+// to as leash holders. Read before the mob lock is taken for the tick; the
+// herds are walked only while a boat or cart exists.
+func (s *Server) addVehicleHolders(in *mobTickInputs) {
+	s.boatsMu.Lock()
+	nb := len(s.boats)
+	s.boatsMu.Unlock()
+	s.minecartsMu.Lock()
+	nc := len(s.minecarts)
+	s.minecartsMu.Unlock()
+	if nb+nc == 0 {
+		return
+	}
+	held := map[int32]bool{}
+	s.lockTick(&s.mobsMu)
+	for _, dim := range s.allDims() {
+		for _, m := range dim.mobs.herd {
+			if m.LeashHolderID != 0 {
+				held[m.LeashHolderID] = true
+			}
+		}
+	}
+	s.unlockTick(&s.mobsMu)
+	if len(held) == 0 {
+		return
+	}
+	s.boatsMu.Lock()
+	for _, it := range s.boats {
+		if held[it.boat.ID] {
+			in.holderSpans = append(in.holderSpans, holderSpan{holder: boatLeashHolder(it), w: it.w})
+		}
+	}
+	s.boatsMu.Unlock()
+	s.minecartsMu.Lock()
+	for _, it := range s.minecarts {
+		if held[it.cart.ID] {
+			in.holderSpans = append(in.holderSpans, holderSpan{holder: minecartLeashHolder(it), w: it.w})
+		}
+	}
+	s.minecartsMu.Unlock()
 }
 
 // addMobHolders offers every wandering trader and every mob that holds a

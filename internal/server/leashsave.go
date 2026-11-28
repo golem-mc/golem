@@ -86,10 +86,34 @@ func (s *Server) standLeashHolders(waits []leashWait) []*knotEntity {
 					wt.holder = m.ID
 				}
 				s.mobsMu.Unlock()
+				if wt.holder == 0 {
+					wt.holder = s.vehicleIDByUUID(wt.w, wt.ref.holder)
+				}
 			}
 		}
 	}
 	return knots
+}
+
+// vehicleIDByUUID is the entity ID of the live boat or minecart of w with
+// the UUID, or 0.
+func (s *Server) vehicleIDByUUID(w *world.World, id uuid.UUID) int32 {
+	s.boatsMu.Lock()
+	for _, it := range s.boats {
+		if it.w == w && it.uuid == id && !it.boat.Dead {
+			s.boatsMu.Unlock()
+			return it.boat.ID
+		}
+	}
+	s.boatsMu.Unlock()
+	s.minecartsMu.Lock()
+	defer s.minecartsMu.Unlock()
+	for _, it := range s.minecarts {
+		if it.w == w && it.uuid == id && !it.cart.Dead {
+			return it.cart.ID
+		}
+	}
+	return 0
 }
 
 // leashTell is a restored lead's news: a body tied to holder, or laying its

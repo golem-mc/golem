@@ -564,7 +564,7 @@ func (s *Server) holdsBoatWithin(w *world.World, from int32, cx, cy, cz float64,
 // of to. The boat lock is held.
 func heldBoatWithin(it *boatEntity, w *world.World, from int32, cx, cy, cz float64, to *entity.LeashHolder) bool {
 	b := it.boat
-	return it.w == w && it.holder == from && !b.Dead &&
+	return it.w == w && it.holder == from && !b.Dead && b.ID != to.EntityID &&
 		math.Abs(b.X-cx) <= 16+entity.BoatHalfWidth && math.Abs(b.Z-cz) <= 16+entity.BoatHalfWidth &&
 		math.Abs(b.Y+0.5*entity.BoatHeight-cy) <= 16+0.5*entity.BoatHeight &&
 		entity.LeashReaches(b.X, b.Y, b.Z, entity.BoatHeight, entity.LeashSnapDistance, to)
@@ -719,7 +719,6 @@ func (c *client) useKnot(k *knotEntity, hand int32, sneaking bool) error {
 // vanilla: Entity.interact, Leashable.leashableInArea
 func (c *client) tieLedOntoMob(ent *mobEntity, hand int32) bool {
 	s := c.srv
-	w := ent.w
 	s.mobsMu.Lock()
 	m := ent.mob
 	if m.Dead {
@@ -730,10 +729,38 @@ func (c *client) tieLedOntoMob(ent *mobEntity, hand int32) bool {
 		EntityID: m.ID, X: m.X, Y: m.Y, Z: m.Z,
 		Width: m.BbWidth(), Height: m.BbHeight(), Present: true,
 	}
-	cx, cy, cz := m.X, m.Y+0.5*m.BbHeight(), m.Z
+	cy := m.Y + 0.5*m.BbHeight()
 	s.mobsMu.Unlock()
-	ref := leashRef{holder: ent.uuid}
-	moved, _ := c.tieMobsAllowed(w, c.player.EntityID, cx, cy, cz, &holder, ref, ent.uuid, ent)
+	return c.tieLedOnto(ent.w, holder, cy, ent.uuid, ent)
+}
+
+// tieLedOntoBoat moves the mobs and boats the player leads near the hull
+// onto it, spending nothing, and reports whether any moved. A hull never
+// holds itself (heldBoatWithin).
+// vanilla: Entity.interact, Leashable.leashableInArea
+func (c *client) tieLedOntoBoat(it *boatEntity) bool {
+	s := c.srv
+	s.boatsMu.Lock()
+	b := it.boat
+	if b.Dead {
+		s.boatsMu.Unlock()
+		return false
+	}
+	holder := entity.LeashHolder{
+		EntityID: b.ID, X: b.X, Y: b.Y, Z: b.Z,
+		Width: 2 * entity.BoatHalfWidth, Height: entity.BoatHeight, Present: true,
+	}
+	s.boatsMu.Unlock()
+	return c.tieLedOnto(it.w, holder, holder.Y+0.5*entity.BoatHeight, it.uuid, nil)
+}
+
+// tieLedOnto moves the mobs (except skip) and boats the player leads near
+// holder onto it, a save naming holderID, and tells the tie.
+func (c *client) tieLedOnto(w *world.World, holder entity.LeashHolder, cy float64, holderID uuid.UUID, skip *mobEntity) bool {
+	s := c.srv
+	cx, cz := holder.X, holder.Z
+	ref := leashRef{holder: holderID}
+	moved, _ := c.tieMobsAllowed(w, c.player.EntityID, cx, cy, cz, &holder, ref, holderID, skip)
 	for _, e := range moved {
 		s.mobsMu.Lock()
 		rides := e.mob.RidesVehicle
@@ -748,7 +775,7 @@ func (c *client) tieLedOntoMob(ent *mobEntity, hand int32) bool {
 			}
 		}
 	}
-	boats, _ := c.tieBoatsAllowed(w, c.player.EntityID, cx, cy, cz, &holder, ref, ent.uuid)
+	boats, _ := c.tieBoatsAllowed(w, c.player.EntityID, cx, cy, cz, &holder, ref, holderID)
 	if len(moved) == 0 && len(boats) == 0 {
 		return false
 	}

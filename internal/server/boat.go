@@ -642,20 +642,39 @@ func (s *Server) boatLeashHolders(clients []*client, w *world.World) map[int32]e
 		}
 	}
 	s.knotsMu.Unlock()
-	// A mob holding a boat's lead, looked up after the boat lock is released.
-	var mobIDs []int32
+	// A boat, minecart or mob holding a boat's lead, looked up after the
+	// boat lock is released (the boats' own places in the same section).
+	var wanted []int32
 	s.boatsMu.Lock()
 	for _, it := range s.boats {
-		if it.w == w && it.holder != 0 {
+		if it.w == w && it.holder != 0 && it.holder != it.boat.ID {
 			if _, ok := holders[it.holder]; !ok {
-				mobIDs = append(mobIDs, it.holder)
+				wanted = append(wanted, it.holder)
 			}
 		}
 	}
+	if len(wanted) > 0 {
+		for _, it := range s.boats {
+			if it.w == w && slices.Contains(wanted, it.boat.ID) {
+				holders[it.boat.ID] = boatLeashHolder(it)
+			}
+		}
+		wanted = slices.DeleteFunc(wanted, func(id int32) bool { _, ok := holders[id]; return ok })
+	}
 	s.boatsMu.Unlock()
-	if len(mobIDs) > 0 {
+	if len(wanted) > 0 {
+		s.minecartsMu.Lock()
+		for _, it := range s.minecarts {
+			if it.w == w && slices.Contains(wanted, it.cart.ID) {
+				holders[it.cart.ID] = minecartLeashHolder(it)
+			}
+		}
+		s.minecartsMu.Unlock()
+		wanted = slices.DeleteFunc(wanted, func(id int32) bool { _, ok := holders[id]; return ok })
+	}
+	if len(wanted) > 0 {
 		s.mobsMu.Lock()
-		for _, id := range mobIDs {
+		for _, id := range wanted {
 			if ent := s.mobByEntityIDLocked(w, id); ent != nil {
 				m := ent.mob
 				holders[id] = entity.LeashHolder{
@@ -668,6 +687,26 @@ func (s *Server) boatLeashHolders(clients []*client, w *world.World) map[int32]e
 		s.mobsMu.Unlock()
 	}
 	return holders
+}
+
+// boatLeashHolder is the holder a body leashed to hull it is ticked against.
+// The caller holds the boat lock.
+func boatLeashHolder(it *boatEntity) entity.LeashHolder {
+	b := it.boat
+	return entity.LeashHolder{
+		EntityID: b.ID, X: b.X, Y: b.Y, Z: b.Z,
+		Width: 2 * entity.BoatHalfWidth, Height: entity.BoatHeight,
+		Present: !b.Dead, SameLevel: true,
+	}
+}
+
+// minecartLeashHolder is boatLeashHolder for a cart, under the cart lock.
+func minecartLeashHolder(it *minecartEntity) entity.LeashHolder {
+	return entity.LeashHolder{
+		EntityID: it.cart.ID, X: it.cart.X, Y: it.cart.Y, Z: it.cart.Z,
+		Width: 2 * entity.MinecartHalfWidth, Height: entity.MinecartHeight,
+		Present: !it.cart.Dead, SameLevel: true,
+	}
 }
 
 // leashLetGo tells a body's lead gone from holder without laying the item,
@@ -1799,6 +1838,10 @@ func (c *client) useOnBoat(it *boatEntity, hand int32, sneaking bool) error {
 			return nil
 		}
 		return c.openBoatCargo(it)
+	}
+	// vanilla: Entity.interact moves the player's leads onto a sneak-clicked body
+	if sneaking && c.tieLedOntoBoat(it) {
+		return nil
 	}
 	if handled, err := c.leashBoat(it, hand); handled {
 		return err
