@@ -20,6 +20,7 @@ func BenchmarkEntityQueryPlayers(b *testing.B) {
 		p := &player.Player{UUID: uuid.New(), Name: fmt.Sprintf("P%d", i), EntityID: int32(i + 1)}
 		c := &client{srv: s, player: p}
 		c.dim.Store(dim)
+		c.worldScope = worldScope{srv: s, in: c.dimension, by: c.Profile}
 		s.assignPlayerSlot(c)
 		s.clients[p.UUID] = c
 	}
