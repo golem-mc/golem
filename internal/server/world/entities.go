@@ -137,6 +137,31 @@ func fixLegacyDimensionID(root nbt.Compound) {
 	}
 }
 
+// entityTextKeys are the text component fields of an entity.
+// vanilla: V3325 (text_display), V1451 (command_block_minecart)
+func entityTextKeys(entries nbt.Compound) []string {
+	id, _ := nbt.Get[nbt.String](entries, "id")
+	switch id {
+	case "minecraft:text_display":
+		return []string{"CustomName", "text"}
+	case "minecraft:command_block_minecart":
+		return []string{"CustomName", "LastOutput"}
+	}
+	return []string{"CustomName"}
+}
+
+// fixTextField unflattens the component under key and renames its click and
+// hover events, as far as a file of version needs.
+// vanilla: UnflattenTextComponentFix, TextComponentHoverAndClickEventFix
+func fixTextField(entries nbt.Compound, key string, version int32) {
+	if version < textComponentVersion {
+		unflattenText(entries, key)
+	}
+	if v, ok := entries[key]; ok && version < clickEventVersion {
+		entries[key] = fixTextEvents(v)
+	}
+}
+
 // fixEntityTexts strips attribute id prefixes and unflattens CustomName on an
 // entity and its passengers.
 // vanilla: AttributeIdPrefixFix, UnflattenTextComponentFix
@@ -152,8 +177,8 @@ func fixEntityTexts(e nbt.CompoundTag, version int32) {
 			}
 		}
 	}
-	if version < textComponentVersion {
-		unflattenText(entries, "CustomName")
+	for _, key := range entityTextKeys(entries) {
+		fixTextField(entries, key, version)
 	}
 	if passengers, ok := nbt.Get[nbt.List](entries, "Passengers"); ok {
 		for _, p := range passengers.Items {

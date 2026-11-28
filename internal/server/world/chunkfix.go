@@ -161,6 +161,9 @@ func fixOldBlockEntity(entry nbt.CompoundTag, version int32) bool {
 	if version < signsOpFlagVersion && IsSignKind(kind) {
 		tag["allow_op_features"] = nbt.Byte(1)
 	}
+	if version < blockStateFieldsVersion && kind == KindPiston {
+		renameBlockState(tag[BlockStateKeyPiston])
+	}
 	if version >= tooltipDisplayVersion {
 		if version < dataVersion {
 			fixStoredComponents(entry, version)
@@ -219,6 +222,9 @@ func fixOldBlockEntity(entry nbt.CompoundTag, version int32) bool {
 	if version < clickEventVersion && IsSignKind(kind) {
 		fixSignClickEvents(tag)
 	}
+	for _, key := range blockEntityTextKeys(string(id)) {
+		fixTextField(tag, key, version)
+	}
 	return true
 }
 
@@ -253,6 +259,19 @@ func fixBlockEntityFields(id string, kind BlockEntityKind, tag nbt.Compound, ver
 	if version < lockPredicateVersion {
 		fixContainerLock(tag)
 	}
+}
+
+// blockEntityTextKeys are the text component fields of a block entity besides
+// those unflattenBlockEntityText covers.
+// vanilla: V1458 (skull), V99 (command_block)
+func blockEntityTextKeys(id string) []string {
+	switch id {
+	case "minecraft:skull":
+		return []string{"custom_name"}
+	case "minecraft:command_block":
+		return []string{"LastOutput"}
+	}
+	return nil
 }
 
 func renameField(tag nbt.Compound, from, to string) {
