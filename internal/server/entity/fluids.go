@@ -76,6 +76,8 @@ const (
 	// fifteen seconds of it for the lava, eight for a block of fire.
 	fireTicksLava = 300
 	fireTicksFire = 160
+	// fireTicksCampfire is ArmorStand.hurtServer's igniteForSeconds(5).
+	fireTicksCampfire = 100
 
 	// lavaDamage, onFireDamage, fireBlockDamage and soulFireDamage are the burn
 	// costs: Entity.lavaHurt's 4, the burning's every-20th-tick bite, and

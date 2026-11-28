@@ -276,6 +276,16 @@ func (s *ArmorStand) Step(w World) []ArmorStandEvent {
 					s.causeDamage(ignitingDamage) {
 					broke = true
 				}
+			case isLitCampfire(w.BlockAt(x, y, z)):
+				// vanilla: CampfireBlock.entityInside; minecraft:campfire is in #ignites_armor_stands
+				if s.FireTicks > 0 {
+					if !s.Invisible && !s.InvulnerableTo(rules.DamageTypeCampfire, false) &&
+						s.causeDamage(ignitingDamage) {
+						broke = true
+					}
+				} else if !s.Invisible && !s.InvulnerableTo(rules.DamageTypeCampfire, false) {
+					s.igniteFor(fireTicksCampfire)
+				}
 			case rules.IsLava(w.BlockAt(x, y, z)), rules.IsLavaCauldron(w.BlockAt(x, y, z)):
 				s.igniteFor(fireTicksLava)
 			}
@@ -756,3 +766,8 @@ func (s *ArmorStand) dispenserEquip(stack protocol.ItemStack, commit bool) bool 
 
 // CapFall is Entity.checkFallDistanceAccumulation.
 func (s *ArmorStand) CapFall() { CapFallAccumulation(s.VY, &s.FallDistance) }
+
+func isLitCampfire(state uint16) bool {
+	_, lit := rules.CampfireDamage(state)
+	return lit
+}
