@@ -36,6 +36,8 @@ type thrownEntity struct {
 	uuid      uuid.UUID
 	stack     protocol.ItemStack
 	look      entityLook
+	// toldFire is the on-fire bit the watchers last heard.
+	toldFire bool
 
 	bodyTrack[struct{}]
 	shotMark
@@ -567,6 +569,7 @@ func (s *Server) thrownOfFields(w *world.World, kind entity.ThrownKind, stackOf 
 	thrown.NoGravity = nbt.BoolField(tagged, "NoGravity")
 	thrown.Silent = nbt.BoolField(tagged, "Silent")
 	thrown.RestoreLeftOwner(nbt.BoolField(tagged, "LeftOwner"))
+	thrown.FireTicks = fireOfTag(tagged)
 	readFireballFields(thrown, tagged)
 	targetUUID := readBulletFields(thrown, tagged)
 	it := thrownShell(thrown, w, ownerUUID, stackOf)
@@ -1023,6 +1026,10 @@ func thrownSpawnPayload(it *thrownEntity) []byte {
 func thrownMetadataPayload(it *thrownEntity, full bool) []byte {
 	var b protocol.Buffer
 	b.PutVarInt(it.throwable.ID)
+	if flags := it.look.flags(it.throwable.FireFlag); full || flags != 0 {
+		b.PutMetadata(protocol.MetadataIndexEntityFlags, protocol.MetadataByte)
+		b.PutU8(flags)
+	}
 	if full || it.throwable.NoGravity {
 		b.PutMetadata(protocol.MetadataIndexNoGravity, protocol.MetadataBoolean)
 		b.PutBool(it.throwable.NoGravity)
@@ -1051,6 +1058,17 @@ func thrownMetadataPayload(it *thrownEntity, full bool) []byte {
 		was = customName{wire: "\x00", visible: !it.custom.visible}
 	}
 	it.custom.putMetadata(&b, was)
+	b.EndMetadata()
+	return b.Bytes()
+}
+
+// thrownFlagsPayload builds the Set Entity Metadata packet carrying the shared
+// flags alone, off or on.
+func thrownFlagsPayload(it *thrownEntity) []byte {
+	var b protocol.Buffer
+	b.PutVarInt(it.throwable.ID)
+	b.PutMetadata(protocol.MetadataIndexEntityFlags, protocol.MetadataByte)
+	b.PutU8(it.look.flags(it.throwable.FireFlag))
 	b.EndMetadata()
 	return b.Bytes()
 }

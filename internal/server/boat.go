@@ -443,6 +443,11 @@ func (s *Server) tickBoats() {
 		from := entity.NewAABB(entity.BoatBoxAt(sx, sy, sz))
 		it.boat.Step(bw, driver != nil)
 		fx.movements.add(it.w, it.uuid, it.boat.Movement)
+		if it.boat.OnGround && !it.boat.Dead {
+			if st, ok := groundStepOf(it.w, it.boat.X, it.boat.Y, it.boat.Z, entity.BoatHalfWidth, true); ok {
+				fx.steps = append(fx.steps, st)
+			}
+		}
 		if sp := it.boat.Splash; sp != nil {
 			if driver != nil {
 				known := driver.player.KnownMovement()

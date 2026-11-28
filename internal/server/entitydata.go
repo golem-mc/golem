@@ -335,7 +335,7 @@ func fallingTagAs(ent *fallingEntity, id string) *nbt.OrderedCompound {
 	f := ent.fb
 	tag := orderedEntityBaseTag(id,
 		f.X, f.Y, f.Z, f.VX, f.VY, f.VZ,
-		ent.look.yaw, ent.look.pitch, ent.uuid, f.OnGround, ent.portal.Cooldown, restingFire, 0)
+		ent.look.yaw, ent.look.pitch, ent.uuid, f.OnGround, ent.portal.Cooldown, f.FireTicks, 0)
 	putEntityOptions(tag, ent.custom, ent.look.silent, f.NoGravity, ent.look, ent.tags)
 	putTicksFrozen(tag, f.TicksFrozen)
 	tag.Set("Invulnerable", boolTag(ent.look.invulnerable))
@@ -362,7 +362,7 @@ func thrownTagAs(ent *thrownEntity, id string) *nbt.OrderedCompound {
 	t := ent.throwable
 	tag := orderedEntityBaseTag(id,
 		t.X, t.Y, t.Z, t.VX, t.VY, t.VZ,
-		t.Yaw, t.Pitch, ent.uuid, false, ent.portal.Cooldown, restingFire, 0)
+		t.Yaw, t.Pitch, ent.uuid, false, ent.portal.Cooldown, t.FireTicks, 0)
 	putEntityOptions(tag, ent.custom, t.Silent, t.NoGravity, ent.look, ent.tags)
 	putTicksFrozen(tag, t.TicksFrozen)
 	tag.Set("Invulnerable", boolTag(ent.invulnerable))
@@ -411,6 +411,7 @@ func applyThrownRest(it *thrownEntity, compound nbt.Compound) {
 	t.Silent = nbt.BoolField(compound, "Silent")
 	t.TicksFrozen = ticksFrozenOfTag(compound)
 	it.invulnerable = nbt.BoolField(compound, "Invulnerable")
+	t.FireTicks = fireOfTag(compound)
 	readFireballFields(t, compound)
 	it.tags.Reset(tagsOfTag(compound))
 	it.custom = customNameOfTag(compound)
@@ -1013,6 +1014,7 @@ func applyFallingTag(it *fallingEntity, compound nbt.Compound) {
 	}
 	f.VX, f.VY, f.VZ = entityMotionOfTag(compound)
 	f.Time = max(intFieldOf(compound, "Time"), 0)
+	f.FireTicks = fireOfTag(compound)
 	f.DropItem = boolFieldOr(compound, "DropItem", true)
 	f.CancelDrop = nbt.BoolField(compound, "CancelDrop")
 	block, _ := registry.BlockByName(name)

@@ -130,6 +130,7 @@ func (t *TNT) Step(w World) []TNTEvent {
 		AABB{-TNTHalfWidth, 0, -TNTHalfWidth, TNTHalfWidth, TNTHeight, TNTHalfWidth}, &t.TicksFrozen)
 	var events []TNTEvent
 	if t.OnGround {
+		slimeStep(w, t.X, t.Y, t.Z, TNTHalfWidth, t.VY, &t.VX, &t.VZ)
 		if x, y, z, ok := unlitOreUnder(w, t.X, t.Y, t.Z, TNTHalfWidth); ok {
 			events = append(events, TNTEvent{Kind: TntSteppedOnRedstoneOre, X: float64(x), Y: float64(y), Z: float64(z)})
 		}

@@ -82,6 +82,8 @@ func vehicleBurnPass(w World, move bodyMove, rel AABB, fire, frozen *int, dead *
 			fires = append(fires, damage)
 		case rules.IsPowderSnow(state):
 			extinguish, snow = true, true
+		case sweptLavaCauldron(x, y, z, state, from, dx, dy, dz):
+			lava++
 		default:
 			switch sweptFluid(w, x, y, z, state, from, dx, dy, dz) {
 			case fluidLava:

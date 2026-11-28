@@ -705,7 +705,7 @@ func (it *Item) insideEffects(w World, events *[]ItemEvent) {
 			cauldrons = append(cauldrons, [3]int32{x, y, z})
 		case fluid == fluidWater:
 			it.fireTicks = 0
-		case fluid == fluidLava:
+		case fluid == fluidLava || sweptLavaCauldron(x, y, z, state, from, dx, dy, dz):
 			inLava = true
 			// The lava's two effects in vanilla's order: the burn lit
 			// for fifteen seconds, then the hurt and its sound.

@@ -111,6 +111,10 @@ type Firework struct {
 	// vanilla: FireworkRocketEntity.tick's horizontalCollision
 	hitWall bool
 
+	// stuck is the web or snow multiplier the last move left for the next.
+	// vanilla: Entity.stuckSpeedMultiplier
+	stuck stuckFactor
+
 	// leftOwner is Projectile.leftOwner: the shooter is skipped until the grown
 	// box has left it, and stays hittable after.
 	leftOwner bool
@@ -281,11 +285,17 @@ func (f *Firework) endTick() []FireworkEvent {
 }
 
 // move clips the rocket's leading faces so it can leave shapes it spawns
-// overlapping. It keeps the velocity for the next tick.
+// overlapping. It keeps the velocity for the next tick, and spends the stuck multiplier on
+// this move's displacement.
 // vanilla: FireworkRocketEntity.tick, Entity.collideWithShapes
 func (f *Firework) move(w World) {
 	f.hitWall = false
-	dx, dy, dz := f.VX, f.VY, f.VZ
+	// The rocket restores its unscaled velocity after the move, so the
+	// stuck scaling touches only this move's displacement.
+	dx, dy, dz, _ := f.stuck.scale(f.VX, f.VY, f.VZ)
+	defer func() {
+		f.stuck = stuckIn(w, f.Box(), f.X, f.Y, f.Z, false, false, false, false)
+	}()
 	if dx == 0 && dy == 0 && dz == 0 {
 		return
 	}

@@ -312,6 +312,27 @@ func sweptFluid(w World, x, y, z int32, state uint16, from AABB, dx, dy, dz floa
 	return cell.kind
 }
 
+// sweptLavaCauldron reports whether the box moving by (dx, dy, dz) meets the
+// lava of a lava cauldron cell: its walls plus the lava column.
+// vanilla: LavaCauldronBlock.getEntityInsideCollisionShape
+func sweptLavaCauldron(x, y, z int32, state uint16, from AABB, dx, dy, dz float64) bool {
+	if !rules.IsLavaCauldron(state) {
+		return false
+	}
+	fx, fy, fz := float64(x), float64(y), float64(z)
+	lava := AABB{fx + 2.0/16, fy + 4.0/16, fz + 2.0/16, fx + 14.0/16, fy + 15.0/16, fz + 14.0/16}
+	if from.collidedAlongVector(dx, dy, dz, lava) {
+		return true
+	}
+	for _, b := range blockBoxes(state) {
+		part := AABB{fx + b.MinX, fy + b.MinY, fz + b.MinZ, fx + b.MaxX, fy + b.MaxY, fz + b.MaxZ}
+		if from.collidedAlongVector(dx, dy, dz, part) {
+			return true
+		}
+	}
+	return false
+}
+
 // collidedAlongVector reports whether the box, moving by (dx, dy, dz), meets
 // part.
 // vanilla: AABB.collidedAlongVector

@@ -407,7 +407,6 @@ func (s *Server) tick() {
 	// vanilla: ServerChunkCache.tick (broadcastChangedChunks)
 	s.flushAllBlockChanges()
 	s.tickPortals()
-	s.tickPortalHolds()
 	s.tickAutoSave()
 	s.tickPlayerLatency()
 	s.tickTimeSync()

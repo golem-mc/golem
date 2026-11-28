@@ -1071,56 +1071,21 @@ func portalTurnAt(w *world.World, kind rules.PortalKind, pos player.Position, ex
 	return rules.PortalTurn(kind, rules.NetherPortalAxis(w.BlockAt(rules.BlockOf(pos.X), rules.BlockOf(pos.Y), rules.BlockOf(pos.Z))), exitAxis, pos.Yaw)
 }
 
-// portalHold keeps the chunks around a crossing's arrival loaded for 300
-// ticks in place of vanilla's portal ticket, so a body that arrives ticks and
-// saves with them. s.portalHoldsMu guards the list: the tick spends it down,
-// and a player's crossing goroutine appends to it.
-type portalHold struct {
-	w     *world.World
-	pos   []world.ChunkPos
-	holds int
-}
+// portalTicketRadius and portalTicketTimeout are a crossing's ticket: radius 3
+// is level 30 at the arrival chunk, so its 3x3 ring entity-ticks and the 5x5
+// ring block-ticks.
+// vanilla: Entity.placePortalTicket, TicketType.PORTAL, ChunkLevel.ENTITY_TICKING_LEVEL
+const (
+	portalTicketRadius  = 3
+	portalTicketTimeout = portalCooldownTicks
+)
 
-// portalTicketRing is how far around the arrival chunk a crossing holds.
-// Vanilla's portal ticket has radius 3, level 33-3 = 30, which is entity
-// ticking (level 31 or lower) only within one chunk of the arrival; a held
-// chunk here always ticks its entities, so only that ring is held.
-// vanilla: Entity.placePortalTicket, ChunkLevel.ENTITY_TICKING_LEVEL
-const portalTicketRing = 1
-
-// holdArrival holds the chunks within portalTicketRing of the arrival for
-// portalCooldownTicks, generating the missing ones in parallel.
+// holdArrival places a timed ticket on the arrival chunk, so the arriving
+// body and its neighbours tick and save with no player near.
 func (s *Server) holdArrival(dim *dimension, spot world.SpawnPos) {
-	cx, cz := world.ChunkOf(float64(spot.X)), world.ChunkOf(float64(spot.Z))
-	ring := make([]world.ChunkPos, 0, (2*portalTicketRing+1)*(2*portalTicketRing+1))
-	for dx := int32(-portalTicketRing); dx <= portalTicketRing; dx++ {
-		for dz := int32(-portalTicketRing); dz <= portalTicketRing; dz++ {
-			ring = append(ring, world.ChunkPos{X: cx + dx, Z: cz + dz})
-		}
-	}
-	for range dim.w.AcquireMany(ring) {
-	}
-	s.portalHoldsMu.Lock()
-	s.portalHolds = append(s.portalHolds, portalHold{w: dim.w, pos: ring, holds: portalCooldownTicks})
-	s.portalHoldsMu.Unlock()
-}
-
-// tickPortalHolds counts the holds down and releases expired ones.
-func (s *Server) tickPortalHolds() {
-	s.portalHoldsMu.Lock()
-	defer s.portalHoldsMu.Unlock()
-	kept := s.portalHolds[:0]
-	for _, h := range s.portalHolds {
-		h.holds--
-		if h.holds > 0 {
-			kept = append(kept, h)
-			continue
-		}
-		for _, pos := range h.pos {
-			h.w.Release(pos)
-		}
-	}
-	s.portalHolds = kept
+	pos := world.ChunkPos{X: world.ChunkOf(float64(spot.X)), Z: world.ChunkOf(float64(spot.Z))}
+	now, _ := dim.w.Time()
+	dim.w.AddTimedTicket(pos, portalTicketRadius, now+portalTicketTimeout)
 }
 
 // portalPiglinDie is the die a nether portal's random tick rolls against the
