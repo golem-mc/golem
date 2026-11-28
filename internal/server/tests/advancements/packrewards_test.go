@@ -104,3 +104,27 @@ func TestPackRewardsGrantLootBeforeRecipes(t *testing.T) {
 		t.Fatalf("packet order = %v, want a container slot before the recipe book add", order)
 	}
 }
+
+// TestPackFunctionRewardRunsAtThePlayer: `tp @s ~ ~1 ~` in a reward function
+// moves the player up from where they stood.
+// vanilla: AdvancementRewards.grant
+func TestPackFunctionRewardRunsAtThePlayer(t *testing.T) {
+	cfg, data := packConfig(t)
+	writePackFile(t, filepath.Join(data, "t", "advancement", "a.json"), rewardAdvancement(`{"function":"t:r"}`))
+	writePackFile(t, filepath.Join(data, "t", "function", "r.mcfunction"),
+		"tp @s ~ ~1 ~\nscoreboard players set @s x 1\n")
+	srv, c := joinOp(t, cfg, "Packer")
+	c.ChatCommand("scoreboard objectives add x dummy")
+	c.Settle()
+	before := srv.PlayerPosition("Packer")
+
+	give(srv, t, "Packer", "stick")
+	c.ReadTicks(srv, 5, func(int32, []byte) bool { return false })
+	if got, _ := srv.ScoreOf("Packer", "x"); got != 1 {
+		t.Fatalf("score = %d, want 1", got)
+	}
+	after := srv.PlayerPosition("Packer")
+	if after.X != before.X || after.Z != before.Z || after.Y < before.Y+0.99 || after.Y > before.Y+1.01 {
+		t.Fatalf("position %v -> %v, want one block up", before, after)
+	}
+}

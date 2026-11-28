@@ -899,6 +899,8 @@ func executeRun(src Source, ctxs []execContext, forked bool, tail []string, inpu
 			if cmd.Name == "execute" && !f.run.spend() {
 				return nil
 			}
+			// A copy, so only this branch's closure moves ctx to the heap.
+			ctx := ctx
 			cb := func(success bool, result int32) error {
 				reportResult(src, success, result)
 				return ctx.report(success, result)
@@ -1928,6 +1930,7 @@ func stepStore(src Source, ctxs []execContext, forked bool, rest []string, token
 	case "block":
 		coords := rest[3:6]
 		pathSpan := pathSpanOf(rest[6:])
+		store := parseNBTStore(rest, tokens, 6, pathSpan)
 		next := make([]execContext, 0, len(ctxs))
 		for _, ctx := range ctxs {
 			view, ok := ctx.view(src)
@@ -1957,12 +1960,13 @@ func stepStore(src Source, ctxs []execContext, forked bool, rest []string, token
 				continue
 			}
 			target := dataTarget{src: view, kind: dataTargetBlock, x: x, y: y, z: z}
-			next = withNBTStore(next, ctx, target, rest, tokens, 6, pathSpan)
+			next = store.attach(next, ctx, target)
 		}
 		return next, 8 + pathSpan, nil
 	case "entity":
 		word, span := selectorArgAt(tokens, at+3)
 		pathSpan := pathSpanOf(rest[3+span:])
+		store := parseNBTStore(rest, tokens, 3+span, pathSpan)
 		next := make([]execContext, 0, len(ctxs))
 		for _, ctx := range ctxs {
 			view, ok := ctx.view(src)
@@ -1980,7 +1984,7 @@ func stepStore(src Source, ctxs []execContext, forked bool, rest []string, token
 			if writer, ok := bodies[0].(DataWriter); ok {
 				target.writeEntity = writer.SetDataTag
 			}
-			next = withNBTStore(next, ctx, target, rest, tokens, 3+span, pathSpan)
+			next = store.attach(next, ctx, target)
 		}
 		return next, 5 + span + pathSpan, nil
 	default:
@@ -1988,6 +1992,7 @@ func stepStore(src Source, ctxs []execContext, forked bool, rest []string, token
 		// keys and their matchers opened across.
 		pathSpan := pathSpanOf(rest[4:])
 		id, _, _ := readIdentifier(rest[3])
+		store := parseNBTStore(rest, tokens, 4, pathSpan)
 		next := make([]execContext, 0, len(ctxs))
 		for _, ctx := range ctxs {
 			view, ok := ctx.view(src)
@@ -1995,33 +2000,48 @@ func stepStore(src Source, ctxs []execContext, forked bool, rest []string, token
 				continue
 			}
 			target := dataTarget{src: view, kind: dataTargetStorage, id: id}
-			next = withNBTStore(next, ctx, target, rest, tokens, 4, pathSpan)
+			next = store.attach(next, ctx, target)
 		}
 		return next, 6 + pathSpan, nil
 	}
 }
 
-// withNBTStore attaches a write to target using the path, type and scale
-// already checked by the command tree.
-func withNBTStore(next []execContext, ctx execContext, target dataTarget, rest []string, tokens []Token, at, pathSpan int) []execContext {
+// nbtStore is the path, type and scale of an execute store, parsed once per
+// step; ok is false when they do not parse.
+type nbtStore struct {
+	path        nbtPath
+	typeWord    string
+	scale       float64
+	storeResult bool
+	ok          bool
+}
+
+// parseNBTStore reads the path, type and scale already checked by the command tree.
+func parseNBTStore(rest []string, tokens []Token, at, pathSpan int) nbtStore {
 	if at+pathSpan+2 > len(rest) {
-		return next
+		return nbtStore{}
 	}
 	path, err := parseNBTPath(wordsInTokens(tokens, rest, at, pathSpan))
 	if err != nil {
-		return next
+		return nbtStore{}
 	}
 	scale, perr := readDoubleWord(rest[at+pathSpan+1])
 	if perr != nil {
+		return nbtStore{}
+	}
+	return nbtStore{path: path, typeWord: rest[at+pathSpan], scale: scale, storeResult: rest[1] == "result", ok: true}
+}
+
+// attach adds a write to target to ctx; a store that did not parse drops the context.
+func (s nbtStore) attach(next []execContext, ctx execContext, target dataTarget) []execContext {
+	if !s.ok {
 		return next
 	}
-	typeWord := rest[at+pathSpan]
-	storeResult := rest[1] == "result"
 	// A fresh backing array: the contexts a fork split share the stores
 	// they were split with.
 	ctx.stores = append(slices.Clip(ctx.stores), func(success bool, result int32) error {
-		value := storedValue(storeResult, success, result)
-		target.storeData(path, scaledTag(typeWord, float64(value)*scale))
+		value := storedValue(s.storeResult, success, result)
+		target.storeData(s.path, scaledTag(s.typeWord, float64(value)*s.scale))
 		return nil
 	})
 	return append(next, ctx)
@@ -2032,6 +2052,14 @@ func withNBTStore(next []execContext, ctx execContext, target dataTarget, rest [
 // vanilla: ExecuteCommand.storeData
 func (t dataTarget) storeData(path nbtPath, tag nbt.Tag) {
 	if t.kind == dataTargetStorage {
+		if path.isKeyChain() {
+			// A refused key-chain set changes nothing, so the live compound is
+			// edited without a copy.
+			t.src.ModifyCommandStorage(t.id, func(live nbt.CompoundTag) bool {
+				return path.setScalarInKeyChain(live, tag)
+			})
+			return
+		}
 		_ = t.modifyData(path, func(path nbtPath, data nbt.CompoundTag) bool {
 			changed, refusal := path.set(data, tag)
 			return changed > 0 && refusal == nil
