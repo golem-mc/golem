@@ -503,20 +503,36 @@ var sendBucketPool = sync.Pool{New: func() any { return new(sendBuckets) }}
 
 func (l *sendList) add(c *client, p outbound) { l.addIn(c, nil, p) }
 
-// addIn queues a packet for c only while c stays in w.
-func (l *sendList) addIn(c *client, w *world.World, p outbound) {
+func (l *sendList) fastBucket(slot int) *[]sendEntry {
+	if b := l.b; b != nil && slot < len(b.by) {
+		if bp := &b.by[slot]; len(*bp) > 0 {
+			return bp
+		}
+	}
+	return nil
+}
+
+func (l *sendList) bucketSlow(slot int) *[]sendEntry {
 	b := l.b
 	if b == nil {
 		b = sendBucketPool.Get().(*sendBuckets)
 		l.b = b
 	}
-	slot := c.slot
 	if slot >= len(b.by) {
 		b.by = append(b.by, make([][]sendEntry, slot+1-len(b.by))...)
 	}
 	bp := &b.by[slot]
 	if len(*bp) == 0 {
 		b.touched = append(b.touched, slot)
+	}
+	return bp
+}
+
+// addIn queues a packet for c only while c stays in w.
+func (l *sendList) addIn(c *client, w *world.World, p outbound) {
+	bp := l.fastBucket(c.slot)
+	if bp == nil {
+		bp = l.bucketSlow(c.slot)
 	}
 	*bp = append(*bp, sendEntry{to: c, w: w, p: p})
 }
@@ -526,20 +542,11 @@ func (l *sendList) addAll(c *client, w *world.World, packets []outbound) {
 	if len(packets) == 0 {
 		return
 	}
-	b := l.b
-	if b == nil {
-		b = sendBucketPool.Get().(*sendBuckets)
-		l.b = b
+	bp := l.fastBucket(c.slot)
+	if bp == nil {
+		bp = l.bucketSlow(c.slot)
 	}
-	slot := c.slot
-	if slot >= len(b.by) {
-		b.by = append(b.by, make([][]sendEntry, slot+1-len(b.by))...)
-	}
-	bp := &b.by[slot]
 	dst := *bp
-	if len(dst) == 0 {
-		b.touched = append(b.touched, slot)
-	}
 	for _, p := range packets {
 		dst = append(dst, sendEntry{to: c, w: w, p: p})
 	}

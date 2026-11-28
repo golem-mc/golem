@@ -97,6 +97,7 @@ func (s *clientSet) has(c *client) bool {
 	return false
 }
 
+// add inserts c (replacing any older generation in its slot) and reports whether the set changed.
 func (s *clientSet) add(c *client) bool {
 	if c.slot >= len(s.slots) {
 		s.slots = append(s.slots, make([]clientSlot, c.slot+1-len(s.slots))...)
@@ -121,6 +122,7 @@ func (s *clientSet) add(c *client) bool {
 	return true
 }
 
+// delete removes c and reports whether it was present.
 func (s *clientSet) delete(c *client) bool {
 	if c.slot >= len(s.slots) {
 		return false
