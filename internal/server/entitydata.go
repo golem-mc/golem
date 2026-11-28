@@ -287,6 +287,7 @@ func orbTagAs(ent *orbEntity, id string) *nbt.OrderedCompound {
 		o.X, o.Y, o.Z, o.VX, o.VY, o.VZ,
 		ent.look.yaw, ent.look.pitch, ent.uuid, o.OnGround, ent.portal.Cooldown, restingFire, 0)
 	putEntityOptions(tag, ent.custom, ent.look.silent, o.NoGravity, ent.look, ent.tags)
+	putTicksFrozen(tag, o.TicksFrozen)
 	tag.Set("Invulnerable", boolTag(ent.look.invulnerable))
 	tag.Set("Health", nbt.Short(clampToShort(o.Health)))
 	tag.Set("Age", nbt.Short(clampToShort(o.Age)))
@@ -307,6 +308,7 @@ func tntTagAs(ent *tntEntity, id string) *nbt.OrderedCompound {
 		t.X, t.Y, t.Z, t.VX, t.VY, t.VZ,
 		ent.look.yaw, ent.look.pitch, ent.uuid, t.OnGround, ent.portal.Cooldown, restingFire, 0)
 	putEntityOptions(tag, ent.custom, t.Silent, t.NoGravity, ent.look, ent.tags)
+	putTicksFrozen(tag, t.TicksFrozen)
 	tag.Set("Invulnerable", boolTag(ent.look.invulnerable))
 	tag.Set("fuse", nbt.Short(clampToShort(t.Fuse)))
 	if _, _, ok := registry.BlockStateName(t.BlockState); ok {
@@ -334,6 +336,7 @@ func fallingTagAs(ent *fallingEntity, id string) *nbt.OrderedCompound {
 		f.X, f.Y, f.Z, f.VX, f.VY, f.VZ,
 		ent.look.yaw, ent.look.pitch, ent.uuid, f.OnGround, ent.portal.Cooldown, restingFire, 0)
 	putEntityOptions(tag, ent.custom, ent.look.silent, f.NoGravity, ent.look, ent.tags)
+	putTicksFrozen(tag, f.TicksFrozen)
 	tag.Set("Invulnerable", boolTag(ent.look.invulnerable))
 	tag.Set("BlockState", registry.BlockStateCodecTag(f.BlockState))
 	tag.Set("Time", nbt.Int(f.Time))
@@ -879,6 +882,7 @@ func applyOrbTag(it *orbEntity, compound nbt.Compound) {
 		o.OnGround = ground != 0
 	}
 	o.NoGravity = nbt.BoolField(compound, "NoGravity")
+	o.TicksFrozen = ticksFrozenOfTag(compound)
 	o.Invulnerable = it.look.invulnerable
 	it.portal.Cooldown = portalCooldownOf(compound)
 	it.tags.Reset(tagsOfTag(compound))
@@ -944,6 +948,7 @@ func applyTNTTag(it *tntEntity, compound nbt.Compound) {
 		t.OnGround = ground != 0
 	}
 	t.NoGravity = nbt.BoolField(compound, "NoGravity")
+	t.TicksFrozen = ticksFrozenOfTag(compound)
 	it.ownerUUID = entityUUIDFieldOf(compound, "owner")
 	it.portal.Cooldown = portalCooldownOf(compound)
 	it.tags.Reset(tagsOfTag(compound))
@@ -1015,6 +1020,7 @@ func applyFallingTag(it *fallingEntity, compound nbt.Compound) {
 		f.OnGround = ground != 0
 	}
 	f.NoGravity = nbt.BoolField(compound, "NoGravity")
+	f.TicksFrozen = ticksFrozenOfTag(compound)
 	it.portal.Cooldown = portalCooldownOf(compound)
 	it.tags.Reset(tagsOfTag(compound))
 	it.custom = customNameOfTag(compound)

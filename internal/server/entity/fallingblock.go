@@ -86,6 +86,10 @@ type FallingBlock struct {
 	VX, VY, VZ float64
 	OnGround   bool
 	stuck      stuckFactor
+	// TicksFrozen is the powder snow count, up to rules.FullyFrozenTicks; only
+	// lava takes it down.
+	// vanilla: Entity.setTicksFrozen
+	TicksFrozen int
 
 	BlockState     uint16
 	Time           int
@@ -231,6 +235,8 @@ func (f *FallingBlock) Step(w World) []FallingEvent {
 	}
 	oldX, oldY, oldZ := f.X, f.Y, f.Z
 	f.OnGround = f.move(w)
+	freezeInside(w, bodyMove{fx: oldX, fy: oldY, fz: oldZ, tx: f.X, ty: f.Y, tz: f.Z},
+		AABB{-FallingHalfWidth, 0, -FallingHalfWidth, FallingHalfWidth, FallingHeight, FallingHalfWidth}, &f.TicksFrozen)
 	var events []FallingEvent
 	if f.OnGround {
 		if x, y, z, ok := unlitOreUnder(w, f.X, f.Y, f.Z, FallingHalfWidth); ok {

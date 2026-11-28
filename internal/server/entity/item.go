@@ -748,15 +748,7 @@ func (it *Item) insideEffects(w World, events *[]ItemEvent) {
 		}
 		return !it.Dead // vanilla: the walk stops for a body no longer alive
 	})
-	// Once per pass however many cells it met; no item type is in
-	// freeze_immune_entity_types.
-	// vanilla: InsideBlockEffectType.FREEZE, CLEAR_FREEZE
-	if inSnow {
-		it.TicksFrozen = min(rules.FullyFrozenTicks, it.TicksFrozen+1)
-	}
-	if inLava {
-		it.TicksFrozen = 0
-	}
+	applyFreeze(&it.TicksFrozen, inSnow, inLava)
 	// Every cauldron in the box drops a level while the item is still on
 	// fire as the pass ends, before the rain.
 	// vanilla: LayeredCauldronBlock.entityInside

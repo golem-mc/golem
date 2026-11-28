@@ -71,6 +71,7 @@ var fallingTracker = trackedKind[*fallingEntity, struct{}]{
 		return bodyPose{x: fb.X, y: fb.Y, z: fb.Z, vx: fb.VX, vy: fb.VY, vz: fb.VZ, onGround: fb.OnGround}
 	},
 	pairing: fallingPairing,
+	delta:   func(it *fallingEntity) []byte { return it.frozenDelta(it.fb.ID, it.fb.TicksFrozen) },
 }
 
 // fallingHurt is one landing's harm waiting for the bodies it covers: the
@@ -481,7 +482,7 @@ func fallingPairing(it *fallingEntity) []outbound {
 func fallingMetadataPayload(it *fallingEntity) []byte {
 	fb := it.fb
 	flags := it.look.glowFlags()
-	if fb.StartX == 0 && fb.StartY == 0 && fb.StartZ == 0 && !fb.NoGravity && it.custom == (customName{}) && flags == 0 && !it.look.silent {
+	if fb.StartX == 0 && fb.StartY == 0 && fb.StartZ == 0 && !fb.NoGravity && fb.TicksFrozen == 0 && it.custom == (customName{}) && flags == 0 && !it.look.silent {
 		return nil
 	}
 	var b protocol.Buffer
@@ -499,6 +500,10 @@ func fallingMetadataPayload(it *fallingEntity) []byte {
 		b.PutMetadata(protocol.MetadataIndexFallingBlockStartPos, protocol.MetadataBlockPos)
 		b.PutPosition(fb.StartX, fb.StartY, fb.StartZ)
 	}
+	if fb.TicksFrozen != 0 {
+		b.PutMetadata(protocol.MetadataIndexTicksFrozen, protocol.MetadataVarInt)
+		b.PutVarInt(int32(fb.TicksFrozen))
+	}
 	it.custom.putMetadata(&b, customName{})
 	b.EndMetadata()
 	return b.Bytes()
@@ -511,6 +516,7 @@ func fallingFields(it *fallingEntity) metaFields {
 	it.look.addSilentField(&m)
 	m.add(protocol.MetadataIndexEntityFlags, protocol.MetadataByte, func(b *protocol.Buffer) { b.PutU8(it.look.glowFlags()) })
 	m.add(protocol.MetadataIndexNoGravity, protocol.MetadataBoolean, func(b *protocol.Buffer) { b.PutBool(fb.NoGravity) })
+	m.add(protocol.MetadataIndexTicksFrozen, protocol.MetadataVarInt, func(b *protocol.Buffer) { b.PutVarInt(int32(fb.TicksFrozen)) })
 	m.add(protocol.MetadataIndexFallingBlockStartPos, protocol.MetadataBlockPos, func(b *protocol.Buffer) {
 		b.PutPosition(fb.StartX, fb.StartY, fb.StartZ)
 	})

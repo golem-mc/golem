@@ -137,6 +137,10 @@ type Orb struct {
 
 	// fireTicks is the burn still to run, vanilla's remainingFireTicks.
 	fireTicks int
+	// TicksFrozen is the powder snow count, up to rules.FullyFrozenTicks; only
+	// lava takes it down.
+	// vanilla: Entity.setTicksFrozen
+	TicksFrozen int
 
 	// syncNeeded is needsSync, set by an explosion's push so the next pass sends
 	// the velocity whatever the movement interval would do.
@@ -423,7 +427,9 @@ func (o *Orb) insideEffects(w World, move bodyMove, events *[]OrbEvent) {
 	// held the orb from the tick before.
 	sideways := o.VX != 0 || o.VZ != 0
 	rel := AABB{-orbHalfSize, 0, -orbHalfSize, orbHalfSize, orbHeight, orbHalfSize}
+	inSnow, inLava := false, false
 	walkInside(w, []bodyMove{move}, rel, func(x, y, z int32, state uint16, _ int, from AABB, dx, dy, dz float64) bool {
+		inSnow = inSnow || rules.IsPowderSnow(state)
 		if insideNonLiving(state, sideways, &o.stuck) {
 			*events = append(*events, OrbEvent{Kind: OrbSnowflake, Y: y})
 		}
@@ -432,6 +438,7 @@ func (o *Orb) insideEffects(w World, move bodyMove, events *[]OrbEvent) {
 		case fluid == fluidWater:
 			o.fireTicks = 0
 		case fluid == fluidLava:
+			inLava = true
 			if o.fireTicks < fireTicksLava {
 				o.fireTicks = fireTicksLava
 			}
@@ -451,6 +458,7 @@ func (o *Orb) insideEffects(w World, move bodyMove, events *[]OrbEvent) {
 		}
 		return !o.Dead // vanilla: the walk stops for a body no longer alive
 	})
+	applyFreeze(&o.TicksFrozen, inSnow, inLava)
 	if rainLandsOn(w, o.X, o.Y, o.Z, orbHeight) {
 		o.fireTicks = 0
 	}

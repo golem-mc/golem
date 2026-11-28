@@ -231,6 +231,7 @@ func (s *Server) tickTNT() {
 				data: entityVelocityPayload(it.tnt.ID, it.tnt.VX, it.tnt.VY, it.tnt.VZ)}
 		}
 
+		frozen := it.frozenDelta(it.tnt.ID, it.tnt.TicksFrozen)
 		still, prevTick := body.stillSince(tick)
 		for _, i := range body.watchers(near[it.w]) {
 			wh := watchers[it.w][i]
@@ -250,6 +251,9 @@ func (s *Server) tickTNT() {
 			if was.own != it.tnt.Fuse {
 				was.own = it.tnt.Fuse
 				metas.add(c, outbound{id: protocol.IDPlayEntityMetadata, data: tntFusePayload(it)})
+			}
+			if frozen != nil {
+				metas.add(c, outbound{id: protocol.IDPlayEntityMetadata, data: frozen})
 			}
 			if mt.gate {
 				body.moveTold(was, c, mt, &out)
@@ -440,13 +444,14 @@ type tntMetadataState struct {
 	flags             uint8
 	silent, noGravity bool
 	fuse              int
+	frozen            int
 	blockState        uint16
 	custom            customName
 }
 
 func tntMetadataStateOf(it *tntEntity) tntMetadataState {
 	t := it.tnt
-	return tntMetadataState{it.look.glowFlags(), t.Silent, t.NoGravity, t.Fuse, t.BlockState, it.custom}
+	return tntMetadataState{it.look.glowFlags(), t.Silent, t.NoGravity, t.Fuse, t.TicksFrozen, t.BlockState, it.custom}
 }
 
 // tntMetadataPayload sends only values that differ from the client's defaults.
@@ -476,6 +481,10 @@ func tntMetadataTable(id int32, now, was *tntMetadataState, fuseOnly bool) []byt
 	if !fuseOnly && now.noGravity != was.noGravity {
 		b.PutMetadata(protocol.MetadataIndexNoGravity, protocol.MetadataBoolean)
 		b.PutBool(now.noGravity)
+	}
+	if !fuseOnly && now.frozen != was.frozen {
+		b.PutMetadata(protocol.MetadataIndexTicksFrozen, protocol.MetadataVarInt)
+		b.PutVarInt(int32(now.frozen))
 	}
 	if fuseOnly || now.fuse != was.fuse {
 		b.PutMetadata(protocol.MetadataIndexTNTFuse, protocol.MetadataVarInt)

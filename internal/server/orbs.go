@@ -62,6 +62,7 @@ var orbTracker = trackedKind[*orbEntity, struct{}]{
 	dead:        func(it *orbEntity) bool { return it.orb.Dead },
 	pose:        func(it *orbEntity) bodyPose { return bodyPose{x: it.orb.X, y: it.orb.Y, z: it.orb.Z} },
 	pairing:     orbPairing,
+	delta:       func(it *orbEntity) []byte { return it.frozenDelta(it.orb.ID, it.orb.TicksFrozen) },
 }
 
 // orbWatcher is one player as the orb passes read them: the client and its
@@ -579,6 +580,7 @@ func orbFields(it *orbEntity) metaFields {
 	m.add(protocol.MetadataIndexEntityFlags, protocol.MetadataByte, func(b *protocol.Buffer) { b.PutU8(it.look.flags(false)) })
 	it.look.addSilentField(&m)
 	m.add(protocol.MetadataIndexNoGravity, protocol.MetadataBoolean, func(b *protocol.Buffer) { b.PutBool(it.orb.NoGravity) })
+	m.add(protocol.MetadataIndexTicksFrozen, protocol.MetadataVarInt, func(b *protocol.Buffer) { b.PutVarInt(int32(it.orb.TicksFrozen)) })
 	m.add(protocol.MetadataIndexOrbValue, protocol.MetadataVarInt, func(b *protocol.Buffer) { b.PutVarInt(int32(it.orb.Value)) })
 	it.custom.addFields(&m)
 	return m
