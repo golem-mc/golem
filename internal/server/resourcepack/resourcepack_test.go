@@ -31,9 +31,13 @@ func TestResolve(t *testing.T) {
 	if p == nil || p.Prompt != nil || len(warnings) != 1 {
 		t.Errorf("pack = %+v warnings = %q, want no prompt and one warning", p, warnings)
 	}
-	p, warnings = Resolve("https://x", "11111111-2222-3333-4444-555555555555", testSHA1, "", `{"text":"a","click_event":{}}`, false)
+	p, warnings = Resolve("https://x", "11111111-2222-3333-4444-555555555555", testSHA1, "", `{"text":"a","click_event":{"action":"run_command","command":"/x"}}`, false)
 	if p == nil || p.Prompt == nil || len(warnings) != 1 {
 		t.Errorf("pack = %+v warnings = %q, want a prompt and one warning", p, warnings)
+	}
+	p, warnings = Resolve("https://x", "11111111-2222-3333-4444-555555555555", testSHA1, "", `{"text":"a","click_event":{}}`, false)
+	if p == nil || p.Prompt != nil || len(warnings) != 1 {
+		t.Errorf("pack = %+v warnings = %q, want no prompt and one warning", p, warnings)
 	}
 	long := strings.Repeat("a", 41)
 	if p, _ := Resolve("https://x", "11111111-2222-3333-4444-555555555555", long, "", "", false); p.Hash != long || !p.HashTooLong() {
