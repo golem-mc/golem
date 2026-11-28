@@ -360,21 +360,21 @@ func (s *Server) executeCommandChain(w *world.World, startX, startY, startZ int3
 func (s *Server) runBlockCommand(src *commandBlockSource, line string) int {
 	line = strings.TrimPrefix(line, "/")
 	tree := src.CommandTree()
-	if !s.blockLines.accepted(tree, line) {
-		command.CacheLineTokens(line)
-	}
+	command.CacheLineTokens(line)
 	tokens := command.Tokenize(line)
 	if len(tokens) == 0 {
 		return 0
 	}
-	node, fail := (*command.Node)(nil), (*command.Failure)(nil)
-	if !s.blockLines.accepted(tree, line) {
+	var node *command.Node
+	var fail *command.Failure
+	cached := s.blockLines.accepted(tree, line)
+	if !cached {
 		node, fail = command.Match(tree, line, tokens, true)
 		if node != nil {
 			s.blockLines.accept(tree, line)
 		}
 	}
-	if fail != nil {
+	if !cached && node == nil {
 		// Refusals go to the block's output, as red lines and context from the
 		// source's fail.
 		if fail.Err != nil {
